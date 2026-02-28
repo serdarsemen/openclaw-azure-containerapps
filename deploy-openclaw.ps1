@@ -115,14 +115,12 @@ properties:
     - name: $AppName
       image: $AcrServer/openclaw:latest
       command:
-      - node
-      - openclaw.mjs
-      - gateway
-      - --allow-unconfigured
-      - --bind
-      - lan
-      - --port
-      - "18789"
+      - sh
+      - -c
+      - >-
+        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
+        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
         memory: $Memory
@@ -168,10 +166,6 @@ az containerapp exec --name $AppName --resource-group $ResourceGroup `
 # Set model
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
     --command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
-
-# Enable Control UI token access (initial setup — see README for device pairing hardening)
-az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true"
 
 Write-Host "`n=== Step 6/6: Gateway configured ===" -ForegroundColor Green
 $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
