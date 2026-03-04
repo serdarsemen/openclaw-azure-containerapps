@@ -23,25 +23,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-ContainerExec {
-    param(
-        [string] $Label,
-        [string] $Command,
-        [int]    $MaxRetries = 3,
-        [int]    $DelaySec   = 15
-    )
-    for ($i = 1; $i -le $MaxRetries; $i++) {
-        Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
-        az containerapp exec --name $AppName --resource-group $ResourceGroup --command $Command
-        if ($LASTEXITCODE -eq 0) { return }
-        if ($i -lt $MaxRetries) {
-            Write-Host "  [$Label] exec failed — retrying in ${DelaySec}s..." -ForegroundColor Yellow
-            Start-Sleep -Seconds $DelaySec
-        }
-    }
-    Write-Warning "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
-}
-
 
 # --- Discover resource names from Bicep deployment outputs ---
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
@@ -104,18 +85,17 @@ Write-Host "Image built and pushed to $AcrName.azurecr.io/openclaw:latest" -Fore
 # --- Step 3: Update container app (creates a new revision automatically) ---
 Write-Host "`n=== Step 3/3: Updating Container App image ===" -ForegroundColor Cyan
 az containerapp update --name $AppName --resource-group $ResourceGroup `
-    --image "$AcrName.azurecr.io/openclaw:latest" `
+    --image "$AcrName.azurecr.io/openclaw:latest"
 if ($LASTEXITCODE -ne 0) { throw "Container App update failed" }
 
+az containerapp update --name $AppName --resource-group $ResourceGroup `
+ --command "sleep" --args "2147483647"
 
-# to avoid leaking the token in process arguments
-Invoke-ContainerExec -Label "Onboard" `
-    -Command "bash -c 'node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true'"
-# to avoid leaking the token in process arguments
-Invoke-ContainerExec -Label "Onboard" `
-    -Command "bash -c 'node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true'
-Invoke-ContainerExec -Label "Onboard" `
-    -Command "bash -c 'node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789'"
+
+az containerapp exec --name $AppName --resource-group $ResourceGroup   --command "bash -c 'node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true'"
+
+az containerapp exec --name $AppName --resource-group $ResourceGroup --command "bash -c 'node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true'"
+az containerapp exec --name $AppName --resource-group $ResourceGroup --command "bash -c 'node openclaw gateway --allow-unconfigured --bind lan --port 18789'"
 
 
 
@@ -135,6 +115,7 @@ $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
 $GatewayToken = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
     --secret-name gateway-token --query "value" -o tsv 2>$null
 
+
 az containerapp revision list  --name $AppName --resource-group $ResourceGroup  -o table
 
 Write-Host "  OpenClaw updated to: $ref image: $img" -ForegroundColor Green
@@ -143,7 +124,7 @@ Write-Host ""
 $tokenPadded = $GatewayToken.PadRight(61)
 Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
 Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
 Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken"
