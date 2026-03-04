@@ -48,12 +48,34 @@ Write-Host "  App:  $AppName" -ForegroundColor Green
 
 Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
 
-if (Test-Path $SourcePath) {
-    Write-Host "  $SourcePath already exists, skipping clone"
-} else {
+if (-not (Test-Path $SourcePath)) {
+    Write-Host "  Source not found — cloning..."
     git clone https://github.com/openclaw/openclaw.git $SourcePath
     if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
 }
+
+Push-Location $SourcePath
+try {
+    if ($Tag) {
+        Write-Host "  Fetching tags and checking out: $Tag"
+        git fetch --tags
+        if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
+        git checkout $Tag
+        if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
+    } else {
+        Write-Host "  Pulling latest from main..."
+        git checkout main
+        if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
+        git pull origin main
+        if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
+    }
+} finally {
+    Pop-Location
+}
+
+$ref = if ($Tag) { $Tag } else { "latest (main)" }
+Write-Host "  Source updated to: $ref" -ForegroundColor Green
+
 
 Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
 Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
@@ -131,8 +153,7 @@ properties:
         chmod -R 755 /app/extensions &&
         node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
         node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
-        cd ~/.openclaw/workspace && mkdir memory -p  &&
-        node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
         memory: $Memory
@@ -150,7 +171,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/node/.openclaw
-        subPath: openclaw
       probes:
       - type: startup
         tcpSocket:

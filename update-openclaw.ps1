@@ -5,7 +5,8 @@
 # What this does:
 #   1. Pulls latest OpenClaw source (or checks out a pinned tag)
 #   2. Rebuilds the container image remotely via az acr build
-#   3. Updates the Container App to use the new image (creates a new revision automatically)
+#   3. Updates the Container App via a full YAML template (preserves existing
+#      secrets, env vars, NFS volume, probes, and startup commands)
 #
 # Existing gateway token, OpenClaw config, .md files, and auth state on
 # the NFS volume (/home/node/.openclaw) are preserved.
@@ -56,7 +57,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
     } else {
         Write-Host "  Pulling latest from main..."
-        git checkout main 2>$null
+        git checkout main
+        if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
         git pull origin main
         if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
     }
@@ -82,25 +84,140 @@ az acr build `
 if ($LASTEXITCODE -ne 0) { throw "Image build failed" }
 Write-Host "Image built and pushed to $AcrName.azurecr.io/openclaw:latest" -ForegroundColor Green
 
-# --- Step 3: Update container app (creates a new revision automatically) ---
-Write-Host "`n=== Step 3/3: Updating Container App image ===" -ForegroundColor Cyan
-az containerapp update --name $AppName --resource-group $ResourceGroup `
-    --image "$AcrName.azurecr.io/openclaw:latest"
-if ($LASTEXITCODE -ne 0) { throw "Container App update failed" }
+# --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
+Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
-az containerapp update --name $AppName --resource-group $ResourceGroup `
- --command "sleep" --args "2147483647"
+$AcrServer = "$AcrName.azurecr.io"
+
+# Discover existing environment, resources, and secrets from the running app (single API call)
+$appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "{envId:properties.managedEnvironmentId, cpu:properties.template.containers[0].resources.cpu, mem:properties.template.containers[0].resources.memory}" -o json 2>$null | ConvertFrom-Json
+if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
+$envId = $appInfo.envId
+$envName = $envId.Split("/")[-1]
+$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "2.0" }
+$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "4Gi" }
+
+$StorageName = az containerapp env storage list `
+    --name $envName --resource-group $ResourceGroup `
+    --query "[0].name" -o tsv 2>$null
+if (-not $StorageName) { throw "No NFS storage found on environment $envName" }
+
+# Retrieve existing secrets so the YAML preserves them
+$AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
+if (-not $AcrCreds) { throw "Failed to get ACR credentials for $AcrName" }
+$AcrUsername = $AcrCreds.username
+$AcrPassword = $AcrCreds.passwords[0].value
+
+$GatewayToken = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
+    --secret-name gateway-token --query "value" -o tsv 2>$null
+if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
+
+$volumeName = "openclaw-state"
+
+$yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 
-az containerapp exec --name $AppName --resource-group $ResourceGroup   --command "bash -c 'node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true'"
 
-az containerapp exec --name $AppName --resource-group $ResourceGroup --command "bash -c 'node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true'"
-az containerapp exec --name $AppName --resource-group $ResourceGroup --command "bash -c 'node openclaw gateway --allow-unconfigured --bind lan --port 18789'"
+$updateYaml = @"
+properties:
+  managedEnvironmentId: $envId
+  configuration:
+    ingress:
+      external: true
+      targetPort: 18789
+      transport: http
+    registries:
+    - server: $AcrServer
+      username: $AcrUsername
+      passwordSecretRef: acr-password
+    secrets:
+    - name: acr-password
+      value: $AcrPassword
+    - name: gateway-token
+      value: $GatewayToken
+  template:
+    containers:
+    - name: $AppName
+      image: $AcrServer/openclaw:latest
+      command:
+      - sh
+      - -c
+      - >-
+        chmod -R 755 /app/extensions &&
+        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
+        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+      resources:
+        cpu: $currentCpu
+        memory: $currentMem
+      env:
+      - name: OPENCLAW_GATEWAY_TOKEN
+        secretRef: gateway-token
+      - name: NODE_ENV
+        value: production
+      - name: HOME
+        value: /home/node
+      - name: TERM
+        value: xterm-256color
+      - name: OPENCLAW_BUNDLED_PLUGINS_DIR
+        value: /app/extensions
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /home/node/.openclaw
+      probes:
+      - type: startup
+        tcpSocket:
+          port: 18789
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        failureThreshold: 30
+      - type: liveness
+        tcpSocket:
+          port: 18789
+        periodSeconds: 30
+    scale:
+      minReplicas: 1
+      maxReplicas: 2
+    volumes:
+    - name: $volumeName
+      storageType: NfsAzureFile
+      storageName: $StorageName
+"@
 
+$updateYaml | Set-Content $yamlPath -Encoding utf8
 
+try {
+    az containerapp update --name $AppName --resource-group $ResourceGroup --yaml $yamlPath
+    if ($LASTEXITCODE -ne 0) { throw "Container App update failed" }
+} finally {
+    Remove-Item $yamlPath -ErrorAction SilentlyContinue
+}
 
-$rev = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "properties.latestRevisionName" -o tsv 2>$null
+Write-Host "Container App updated via YAML" -ForegroundColor Green
+
+# Wait for the container to become ready
+Write-Host "`nWaiting for container to become ready..."
+$maxAttempts = 30
+$attempt = 0
+while ($attempt -lt $maxAttempts) {
+    $attempt++
+    $latestRev = az containerapp show --name $AppName --resource-group $ResourceGroup `
+        --query "properties.latestRevisionName" -o tsv 2>$null
+    $running = az containerapp revision show --name $AppName --revision $latestRev --resource-group $ResourceGroup `
+        --query "properties.runningState" -o tsv 2>$null
+    if ($running -eq "Running") {
+        Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
+        break
+    }
+    Write-Host "  Not ready yet (state: $running) — retrying in 10s ($attempt/$maxAttempts)..."
+    Start-Sleep -Seconds 10
+}
+if ($running -ne "Running") {
+    Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
+}
+
+$rev = $latestRev
 $img = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "properties.template.containers[0].image" -o tsv 2>$null
 
@@ -112,8 +229,6 @@ az containerapp logs show --name $AppName --resource-group $ResourceGroup --tail
 Write-Host "`n=== Update complete ===" -ForegroundColor Green
 $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
-$GatewayToken = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
-    --secret-name gateway-token --query "value" -o tsv 2>$null
 
 
 az containerapp revision list  --name $AppName --resource-group $ResourceGroup  -o table
