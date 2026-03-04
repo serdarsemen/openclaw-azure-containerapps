@@ -113,7 +113,6 @@ $env:PYTHONIOENCODING = "utf-8"
 az acr build `
     --registry $AcrName `
     --image openclaw:latest `
-    --no-cache `
     --file "$buildDir/Dockerfile" `
     $buildDir
 
@@ -181,7 +180,7 @@ properties:
       - bash
       - -c
       - >-
-        mkdir -p ~/.local/bin &&
+        mkdir -p /home/openclaw/.local/bin &&
         openclaw config set gateway.controlUi.allowInsecureAuth true &&
         openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
         npm config set prefix '~/.local' &&
