@@ -1,102 +1,141 @@
 # ---------------------------------------------------------------------------
-# update-openclaw.ps1 — Update the OpenClaw image without regenerating tokens or config
+# update-openclawnpm.ps1 — Update the OpenClaw (npm) image without regenerating tokens or config
 #
-# Prerequisites: OpenClaw already deployed via deploy-openclaw.ps1
+# Prerequisites: OpenClaw already deployed via deploy-openclawnpm.ps1
 # What this does:
-#   1. Pulls latest OpenClaw source (or checks out a pinned tag)
-#   2. Rebuilds the container image remotely via az acr build
-#   3. Updates the Container App via a full YAML template (preserves existing
-#      secrets, env vars, NFS volume, probes, and startup commands)
+#   1. Rebuilds the container image remotely via az acr build
+#      (re-runs `npm i -g openclaw` to pull the latest published version)
+#   2. Updates the Container App via a full YAML template (preserves existing
+#      secrets, env vars, NFS volume, probes, sidecars, and startup commands)
 #
 # Existing gateway token, OpenClaw config, .md files, and auth state on
-# the NFS volume (/home/node/.openclaw) are preserved.
+# the NFS volume (/home/openclaw/.openclaw) are preserved.
 #
 # Usage:
-#   .\update-openclaw.ps1 -ResourceGroup rg-openclaw
-#   .\update-openclaw.ps1 -ResourceGroup rg-openclaw -Tag v2026.2.15
+#   .\update-openclawnpm.ps1 -ResourceGroup rg-openclawnpm
 # ---------------------------------------------------------------------------
 
 param(
-    [Parameter(Mandatory)] [string] $ResourceGroup,
-    [string] $SourcePath = "openclaw-repo",
-    [string] $Tag = ""
+    [Parameter(Mandatory)] [string] $ResourceGroup
 )
 
 $ErrorActionPreference = "Stop"
 
-
 # --- Discover resource names from Bicep deployment outputs ---
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
-$AcrName = az deployment group show --resource-group $ResourceGroup --name main `
+$AcrName = az deployment group show --resource-group $ResourceGroup --name mainnpm `
     --query "properties.outputs.acrName.value" -o tsv 2>$null
-$AppName = az deployment group show --resource-group $ResourceGroup --name main `
+$AppName = az deployment group show --resource-group $ResourceGroup --name mainnpm `
     --query "properties.outputs.appName.value" -o tsv 2>$null
 
 if (-not $AcrName -or -not $AppName) {
-    throw "Could not discover ACR or App name from deployment outputs. Was main.bicep deployed to '$ResourceGroup'?"
+    throw "Could not discover ACR or App name from deployment outputs. Was mainnpm.bicep deployed to '$ResourceGroup'?"
 }
 Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
-# --- Step 1: Update OpenClaw source ---
-Write-Host "`n=== Step 1/3: Updating OpenClaw source ===" -ForegroundColor Cyan
+# --- Step 1/3: Create Dockerfile and build image ---
+Write-Host "`n=== Step 1/3: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
-if (-not (Test-Path $SourcePath)) {
-    Write-Host "  Source not found — cloning..."
-    git clone https://github.com/openclaw/openclaw.git $SourcePath
-    if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
-}
+$buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
+if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
+New-Item -ItemType Directory -Path $buildDir | Out-Null
 
-Push-Location $SourcePath
-try {
-    if ($Tag) {
-        Write-Host "  Fetching tags and checking out: $Tag"
-        git fetch --tags
-        if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-        git checkout $Tag
-        if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
-    } else {
-        Write-Host "  Pulling latest from main..."
-        git checkout main
-        if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-        git pull origin main
-        if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
-    }
-} finally {
-    Pop-Location
-}
+$dockerfile = @"
+FROM node:22-bookworm-slim 
+#debian:bookworm-slim
 
-$ref = if ($Tag) { $Tag } else { "latest (main)" }
-Write-Host "  Source updated to: $ref" -ForegroundColor Green
+# Prevent interactive prompts during package install
+ENV DEBIAN_FRONTEND=noninteractive
 
-# --- Step 2: Rebuild image in ACR ---
+# Install system dependencies, git, unzip, and Chromium runtime deps in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash curl ca-certificates gnupg \
+        git unzip \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libdbus-1-3 libxkbcommon0 libatspi2.0-0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+        libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+        libwayland-client0 \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+# (Optional) Make npm installs slightly quieter & consistent
+ENV npm_config_fund=false npm_config_audit=false
+
+# (optional) upgrade npm
+RUN npm i -g npm@11.11.0
+
+
+RUN node -v && npm -v
+
+
+# Install OpenClaw globally via npm
+RUN npm i -g openclaw
+RUN openclaw onboard --install-daemon
+
+
+# Rename existing node user/group (UID/GID 1000) to openclaw
+RUN groupmod -n openclaw node \
+ && usermod -l openclaw -d /home/openclaw -m -s /bin/bash node
+
+# Switch to non-root user
+USER openclaw
+WORKDIR /home/openclaw
+
+# Install Bun (JavaScript runtime/bundler)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/home/openclaw/.bun/bin:`${PATH}"
+
+# Install QMD via Bun
+RUN bun install -g https://github.com/tobi/qmd
+
+# Install Chromium via Playwright (headless browser)
+RUN npx playwright install chromium
+
+ENV NODE_ENV=production
+ENV HOME=/home/openclaw
+ENV TERM=xterm-256color
+
+# Start gateway server — bind to loopback by default for security.
+# Override CMD at deploy time to bind to LAN for container platforms.
+CMD ["openclaw", "gateway", "--allow-unconfigured"]
+"@
+
+$dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
+Write-Host "  Dockerfile created at $buildDir" -ForegroundColor Green
+
 Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
-Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
+Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 
 $env:PYTHONIOENCODING = "utf-8"
 
 az acr build `
     --registry $AcrName `
     --image openclaw:latest `
-    --file "$SourcePath/Dockerfile" `
-    $SourcePath
+    --no-cache `
+    --file "$buildDir/Dockerfile" `
+    $buildDir
 
 if ($LASTEXITCODE -ne 0) { throw "Image build failed" }
 Write-Host "Image built and pushed to $AcrName.azurecr.io/openclaw:latest" -ForegroundColor Green
+
+# Clean up temp build dir
+Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
 Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
 $AcrServer = "$AcrName.azurecr.io"
 
-# Discover existing environment, resources, and secrets from the running app (single API call)
+# Discover existing environment, resources, and secrets from the running app
 $appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "{envId:properties.managedEnvironmentId, cpu:properties.template.containers[0].resources.cpu, mem:properties.template.containers[0].resources.memory}" -o json 2>$null | ConvertFrom-Json
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
-$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "2.0" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "4Gi" }
+$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
+$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -116,8 +155,6 @@ if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
 $volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
-
-
 
 $updateYaml = @"
 properties:
@@ -141,16 +178,15 @@ properties:
     - name: $AppName
       image: $AcrServer/openclaw:latest
       command:
-      - sh
+      - bash
       - -c
       - >-
-        chmod -R 755 /app/extensions &&
-        mkdir /home/node/.openclaw/workspace/memory -p  &&
-        export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache                               │
-│       mkdir -p /var/tmp/openclaw-compile-cache                                                │
-│       export OPENCLAW_NO_RESPAWN=1 
-        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
-        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        mkdir -p ~/.local/bin &&
+        openclaw config set gateway.controlUi.allowInsecureAuth true &&
+        openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        npm config set prefix '~/.local' &&
+        export PATH="`$HOME/.local/bin:`$PATH" &&
+        mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
@@ -158,17 +194,23 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: REDIS_HOST
+        value: localhost
+      - name: REDIS_PORT
+        value: "6379"
+      - name: OLLAMA_HOST
+        value: http://localhost:11434
       - name: NODE_ENV
         value: production
       - name: HOME
-        value: /home/node
+        value: /home/openclaw
       - name: TERM
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
-        value: /app/extensions
+        value: /usr/lib/node_modules/openclaw/extensions
       volumeMounts:
       - volumeName: $volumeName
-        mountPath: /home/node/.openclaw
+        mountPath: /home/openclaw/.openclaw
       probes:
       - type: startup
         tcpSocket:
@@ -180,9 +222,49 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: redis
+      image: redis:7-alpine
+      command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /data
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 6379
+        periodSeconds: 30
+    - name: ollama
+      image: ollama/ollama:latest
+      resources:
+        cpu: 1.0
+        memory: 2Gi
+      env:
+      - name: OLLAMA_HOST
+        value: 0.0.0.0:11434
+      - name: OLLAMA_MODELS
+        value: /home/ollama/.ollama/models
+      - name: HOME
+        value: /home/ollama
+      probes:
+      - type: liveness
+        httpGet:
+          path: /
+          port: 11434
+        periodSeconds: 30
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
-      maxReplicas: 2
+      maxReplicas: 1
     volumes:
     - name: $volumeName
       storageType: NfsAzureFile
@@ -234,10 +316,9 @@ Write-Host "`n=== Update complete ===" -ForegroundColor Green
 $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 
+az containerapp revision list --name $AppName --resource-group $ResourceGroup -o table
 
-az containerapp revision list  --name $AppName --resource-group $ResourceGroup  -o table
-
-Write-Host "  OpenClaw updated to: $ref image: $img" -ForegroundColor Green
+Write-Host "  OpenClaw updated — image: $img" -ForegroundColor Green
 Write-Host "  App restarted with new image, FQDN: $fqdn"
 Write-Host ""
 $tokenPadded = $GatewayToken.PadRight(61)

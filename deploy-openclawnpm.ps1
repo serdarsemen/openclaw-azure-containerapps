@@ -144,7 +144,7 @@ $GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
 Write-Host "Token generated (save this for Control UI access):"
 Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
-Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw Config ===" -ForegroundColor Cyan
 
 $AcrServer = "$AcrName.azurecr.io"
 $AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
@@ -199,8 +199,8 @@ properties:
         openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
         npm config set prefix '~/.local' &&
         export PATH="`$HOME/.local/bin:`$PATH" &&
-        cd ~/.openclaw/workspace && mkdir memory -p  &&
-        openclaw gateway --allow-unconfigured --bind lan --port 18789
+        mkdir /home/node/.openclaw/workspace/memory -p  &&
+        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
         memory: $Memory
@@ -224,7 +224,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/openclaw/.openclaw
-        subPath: openclaw
       probes:
       - type: startup
         tcpSocket:
@@ -250,7 +249,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
-        subPath: redis
       probes:
       - type: liveness
         tcpSocket:
@@ -277,7 +275,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/ollama/.ollama
-        subPath: ollama
     scale:
       minReplicas: 1
       maxReplicas: 1

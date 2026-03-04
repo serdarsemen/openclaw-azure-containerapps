@@ -151,6 +151,7 @@ properties:
       - -c
       - >-
         chmod -R 755 /app/extensions &&
+        mkdir /home/node/.openclaw/workspace/memory -p  &&
         node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
         node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
