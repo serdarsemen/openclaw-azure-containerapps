@@ -185,14 +185,14 @@ properties:
       - -c
       - >-
         mkdir -p /home/openclaw/.local/bin &&
-        openclaw config set gateway.controlUi.allowInsecureAuth true &&
-        openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
+        (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         npm config set prefix '~/.local' &&
         export PATH="`$HOME/.local/bin:`$PATH" &&
         export PATH="/home/openclaw/.bun/bin:`$PATH" &&
         mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
-        openclaw doctor --fix &&
-        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        (openclaw doctor --fix || true) &&
+        exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
         memory: $currentMem
@@ -212,7 +212,7 @@ properties:
       - name: TERM
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
-        value: /usr/lib/node_modules/openclaw/extensions
+        value: /usr/local/lib/node_modules/openclaw/extensions
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/openclaw/.openclaw
