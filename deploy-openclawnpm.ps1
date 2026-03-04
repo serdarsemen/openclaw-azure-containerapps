@@ -85,6 +85,8 @@ RUN node -v && npm -v
 
 # Install OpenClaw globally via npm
 RUN npm i -g openclaw
+RUN openclaw onboard --install-daemon
+
 
 # Rename existing node user/group (UID/GID 1000) to openclaw
 RUN groupmod -n openclaw node \
@@ -198,7 +200,7 @@ properties:
         npm config set prefix '~/.local' &&
         export PATH="`$HOME/.local/bin:`$PATH" &&
         cd ~/.openclaw/workspace && mkdir memory -p  &&
-        exec openclaw gateway --allow-unconfigured --bind lan --port 18789
+        openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
         memory: $Memory
@@ -320,23 +322,42 @@ if ($running -ne "Running") {
 
 Write-Host "`n=== Step 5/6: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
 
+# Retry helper — ACA exec can fail with ClusterExecFailure while the gateway
+# process is still initialising inside the container.  Retry up to $MaxRetries
+# times with a delay between attempts.
+function Invoke-ContainerExec {
+    param(
+        [string] $Label,
+        [string] $Command,
+        [int]    $MaxRetries = 3,
+        [int]    $DelaySec   = 15
+    )
+    for ($i = 1; $i -le $MaxRetries; $i++) {
+        Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
+        az containerapp exec --name $AppName --resource-group $ResourceGroup --command $Command
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($i -lt $MaxRetries) {
+            Write-Host "  [$Label] exec failed — retrying in ${DelaySec}s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySec
+        }
+    }
+    Write-Warning "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
+}
+
 # Configure gateway — use the OPENCLAW_GATEWAY_TOKEN env var already set in the container
 # to avoid leaking the token in process arguments
-az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "bash -c 'openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
-if ($LASTEXITCODE -ne 0) { Write-Warning "Onboard command failed (exit $LASTEXITCODE) — gateway may need manual configuration" }
+Invoke-ContainerExec -Label "Onboard" `
+    -Command "bash -c 'openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
 
 # Set model
-az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "openclaw models set github-copilot/claude-opus-4.6"
-if ($LASTEXITCODE -ne 0) { Write-Warning "Model set command failed (exit $LASTEXITCODE)" }
+Invoke-ContainerExec -Label "Model set" `
+    -Command "openclaw models set github-copilot/claude-opus-4.6"
 
-# run security check
-az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "openclaw security audit"
-if ($LASTEXITCODE -ne 0) { Write-Warning "Security audit failed (exit $LASTEXITCODE)" }
+# Run security check
+Invoke-ContainerExec -Label "Security audit" `
+    -Command "openclaw security audit"
 
-# GitHub Copilot auth
+# GitHub Copilot auth (interactive — only 1 attempt since user must interact)
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
     --command "openclaw models auth login-github-copilot"
 if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
