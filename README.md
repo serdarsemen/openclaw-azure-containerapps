@@ -139,16 +139,29 @@ This deployment uses `github-copilot/claude-opus-4.6`. GitHub Copilot provides a
 
 Globally unique names (ACR, storage) are auto-generated using `uniqueString()`.
 
-### What the deploy script does
+### Deploy script variants
 
-The script (`deploy-openclaw.ps1`) auto-discovers resource names from Bicep deployment outputs, then:
+Two deploy scripts are provided. Choose based on your needs:
 
-1. Clones OpenClaw source from GitHub (if not already present)
-2. Builds the container image remotely via `az acr build` (~6 min)
-3. Generates a 256-bit gateway token
-4. Updates the Container App with the OpenClaw image, NFS volume mount, and startup command
-5. Runs non-interactive onboard and sets the model to `github-copilot/claude-opus-4.6`
-6. Outputs the Control UI URL with embedded token
+| | `deploy-openclaw.ps1` | `deploy-openclawnpm.ps1` |
+|---|---|---|
+| **Build method** | Source clone + repo Dockerfile | Inline Dockerfile + `npm i -g openclaw` |
+| **Bicep template** | `main.bicep` (deployment: `main`) | `mainnpm.bicep` (deployment: `mainnpm`) |
+| **Containers** | OpenClaw gateway only | OpenClaw + Redis + Ollama |
+| **Default resources** | 2 vCPU / 4 GiB | 4 vCPU / 8 GiB + 0.25/0.5 (Redis) + 1/2 (Ollama) |
+| **Home directory** | `/home/node` | `/home/openclaw` |
+| **Extras** | — | Bun, Playwright/Chromium, QMD |
+| **Use case** | Lightweight, cloud-LLM-only | Full-featured with local models via Ollama |
+
+Both scripts auto-discover resource names from Bicep deployment outputs, then:
+
+1. Build the container image remotely via `az acr build`
+2. Generate a 256-bit gateway token
+3. Update the Container App with the OpenClaw image, NFS volume mount, and startup command
+4. Run non-interactive onboard and set the model to `github-copilot/claude-opus-4.6`
+5. Output the Control UI URL with embedded token
+
+> **Note:** The `update-openclaw.ps1` script is currently tied to the source-build variant (deployment name `main`). To update an npm-based deployment, pass `-DeploymentName mainnpm` (or modify the script).
 
 ---
 

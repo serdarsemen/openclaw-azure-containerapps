@@ -1,43 +1,45 @@
 # ---------------------------------------------------------------------------
-# deploy-openclaw.ps1 — Build and deploy OpenClaw to an existing ACA environment
+# deploy-openclaw-npm.ps1 — Deploy OpenClaw (npm install) to an existing ACA environment
 #
-# Variant: SOURCE BUILD — single container (lightweight)
-#   - Builds from the OpenClaw Git repo Dockerfile
-#   - Single container: OpenClaw gateway only
-#   - Default resources: 2 vCPU / 4 GiB
-#   - Bicep template: main.bicep (deployment name: "main")
-#   - Home directory: /home/node
-#   - No Redis or Ollama sidecars
+# Variant: NPM INSTALL — multi-container with sidecars (full-featured)
+#   - Builds a custom Dockerfile (node:22-bookworm-slim + npm i -g openclaw)
+#   - Three containers: OpenClaw gateway + Redis + Ollama
+#   - Default resources: 4 vCPU / 8 GiB (OpenClaw) + 0.25 vCPU / 0.5 GiB (Redis)
+#                        + 1 vCPU / 2 GiB (Ollama)
+#   - Bicep template: mainnpm.bicep (deployment name: "mainnpm")
+#   - Home directory: /home/openclaw
+#   - Includes Bun, Playwright/Chromium, QMD
+#   - Redis provides caching; Ollama enables local model inference
 #
-# See also: deploy-openclawnpm.ps1 for the npm-based variant with Redis + Ollama
+# See also: deploy-openclaw.ps1 for the source-build variant (single container,
+#           lighter resources, no sidecars)
 #
-# Prerequisites: infrastructure deployed via main.bicep (placeholder container running)
+# Prerequisites: infrastructure deployed via mainnpm.bicep (placeholder container running)
 # What this does:
 #   1. Auto-discovers ACR and App names from the Bicep deployment outputs
-#   2. Clones OpenClaw source (if not already present)
-#   3. Builds OpenClaw image from source and pushes to ACR
+#   2. Generates an inline Dockerfile (Debian Slim + npm i -g openclaw)
+#   3. Builds the image in ACR and pushes it
 #   4. Generates a gateway auth token
 #   5. Updates the Container App with OpenClaw image, NFS mount, and full config
 #   6. Configures gateway non-interactively (onboard, model, Control UI)
 #
 # Usage (no names needed — auto-discovered from Bicep outputs):
-#   .\deploy-openclaw.ps1 -ResourceGroup rg-openclaw
+#   .\deploy-openclaw-npm.ps1 -ResourceGroup rg-openclaw
 # ---------------------------------------------------------------------------
 
 param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
-    [string] $SourcePath = "openclaw-repo",
-    [string] $Cpu = "2.0",
-    [string] $Memory = "4Gi"
+    [string] $Cpu = "4.0",
+    [string] $Memory = "8Gi"
 )
 
 $ErrorActionPreference = "Stop"
 
 # Auto-discover resource names from Bicep deployment outputs
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
-$AcrName = az deployment group show --resource-group $ResourceGroup --name main `
+$AcrName = az deployment group show --resource-group $ResourceGroup --name mainnpm `
     --query "properties.outputs.acrName.value" -o tsv 2>$null
-$AppName = az deployment group show --resource-group $ResourceGroup --name main `
+$AppName = az deployment group show --resource-group $ResourceGroup --name mainnpm `
     --query "properties.outputs.appName.value" -o tsv 2>$null
 
 if (-not $AcrName -or -not $AppName) {
@@ -46,30 +48,92 @@ if (-not $AcrName -or -not $AppName) {
 Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
-Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 1/6: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
-if (Test-Path $SourcePath) {
-    Write-Host "  $SourcePath already exists, skipping clone"
-} else {
-    git clone https://github.com/openclaw/openclaw.git $SourcePath
-    if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
-}
+$buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
+if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
+New-Item -ItemType Directory -Path $buildDir | Out-Null
+
+$dockerfile = @"
+FROM node:22-bookworm-slim 
+#debian:bookworm-slim
+
+# Prevent interactive prompts during package install
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies, git, unzip, and Chromium runtime deps in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash curl ca-certificates gnupg \
+        git unzip \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libdbus-1-3 libxkbcommon0 libatspi2.0-0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+        libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+        libwayland-client0 \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+# (Optional) Make npm installs slightly quieter & consistent
+ENV npm_config_fund=false npm_config_audit=false
+
+# (optional) upgrade npm
+RUN npm i -g npm@11.11.0
+
+
+RUN node -v && npm -v
+
+
+# Install OpenClaw globally via npm
+RUN npm i -g openclaw
+
+# Rename existing node user/group (UID/GID 1000) to openclaw
+RUN groupmod -n openclaw node \
+ && usermod -l openclaw -d /home/openclaw -m -s /bin/bash node
+
+# Switch to non-root user
+USER openclaw
+WORKDIR /home/openclaw
+
+# Install Bun (JavaScript runtime/bundler)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/home/openclaw/.bun/bin:\${PATH}"
+
+# Install QMD via Bun
+RUN bun install -g https://github.com/tobi/qmd
+
+# Install Chromium via Playwright (headless browser)
+RUN npx playwright install chromium
+
+ENV NODE_ENV=production
+ENV HOME=/home/openclaw
+ENV TERM=xterm-256color
+
+# Start gateway server — bind to loopback by default for security.
+# Override CMD at deploy time to bind to LAN for container platforms.
+CMD ["openclaw", "gateway", "--allow-unconfigured"]
+"@
+
+$dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
+Write-Host "  Dockerfile created at $buildDir" -ForegroundColor Green
 
 Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
-Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
+Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 
-# Fix Unicode crash: az acr build streams pnpm progress output with Unicode
-# characters that crash Python's charmap codec on Windows (cp1252).
+# Fix Unicode crash: az acr build streams output with Unicode characters
+# that crash Python's charmap codec on Windows (cp1252).
 $env:PYTHONIOENCODING = "utf-8"
 
 az acr build `
     --registry $AcrName `
     --image openclaw:latest `
-    --file "$SourcePath/Dockerfile" `
-    $SourcePath
+    --file "$buildDir/Dockerfile" `
+    $buildDir
 
 if ($LASTEXITCODE -ne 0) { throw "Image build failed" }
 Write-Host "Image built and pushed to $AcrName.azurecr.io/openclaw:latest" -ForegroundColor Green
+
+# Clean up temp build dir
+Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n=== Step 3/6: Generating gateway token ===" -ForegroundColor Cyan
 $bytes = New-Object byte[] 32
@@ -125,31 +189,39 @@ properties:
     - name: $AppName
       image: $AcrServer/openclaw:latest
       command:
-      - sh
+      - bash
       - -c
       - >-
-        chmod -R 755 /app/extensions &&
-        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
-        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        mkdir -p ~/.local/bin &&
+        openclaw config set gateway.controlUi.allowInsecureAuth true &&
+        openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        npm config set prefix '~/.local' &&
+        export PATH="`$HOME/.local/bin:`$PATH" &&
         cd ~/.openclaw/workspace && mkdir memory -p  &&
-        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
         memory: $Memory
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: REDIS_HOST
+        value: localhost
+      - name: REDIS_PORT
+        value: "6379"
+      - name: OLLAMA_HOST
+        value: http://localhost:11434
       - name: NODE_ENV
         value: production
       - name: HOME
-        value: /home/node
+        value: /home/openclaw
       - name: TERM
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
-        value: /app/extensions
+        value: /usr/lib/node_modules/openclaw/extensions
       volumeMounts:
       - volumeName: $volumeName
-        mountPath: /home/node/.openclaw
+        mountPath: /home/openclaw/.openclaw
         subPath: openclaw
       probes:
       - type: startup
@@ -162,6 +234,48 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: redis
+      image: redis:7-alpine
+      command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /data
+        subPath: redis
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 6379
+        periodSeconds: 30
+    - name: ollama
+      image: ollama/ollama:latest
+      resources:
+        cpu: 1.0
+        memory: 2Gi
+      env:
+      - name: OLLAMA_HOST
+        value: 0.0.0.0:11434
+      - name: OLLAMA_MODELS
+        value: /home/ollama/.ollama/models
+      - name: HOME
+        value: /home/ollama
+      probes:
+      - type: liveness
+        httpGet:
+          path: /
+          port: 11434
+        periodSeconds: 30
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /home/ollama/.ollama
+        subPath: ollama
     scale:
       minReplicas: 1
       maxReplicas: 1
@@ -170,6 +284,9 @@ properties:
       storageType: NfsAzureFile
       storageName: $StorageName
 "@
+
+
+
 
 $updatedYaml | Set-Content $yamlPath -Encoding utf8
 
@@ -206,26 +323,23 @@ Write-Host "`n=== Step 5/6: Configuring OpenClaw (non-interactive) ===" -Foregro
 # Configure gateway — use the OPENCLAW_GATEWAY_TOKEN env var already set in the container
 # to avoid leaking the token in process arguments
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "bash -c 'node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
+    --command "bash -c 'openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
 if ($LASTEXITCODE -ne 0) { Write-Warning "Onboard command failed (exit $LASTEXITCODE) — gateway may need manual configuration" }
 
 # Set model
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
+    --command "openclaw models set github-copilot/claude-opus-4.6"
 if ($LASTEXITCODE -ne 0) { Write-Warning "Model set command failed (exit $LASTEXITCODE)" }
 
 # run security check
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "node openclaw.mjs security audit"
+    --command "openclaw security audit"
 if ($LASTEXITCODE -ne 0) { Write-Warning "Security audit failed (exit $LASTEXITCODE)" }
 
 # GitHub Copilot auth
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "node openclaw.mjs models auth login-github-copilot"
+    --command "openclaw models auth login-github-copilot"
 if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
-
-
-
 
 
 Write-Host "`n=== Step 6/6: Gateway configured ===" -ForegroundColor Green
@@ -233,7 +347,7 @@ $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 Write-Host ""
 Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                 │" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                │" -ForegroundColor Yellow
 Write-Host "  │  $GatewayToken  │" -ForegroundColor Yellow
 Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
@@ -246,7 +360,7 @@ Write-Host "1. Connect to container:" -ForegroundColor Yellow
 Write-Host "   az containerapp exec --name $AppName --resource-group $ResourceGroup"
 Write-Host ""
 Write-Host "2. Inside the container:" -ForegroundColor Yellow
-Write-Host "   node openclaw.mjs models auth login-github-copilot" -ForegroundColor White
+Write-Host "   openclaw models auth login-github-copilot" -ForegroundColor White
 Write-Host "   (open browser, enter code, authorize, then type: exit)"
 Write-Host ""
 Write-Host "3. Open Control UI:" -ForegroundColor Yellow
