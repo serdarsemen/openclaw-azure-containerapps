@@ -41,9 +41,13 @@ $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
 if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
 New-Item -ItemType Directory -Path $buildDir | Out-Null
 
+
+#debian:bookworm-slim
+# RUN openclaw onboard --install-daemon
+
 $dockerfile = @"
 FROM node:22-bookworm-slim 
-#debian:bookworm-slim
+
 
 # Prevent interactive prompts during package install
 ENV DEBIAN_FRONTEND=noninteractive
@@ -72,7 +76,7 @@ RUN node -v && npm -v
 
 # Install OpenClaw globally via npm
 RUN npm i -g openclaw
-RUN openclaw onboard --install-daemon
+
 
 
 # Rename existing node user/group (UID/GID 1000) to openclaw
@@ -185,6 +189,7 @@ properties:
         openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
         npm config set prefix '~/.local' &&
         export PATH="`$HOME/.local/bin:`$PATH" &&
+        export PATH="/home/openclaw/.bun/bin:`$PATH" &&
         mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
@@ -283,7 +288,7 @@ Write-Host "Container App updated via YAML" -ForegroundColor Green
 
 # Wait for the container to become ready
 Write-Host "`nWaiting for container to become ready..."
-$maxAttempts = 30
+$maxAttempts = 10
 $attempt = 0
 while ($attempt -lt $maxAttempts) {
     $attempt++
