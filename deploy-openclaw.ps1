@@ -154,6 +154,7 @@ properties:
         mkdir /home/node/.openclaw/workspace/memory -p  &&
         node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
         node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
+        node openclaw.mjs doctor --fix &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu

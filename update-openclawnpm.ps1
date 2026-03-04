@@ -191,6 +191,7 @@ properties:
         export PATH="`$HOME/.local/bin:`$PATH" &&
         export PATH="/home/openclaw/.bun/bin:`$PATH" &&
         mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
+        openclaw doctor --fix &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
