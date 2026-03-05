@@ -35,7 +35,7 @@ Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
 # --- Step 1/3: Create Dockerfile and build image ---
-Write-Host "`n=== Step 1/3: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 1/3: Creating Dockerfile (node:22-bookworm-slim  + npm) ===" -ForegroundColor Cyan
 
 $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
 if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
