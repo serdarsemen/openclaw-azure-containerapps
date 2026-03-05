@@ -157,8 +157,8 @@ properties:
         if [ ! -f `$HOME/.openclaw/npm-global/bin/gemini ]; then NPM_CONFIG_PREFIX=`$HOME/.openclaw/npm-global npm install -g @google/gemini-cli@latest 2>/dev/null || true; fi &&
         export PATH="`$HOME/.openclaw/npm-global/bin:`$PATH" &&
         if [ ! -x "`$GOPATH/bin/gog" ]; then git clone https://github.com/steipete/gogcli.git /tmp/gogcli && cd /tmp/gogcli && go build -o "`$GOPATH/bin/gog" ./cmd/gog && cd - && rm -rf /tmp/gogcli; fi &&
-        export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
-        mkdir -p /var/tmp/openclaw-compile-cache &&
+        export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
+        mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
         (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&

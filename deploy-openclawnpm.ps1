@@ -196,15 +196,14 @@ properties:
       - bash
       - -c
       - >-
-        mkdir -p ~/.local/bin &&
         chmod -R 700 /home/openclaw/.openclaw &&
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
-        npm config set prefix '~/.local' &&
-        export PATH="`$HOME/.local/bin:`$PATH" &&
-        export PATH="/home/openclaw/.bun/bin:`$PATH" &&
-        export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
-        mkdir -p /var/tmp/openclaw-compile-cache &&
+        npm config set prefix '~/.openclaw/npm-global' &&
+        if [ ! -x "`$HOME/.openclaw/bun/bin/bun" ]; then export BUN_INSTALL="`$HOME/.openclaw/bun" && curl -fsSL https://bun.sh/install | bash 2>/dev/null; fi &&
+        export PATH="`$HOME/.openclaw/bun/bin:`$PATH" &&
+        export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
+        mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
         mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
         mkdir -p /home/openclaw/.openclaw/bin &&
