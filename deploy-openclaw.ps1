@@ -154,9 +154,16 @@ properties:
         chmod -R 755 /app/extensions &&
         chmod -R 700 /home/node/.openclaw &&
         mkdir /home/node/.openclaw/workspace/memory -p  &&
-        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
-        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
-        node openclaw.mjs doctor --fix &&
+        mkdir -p /home/node/.openclaw/bin &&
+        if [ ! -x /home/node/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/node/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
+        chmod +x /home/node/.openclaw/bin/gh &&
+        export PATH="/home/node/.openclaw/bin:`$PATH" &&
+        export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
+        mkdir -p /var/tmp/openclaw-compile-cache &&
+        export OPENCLAW_NO_RESPAWN=1 &&
+        (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
+        (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
+        (node openclaw.mjs doctor --fix || true) &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu

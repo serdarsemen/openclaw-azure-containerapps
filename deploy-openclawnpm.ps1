@@ -197,12 +197,20 @@ properties:
       - -c
       - >-
         mkdir -p ~/.local/bin &&
+        chmod -R 700 /home/openclaw/.openclaw &&
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         npm config set prefix '~/.local' &&
         export PATH="`$HOME/.local/bin:`$PATH" &&
         export PATH="/home/openclaw/.bun/bin:`$PATH" &&
+        export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
+        mkdir -p /var/tmp/openclaw-compile-cache &&
+        export OPENCLAW_NO_RESPAWN=1 &&
         mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
+        mkdir -p /home/openclaw/.openclaw/bin &&
+        if [ ! -x /home/openclaw/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/openclaw/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
+        chmod +x /home/openclaw/.openclaw/bin/gh &&
+        export PATH="/home/openclaw/.openclaw/bin:`$PATH" &&
         (openclaw doctor --fix || true) &&
         exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:

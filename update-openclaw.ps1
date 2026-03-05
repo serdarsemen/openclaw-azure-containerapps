@@ -154,9 +154,9 @@ properties:
         export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
         mkdir -p /var/tmp/openclaw-compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
-        node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true &&
-        node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true &&
-        node openclaw.mjs doctor --fix &&
+        (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
+        (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
+        (node openclaw.mjs doctor --fix || true) &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
@@ -188,7 +188,7 @@ properties:
         periodSeconds: 30
     scale:
       minReplicas: 1
-      maxReplicas: 2
+      maxReplicas: 1
     volumes:
     - name: $volumeName
       storageType: NfsAzureFile
