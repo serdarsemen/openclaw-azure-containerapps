@@ -163,7 +163,7 @@ $envName = $envId.Split("/")[-1]
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
     --query "[0].name" -o tsv 2>$null
-if (-not $StorageName) { throw "No NFS storage found on environment $envName. Was main.bicep deployed?" }
+if (-not $StorageName) { throw "No NFS storage found on environment $envName. Was mainnpm.bicep deployed?" }
 
 # Volume name for the YAML — this is a local alias, not an Azure resource name
 $volumeName = "openclaw-state"
@@ -308,7 +308,7 @@ while ($attempt -lt $maxAttempts) {
     $attempt++
     $status = az containerapp show --name $AppName --resource-group $ResourceGroup `
         --query "properties.latestRevisionName" -o tsv 2>$null
-    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup `
+    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
         --query "properties.runningState" -o tsv 2>$null
     if ($running -eq "Running") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green

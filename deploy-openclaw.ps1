@@ -27,6 +27,7 @@
 param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
     [string] $SourcePath = "openclaw-repo",
+    [string] $Tag = "",  # Optional Git tag or branch to check out (default: latest main)
     [string] $Cpu = "2.0",
     [string] $Memory = "4Gi"
 )
@@ -211,7 +212,7 @@ while ($attempt -lt $maxAttempts) {
     $attempt++
     $status = az containerapp show --name $AppName --resource-group $ResourceGroup `
         --query "properties.latestRevisionName" -o tsv 2>$null
-    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup `
+    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
         --query "properties.runningState" -o tsv 2>$null
     if ($running -eq "Running") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
