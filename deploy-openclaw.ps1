@@ -158,6 +158,12 @@ properties:
         if [ ! -x /home/node/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/node/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
         chmod +x /home/node/.openclaw/bin/gh &&
         export PATH="/home/node/.openclaw/bin:`$PATH" &&
+        if [ ! -x `$HOME/.openclaw/go/bin/go ]; then curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C `$HOME/.openclaw/; fi &&
+        export GOROOT="`$HOME/.openclaw/go" && export GOPATH="`$HOME/.openclaw/gopath" && mkdir -p "`$GOPATH/bin" &&
+        export PATH="`$GOROOT/bin:`$GOPATH/bin:`$PATH" &&
+        if [ ! -f `$HOME/.openclaw/npm-global/bin/gemini ]; then NPM_CONFIG_PREFIX=`$HOME/.openclaw/npm-global npm install -g @google/gemini-cli@latest 2>/dev/null || true; fi &&
+        export PATH="`$HOME/.openclaw/npm-global/bin:`$PATH" &&
+        if [ ! -x "`$GOPATH/bin/gog" ]; then git clone https://github.com/steipete/gogcli.git /tmp/gogcli && cd /tmp/gogcli && go build -o "`$GOPATH/bin/gog" ./cmd/gog && cd - && rm -rf /tmp/gogcli; fi &&
         export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache &&
         mkdir -p /var/tmp/openclaw-compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
