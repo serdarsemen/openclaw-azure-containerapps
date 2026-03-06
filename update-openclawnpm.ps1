@@ -42,8 +42,7 @@ if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
 New-Item -ItemType Directory -Path $buildDir | Out-Null
 
 
-#debian:bookworm-slim
-# RUN openclaw onboard --install-daemon
+
 
 $dockerfile = @"
 FROM node:22-bookworm-slim 
@@ -93,6 +92,7 @@ ENV PATH="/home/openclaw/.bun/bin:`${PATH}"
 
 # Install QMD via Bun
 RUN bun install -g https://github.com/tobi/qmd
+
 
 # Install Chromium via Playwright (headless browser)
 RUN npx playwright install chromium
