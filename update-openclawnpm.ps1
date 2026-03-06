@@ -35,7 +35,7 @@ Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
 # --- Step 1/3: Create Dockerfile and build image ---
-Write-Host "`n=== Step 1/3: Creating Dockerfile (node:22-bookworm-slim  + npm) ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 1/3: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
 $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
 if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
@@ -45,38 +45,26 @@ New-Item -ItemType Directory -Path $buildDir | Out-Null
 
 
 $dockerfile = @"
-FROM node:22-bookworm-slim 
+FROM node:22-slim
 
-
-# Prevent interactive prompts during package install
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install system dependencies, git, unzip, and Chromium runtime deps in one layer
+# Install system dependencies, git, and system Chromium in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
   bash curl ca-certificates gnupg \
-  git unzip gh \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-        libdrm2 libdbus-1-3 libxkbcommon0 libatspi2.0-0 \
-        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-        libgbm1 libpango-1.0-0 libcairo2 libasound2 \
-        libwayland-client0 \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+  git unzip \
+  chromium fonts-noto-color-emoji fonts-freefont-ttf \
+  && rm -rf /var/lib/apt/lists/*
 
-# (Optional) Make npm installs slightly quieter & consistent
+# Use system Chromium instead of Playwright-bundled binary
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV CHROME_BIN=/usr/bin/chromium
+
+# Make npm installs slightly quieter & consistent
 ENV npm_config_fund=false npm_config_audit=false
 
-# (optional) upgrade npm
-RUN npm i -g npm@11.11.0
-
+# Install OpenClaw globally via npm and clean cache
+RUN npm i -g openclaw && npm cache clean --force
 
 RUN node -v && npm -v
-
-
-# Install OpenClaw globally via npm
-RUN npm i -g openclaw
-
-
 
 # Rename existing node user/group (UID/GID 1000) to openclaw
 RUN groupmod -n openclaw node \
@@ -85,17 +73,6 @@ RUN groupmod -n openclaw node \
 # Switch to non-root user
 USER openclaw
 WORKDIR /home/openclaw
-
-# Install Bun (JavaScript runtime/bundler)
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/home/openclaw/.bun/bin:`${PATH}"
-
-# Install QMD via Bun
-RUN bun install -g https://github.com/tobi/qmd
-
-
-# Install Chromium via Playwright (headless browser)
-RUN npx playwright install chromium
 
 ENV NODE_ENV=production
 ENV HOME=/home/openclaw
@@ -159,6 +136,18 @@ $volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 # chmod -R 700 /home/openclaw/.openclaw && fails on NFS disk
+        # if [ ! -x /home/openclaw/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/openclaw/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
+        # export PATH="/home/openclaw/.openclaw/bin:`$PATH" &&
+        # if [ ! -x `$HOME/.openclaw/go/bin/go ]; then curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C `$HOME/.openclaw/; fi &&
+        # export GOROOT="`$HOME/.openclaw/go" && export GOPATH="`$HOME/.openclaw/gopath" && mkdir -p "`$GOPATH/bin" &&
+        # export PATH="`$GOROOT/bin:`$GOPATH/bin:`$PATH" &&
+        # if [ ! -f `$HOME/.openclaw/npm-global/bin/gemini ]; then NPM_CONFIG_PREFIX=`$HOME/.openclaw/npm-global npm install -g @google/gemini-cli@latest 2>/dev/null || true; fi &&
+        # export PATH="`$HOME/.openclaw/npm-global/bin:`$PATH" &&
+        # if [ ! -x "`$GOPATH/bin/gog" ]; then git clone https://github.com/steipete/gogcli.git /tmp/gogcli && cd /tmp/gogcli && go build -o "`$GOPATH/bin/gog" ./cmd/gog && cd - && rm -rf /tmp/gogcli; fi &&
+        # (node openclaw.mjs doctor --fix || true) &&
+
+        # üsttekiler time consuming olunca exec ile port dinleme çok geç kalıyor ve Azure Container Apps sağlık kontrolleri başarısız oluyor. Bunları kaldırıp sadece npm i -g openclaw bıraktım, böylece yeni image'da OpenClaw güncellenmiş olacak ama diğer araçlar (gh, go, gemini, gog) güncellenmeyecek. Kullanıcılar bunları istedikleri zaman manuel olarak güncelleyebilirler.
+
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -186,24 +175,17 @@ properties:
       - >-
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
+        (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&
         if [ ! -x "`$HOME/.openclaw/bun/bin/bun" ]; then export BUN_INSTALL="`$HOME/.openclaw/bun" && curl -fsSL https://bun.sh/install | bash 2>/dev/null; fi &&
+        export BUN_INSTALL="`$HOME/.openclaw/bun" &&
         export PATH="`$HOME/.openclaw/bun/bin:`$PATH" &&
+        if [ ! -x "`$BUN_INSTALL/bin/qmd" ]; then `$HOME/.openclaw/bun/bin/bun install -g https://github.com/tobi/qmd 2>/dev/null || true; fi &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
-        mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
+        mkdir -p /home/openclaw/.openclaw/workspace/memory   &&
         mkdir -p /home/openclaw/.openclaw/bin &&
-        if [ ! -x /home/openclaw/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/openclaw/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
-        chmod +x /home/openclaw/.openclaw/bin/gh &&
-        export PATH="/home/openclaw/.openclaw/bin:`$PATH" &&
-        if [ ! -x `$HOME/.openclaw/go/bin/go ]; then curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C `$HOME/.openclaw/; fi &&
-        export GOROOT="`$HOME/.openclaw/go" && export GOPATH="`$HOME/.openclaw/gopath" && mkdir -p "`$GOPATH/bin" &&
-        export PATH="`$GOROOT/bin:`$GOPATH/bin:`$PATH" &&
-        if [ ! -f `$HOME/.openclaw/npm-global/bin/gemini ]; then NPM_CONFIG_PREFIX=`$HOME/.openclaw/npm-global npm install -g @google/gemini-cli@latest 2>/dev/null || true; fi &&
-        export PATH="`$HOME/.openclaw/npm-global/bin:`$PATH" &&
-        if [ ! -x "`$GOPATH/bin/gog" ]; then git clone https://github.com/steipete/gogcli.git /tmp/gogcli && cd /tmp/gogcli && go build -o "`$GOPATH/bin/gog" ./cmd/gog && cd - && rm -rf /tmp/gogcli; fi &&
-        (openclaw doctor --fix || true) &&
         exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu

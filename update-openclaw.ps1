@@ -148,7 +148,6 @@ properties:
         mkdir /home/node/.openclaw/workspace/memory -p  &&
         mkdir -p /home/node/.openclaw/bin &&
         if [ ! -x /home/node/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/node/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
-        chmod +x /home/node/.openclaw/bin/gh &&
         export PATH="/home/node/.openclaw/bin:`$PATH" &&
         if [ ! -x `$HOME/.openclaw/go/bin/go ]; then curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C `$HOME/.openclaw/; fi &&
         export GOROOT="`$HOME/.openclaw/go" && export GOPATH="`$HOME/.openclaw/gopath" && mkdir -p "`$GOPATH/bin" &&
