@@ -167,7 +167,6 @@ properties:
       - >-
         chmod -R 755 /app/extensions &&
         mkdir -p /home/node/.openclaw/workspace/memory &&
-        mkdir -p "`$GOPATH/bin" &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
@@ -231,14 +230,14 @@ while ($attempt -lt $maxAttempts) {
         --query "properties.latestRevisionName" -o tsv 2>$null
     $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
         --query "properties.runningState" -o tsv 2>$null
-    if ($running -eq "Running") {
+    if ($running -in "Running", "Running (at max)") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
         break
     }
     Write-Host "  Not ready yet (state: $running) — retrying in 10s ($attempt/$maxAttempts)..."
     Start-Sleep -Seconds 10
 }
-if ($running -ne "Running") {
+if ($running -notin "Running", "Running (at max)") {
     Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
 }
 
