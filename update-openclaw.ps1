@@ -117,7 +117,7 @@ $volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
-
+# chmod -R 700 /home/node/.openclaw && fails on NFS disk
 
 $updateYaml = @"
 properties:
@@ -145,7 +145,6 @@ properties:
       - -c
       - >-
         chmod -R 755 /app/extensions &&
-        chmod -R 700 /home/node/.openclaw &&
         mkdir /home/node/.openclaw/workspace/memory -p  &&
         mkdir -p /home/node/.openclaw/bin &&
         if [ ! -x /home/node/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/node/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&

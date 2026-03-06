@@ -170,7 +170,7 @@ $volumeName = "openclaw-state"
 
 # Build the updated YAML for the Container App
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
-
+# chmod -R 700 /home/openclaw/.openclaw && fails on NFS disk
 $updatedYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -196,7 +196,6 @@ properties:
       - bash
       - -c
       - >-
-        chmod -R 700 /home/openclaw/.openclaw &&
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&

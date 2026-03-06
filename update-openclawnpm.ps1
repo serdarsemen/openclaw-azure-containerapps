@@ -158,7 +158,7 @@ if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
 $volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
-
+# chmod -R 700 /home/openclaw/.openclaw && fails on NFS disk
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -184,7 +184,6 @@ properties:
       - bash
       - -c
       - >-
-        chmod -R 700 /home/openclaw/.openclaw &&
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&
