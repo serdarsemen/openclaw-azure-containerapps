@@ -1,0 +1,49 @@
+# Dockerfile.npmtools — Extends the OpenClaw npm base image with pre-baked CLI tools.
+#
+# Usage (two-step build):
+#   az acr build --image openclaw:base --file $buildDir/Dockerfile $buildDir
+#   az acr build --image openclaw:latest --build-arg BASE_IMAGE=$ACR/openclaw:base --file images/Dockerfile.npmtools images/
+#
+# Tools installed (same as Dockerfile.tools plus Bun/QMD):
+#   - Go 1.24.1         → /usr/local/go
+#   - GitHub CLI 2.72.0  → /usr/local/bin/gh
+#   - Gemini CLI         → /usr/local/bin/gemini  (npm global)
+#   - GoG CLI            → /usr/local/bin/gog     (built from source)
+#   - Bun                → /usr/local/bin/bun
+#   - QMD                → /usr/local/bin/qmd     (installed via bun)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+
+# ── Go 1.24.1 ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C /usr/local
+
+ENV GOROOT=/usr/local/go
+ENV PATH="${GOROOT}/bin:${PATH}"
+
+# ── GitHub CLI v2.72.0 ───────────────────────────────────────────────────────
+RUN curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
+    | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh
+
+# ── Gemini CLI (latest via npm) ──────────────────────────────────────────────
+RUN npm install -g @google/gemini-cli@latest 2>/dev/null && npm cache clean --force
+
+# ── GoG CLI (built from source) ──────────────────────────────────────────────
+RUN git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
+    && cd /tmp/gogcli \
+    && go build -o /usr/local/bin/gog ./cmd/gog \
+    && rm -rf /tmp/gogcli /root/go
+
+# ── Bun ──────────────────────────────────────────────────────────────────────
+RUN BUN_INSTALL=/usr/local curl -fsSL https://bun.sh/install | bash
+
+# ── QMD (installed via Bun) ──────────────────────────────────────────────────
+RUN BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true
+
+# GOPATH for runtime-installed Go packages (persisted on NFS at /home/openclaw/.openclaw/gopath)
+ENV GOPATH=/home/openclaw/.openclaw/gopath
+ENV PATH="${GOPATH}/bin:${PATH}"
+
+USER openclaw

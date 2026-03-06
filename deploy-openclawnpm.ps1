@@ -103,14 +103,29 @@ Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 # that crash Python's charmap codec on Windows (cp1252).
 $env:PYTHONIOENCODING = "utf-8"
 
+# Two-step build: base OpenClaw image, then layer with pre-baked tools
+Write-Host "  Step 2a: Building base OpenClaw image..." -ForegroundColor Gray
 az acr build `
     --registry $AcrName `
-    --image openclaw:latest `
+    --image openclaw:base `
     --file "$buildDir/Dockerfile" `
     $buildDir
 
-if ($LASTEXITCODE -ne 0) { throw "Image build failed" }
-Write-Host "Image built and pushed to $AcrName.azurecr.io/openclaw:latest" -ForegroundColor Green
+if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+Write-Host "  Base image pushed to $AcrName.azurecr.io/openclaw:base" -ForegroundColor Green
+
+$AcrServer = "$AcrName.azurecr.io"
+
+Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
+az acr build `
+    --registry $AcrName `
+    --image openclaw:latest `
+    --build-arg "BASE_IMAGE=$AcrServer/openclaw:base" `
+    --file "images/Dockerfile.npmtools" `
+    images
+
+if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
+Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
 
 # Clean up temp build dir
 Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -124,7 +139,6 @@ Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
 Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw Config ===" -ForegroundColor Cyan
 
-$AcrServer = "$AcrName.azurecr.io"
 $AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
 if (-not $AcrCreds) { throw "Failed to get ACR credentials for $AcrName" }
 $AcrUsername = $AcrCreds.username
@@ -176,23 +190,11 @@ properties:
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&
-        if [ ! -x "`$HOME/.openclaw/bun/bin/bun" ]; then export BUN_INSTALL="`$HOME/.openclaw/bun" && curl -fsSL https://bun.sh/install | bash 2>/dev/null; fi &&
-        export BUN_INSTALL="`$HOME/.openclaw/bun" &&
-        export PATH="`$HOME/.openclaw/bun/bin:`$PATH" &&
-        if [ ! -x "`$BUN_INSTALL/bin/qmd" ]; then `$HOME/.openclaw/bun/bin/bun install -g https://github.com/tobi/qmd 2>/dev/null || true; fi &&
+        mkdir -p /home/openclaw/.openclaw/workspace/memory &&
+        mkdir -p "`$GOPATH/bin" &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
-        mkdir /home/openclaw/.openclaw/workspace/memory -p  &&
-        mkdir -p /home/openclaw/.openclaw/bin &&
-        if [ ! -x /home/openclaw/.openclaw/bin/gh ]; then curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz | tar -xz --strip-components=2 -C /home/openclaw/.openclaw/bin gh_2.72.0_linux_amd64/bin/gh; fi &&
-        export PATH="/home/openclaw/.openclaw/bin:`$PATH" &&
-        if [ ! -x `$HOME/.openclaw/go/bin/go ]; then curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -xz -C `$HOME/.openclaw/; fi &&
-        export GOROOT="`$HOME/.openclaw/go" && export GOPATH="`$HOME/.openclaw/gopath" && mkdir -p "`$GOPATH/bin" &&
-        export PATH="`$GOROOT/bin:`$GOPATH/bin:`$PATH" &&
-        if [ ! -f `$HOME/.openclaw/npm-global/bin/gemini ]; then NPM_CONFIG_PREFIX=`$HOME/.openclaw/npm-global npm install -g @google/gemini-cli@latest 2>/dev/null || true; fi &&
-        export PATH="`$HOME/.openclaw/npm-global/bin:`$PATH" &&
-        if [ ! -x "`$GOPATH/bin/gog" ]; then git clone https://github.com/steipete/gogcli.git /tmp/gogcli && cd /tmp/gogcli && go build -o "`$GOPATH/bin/gog" ./cmd/gog && cd - && rm -rf /tmp/gogcli; fi &&
         exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $Cpu
