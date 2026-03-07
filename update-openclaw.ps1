@@ -17,7 +17,7 @@
 # ---------------------------------------------------------------------------
 
 param(
-    [Parameter(Mandatory)] [string] $ResourceGroup,
+    [Parameter(Mandatory)] [string] $ResourceGroup = "rg-openclaw",
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = ""
 )

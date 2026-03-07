@@ -16,7 +16,7 @@
 # ---------------------------------------------------------------------------
 
 param(
-    [Parameter(Mandatory)] [string] $ResourceGroup
+    [Parameter(Mandatory)] [string] $ResourceGroup = "rg-openclawnpm"
 )
 
 $ErrorActionPreference = "Stop"
