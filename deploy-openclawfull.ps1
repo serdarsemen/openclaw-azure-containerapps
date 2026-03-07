@@ -43,8 +43,15 @@ if ($Npm) {
     $BicepFile       = "mainnpm.bicep"
     $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
-    if (-not $Cpu)    { $Cpu    = "4.0" }
-    if (-not $Memory) { $Memory = "8Gi" }
+    if (-not $Cpu)    { $Cpu    = "2.75" }
+    if (-not $Memory) { $Memory = "5.5Gi" }
+    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 1.0 CPU / 2Gi — validate total <= 4 CPU / 8Gi
+    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 1.0; $ollamaMem = 2.0
+    $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
+    $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
+    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption tier max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (1.0 CPU / 2Gi) sidecars."
+    }
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
     $BicepFile       = "main.bicep"
@@ -410,6 +417,10 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: REDIS_HOST
+        value: localhost
+      - name: REDIS_PORT
+        value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
       - name: NODE_ENV
@@ -556,10 +567,11 @@ $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
 
 $variantLabel = if ($Npm) { "npm" } else { "source" }
 Write-Host ""
-Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                 │" -ForegroundColor Yellow
-Write-Host "  │  $GatewayToken   │" -ForegroundColor Yellow
-Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$tokenPadded = $GatewayToken.PadRight(61)
+Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
+Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "OpenClaw ($variantLabel) URL: https://$fqdn"
 Write-Host "Control UI:   https://$fqdn/#token=$GatewayToken"

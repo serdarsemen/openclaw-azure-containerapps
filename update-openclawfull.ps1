@@ -403,6 +403,10 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: REDIS_HOST
+        value: localhost
+      - name: REDIS_PORT
+        value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
       - name: NODE_ENV
