@@ -271,6 +271,7 @@ properties:
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&
         mkdir -p /home/openclaw/.openclaw/workspace/memory &&
+        mkdir -p /home/openclaw/.cache/qmd/models &&
         mkdir -p "`$GOPATH/bin" &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
