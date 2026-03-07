@@ -172,6 +172,8 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: OLLAMA_HOST
+        value: http://localhost:11434
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -194,6 +196,27 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: ollama
+      image: ollama/ollama:latest
+      resources:
+        cpu: 1.0
+        memory: 2Gi
+      env:
+      - name: OLLAMA_HOST
+        value: 0.0.0.0:11434
+      - name: OLLAMA_MODELS
+        value: /home/ollama/.ollama/models
+      - name: HOME
+        value: /home/ollama
+      probes:
+      - type: liveness
+        httpGet:
+          path: /
+          port: 11434
+        periodSeconds: 30
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1

@@ -1,13 +1,13 @@
 # ---------------------------------------------------------------------------
 # deploy-openclaw.ps1 — Build and deploy OpenClaw to an existing ACA environment
 #
-# Variant: SOURCE BUILD — single container (lightweight)
+# Variant: SOURCE BUILD (lightweight)
 #   - Builds from the OpenClaw Git repo Dockerfile
-#   - Single container: OpenClaw gateway only
-#   - Default resources: 2 vCPU / 4 GiB
+#   - Two containers: OpenClaw gateway + Ollama sidecar
+#   - Default resources: 2 vCPU / 4 GiB (OpenClaw) + 1 vCPU / 2 GiB (Ollama)
 #   - Bicep template: main.bicep (deployment name: "main")
 #   - Home directory: /home/node
-#   - No Redis or Ollama sidecars
+#   - Ollama enables local model inference
 #
 # See also: deploy-openclawnpm.ps1 for the npm-based variant with Redis + Ollama
 #
@@ -180,6 +180,8 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
+      - name: OLLAMA_HOST
+        value: http://localhost:11434
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -202,6 +204,27 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: ollama
+      image: ollama/ollama:latest
+      resources:
+        cpu: 1.0
+        memory: 2Gi
+      env:
+      - name: OLLAMA_HOST
+        value: 0.0.0.0:11434
+      - name: OLLAMA_MODELS
+        value: /home/ollama/.ollama/models
+      - name: HOME
+        value: /home/ollama
+      probes:
+      - type: liveness
+        httpGet:
+          path: /
+          port: 11434
+        periodSeconds: 30
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1
