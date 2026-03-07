@@ -108,8 +108,16 @@ $appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup 
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
-$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
+# Ollama sidecar uses 1.0 CPU / 2Gi; cap OpenClaw so the total stays within Consumption tier limits (4 CPU / 8Gi)
+$ollamaCpu = 1.0
+$ollamaMem = 2.0
+$maxCpu = 4.0
+$maxMem = 8.0
+$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $ollamaCpu) } else { $maxCpu - $ollamaCpu }
+$currentMem = if ($appInfo.mem) {
+    $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
+    "$([math]::Min($memVal, $maxMem - $ollamaMem))Gi"
+} else { "$($maxMem - $ollamaMem)Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `

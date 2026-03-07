@@ -28,11 +28,19 @@ param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",  # Optional Git tag or branch to check out (default: latest main)
-    [string] $Cpu = "4.0",
-    [string] $Memory = "8Gi"
+    [string] $Cpu = "3.0",
+    [string] $Memory = "6Gi"
 )
 
 $ErrorActionPreference = "Stop"
+
+# Ollama sidecar uses 1.0 CPU / 2Gi; validate that total stays within Consumption tier limits (4 CPU / 8Gi)
+$ollamaCpu = 1.0; $ollamaMem = 2.0
+$totalCpu = [double]$Cpu + $ollamaCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $ollamaMem
+if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption tier max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Ollama sidecar (1.0 CPU / 2Gi)."
+}
 
 # Auto-discover resource names from Bicep deployment outputs
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
