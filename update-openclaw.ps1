@@ -164,7 +164,6 @@ properties:
         export OPENCLAW_NO_RESPAWN=1 &&
         (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
-        (node openclaw.mjs doctor --fix || true) &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
