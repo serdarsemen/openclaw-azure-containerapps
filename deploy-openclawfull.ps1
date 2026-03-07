@@ -113,7 +113,7 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV npm_config_fund=false npm_config_audit=false
 
 # Install OpenClaw globally via npm and clean cache
-RUN npm i -g openclaw@latest && npm cache clean --force
+RUN npm i -g openclaw@$TAG && npm cache clean --force
 
 RUN node -v && npm -v
 
