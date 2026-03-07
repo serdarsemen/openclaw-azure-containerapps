@@ -108,8 +108,8 @@ $appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup 
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
-$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "2.0" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "4Gi" }
+$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
+$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `

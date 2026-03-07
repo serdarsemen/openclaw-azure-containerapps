@@ -4,7 +4,7 @@
 # Variant: SOURCE BUILD (lightweight)
 #   - Builds from the OpenClaw Git repo Dockerfile
 #   - Two containers: OpenClaw gateway + Ollama sidecar
-#   - Default resources: 2 vCPU / 4 GiB (OpenClaw) + 1 vCPU / 2 GiB (Ollama)
+#   - Default resources: 4 vCPU / 8 GiB (OpenClaw) + 1 vCPU / 2 GiB (Ollama)
 #   - Bicep template: main.bicep (deployment name: "main")
 #   - Home directory: /home/node
 #   - Ollama enables local model inference
@@ -28,8 +28,8 @@ param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",  # Optional Git tag or branch to check out (default: latest main)
-    [string] $Cpu = "2.0",
-    [string] $Memory = "4Gi"
+    [string] $Cpu = "4.0",
+    [string] $Memory = "8Gi"
 )
 
 $ErrorActionPreference = "Stop"
