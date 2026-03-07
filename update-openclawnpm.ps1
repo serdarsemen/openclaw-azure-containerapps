@@ -177,12 +177,11 @@ properties:
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
-        npm config set prefix '~/.openclaw/npm-global' &&
+        npm config set prefix '/home/openclaw/.openclaw/npm-global' &&
         mkdir -p /home/openclaw/.openclaw/workspace/memory &&
-        mkdir -p /home/openclaw/.cache/qmd/models &&
         mkdir -p "`$GOPATH/bin" &&
-        export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
-        mkdir -p `$HOME/.openclaw/compile-cache &&
+        export NODE_COMPILE_CACHE=`/home/openclaw/.openclaw/compile-cache &&
+        mkdir -p `/home/openclaw/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
         exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
