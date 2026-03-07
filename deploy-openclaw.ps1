@@ -230,14 +230,14 @@ while ($attempt -lt $maxAttempts) {
         --query "properties.latestRevisionName" -o tsv 2>$null
     $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
         --query "properties.runningState" -o tsv 2>$null
-    if ($running -in "Running", "Running (at max)") {
+    if ($running -in "Running", "RunningAtMaxScale") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
         break
     }
     Write-Host "  Not ready yet (state: $running) — retrying in 10s ($attempt/$maxAttempts)..."
     Start-Sleep -Seconds 10
 }
-if ($running -notin "Running", "Running (at max)") {
+if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
 }
 
