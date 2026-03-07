@@ -1,18 +1,26 @@
 # ---------------------------------------------------------------------------
-# update-openclawfull.ps1 — Update the OpenClaw image without regenerating tokens or config
+# deploy-openclawfull.ps1 — Build and deploy OpenClaw to an existing ACA environment
 #
-# Combines update-openclaw.ps1 (source build) and update-openclawnpm.ps1 (npm)
+# Combines deploy-openclaw.ps1 (source build) and deploy-openclawnpm.ps1 (npm)
 # into a single script controlled by the -Npm switch.
 #
 # Without -Npm: source-build variant (rg-openclaw, main.bicep, ca-openclaw, acropenclaw)
-# With    -Npm: npm-install variant  (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
+#   - Builds from the OpenClaw Git repo Dockerfile
+#   - Two containers: OpenClaw gateway + Ollama sidecar
+#   - Home directory: /home/node
 #
-# Prerequisites: OpenClaw already deployed via the corresponding deploy script.
+# With -Npm: npm-install variant (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
+#   - Builds a custom Dockerfile (node:22-slim + npm i -g openclaw)
+#   - Three containers: OpenClaw gateway + Redis + Ollama
+#   - Home directory: /home/openclaw
+#   - Includes Bun, Playwright/Chromium, QMD
+#
+# Prerequisites: infrastructure deployed via the corresponding Bicep template
 #
 # Usage:
-#   .\update-openclawfull.ps1                                  # source build
-#   .\update-openclawfull.ps1 -Tag v2026.2.15                  # source build, pinned tag
-#   .\update-openclawfull.ps1 -Npm                             # npm install
+#   .\deploy-openclawfull.ps1                                  # source build
+#   .\deploy-openclawfull.ps1 -Tag v2026.2.15                  # source build, pinned tag
+#   .\deploy-openclawfull.ps1 -Npm                             # npm install
 # ---------------------------------------------------------------------------
 
 param(
@@ -21,7 +29,9 @@ param(
     [string] $DeploymentName = "main",
     [string] $AppName = "",
     [string] $SourcePath = "openclaw-repo",
-    [string] $Tag = ""
+    [string] $Tag = "",
+    [string] $Cpu = "",
+    [string] $Memory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,11 +43,22 @@ if ($Npm) {
     $BicepFile       = "mainnpm.bicep"
     $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
+    if (-not $Cpu)    { $Cpu    = "4.0" }
+    if (-not $Memory) { $Memory = "8Gi" }
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
     $BicepFile       = "main.bicep"
     $HomeDir         = "/home/node"
     $ToolsDockerfile = "images/Dockerfile.tools"
+    if (-not $Cpu)    { $Cpu    = "3.0" }
+    if (-not $Memory) { $Memory = "6Gi" }
+    # Ollama sidecar uses 1.0 CPU / 2Gi; validate total stays within Consumption tier limits (4 CPU / 8Gi)
+    $ollamaCpu = 1.0; $ollamaMem = 2.0
+    $totalCpu = [double]$Cpu + $ollamaCpu
+    $totalMem = [double]($Memory -replace '[^0-9.]','') + $ollamaMem
+    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption tier max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Ollama sidecar (1.0 CPU / 2Gi)."
+    }
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
 
@@ -61,7 +82,7 @@ $AcrServer = "$AcrName.azurecr.io"
 # --- Build image ---
 if ($Npm) {
     # ===== NPM variant: create inline Dockerfile and build =====
-    Write-Host "`n=== Step 1/3: Creating Dockerfile (node:22-slim incl. npm) ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/6: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
     $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
     if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
@@ -109,7 +130,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
     Write-Host "  Dockerfile created at $buildDir" -ForegroundColor Green
 
-    Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
     Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 
     $env:PYTHONIOENCODING = "utf-8"
@@ -140,7 +161,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
 } else {
     # ===== Source-build variant: pull/checkout source and build =====
-    Write-Host "`n=== Step 1/3: Updating OpenClaw source ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
 
     if (-not (Test-Path $SourcePath)) {
         Write-Host "  Source not found — cloning..."
@@ -170,7 +191,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $ref = if ($Tag) { $Tag } else { "latest (main)" }
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
-    Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
     Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
 
     $env:PYTHONIOENCODING = "utf-8"
@@ -197,46 +218,32 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
 }
 
-# --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
-Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
+# --- Step 3/6: Generate gateway token ---
+Write-Host "`n=== Step 3/6: Generating gateway token ===" -ForegroundColor Cyan
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
+Write-Host "Token generated (save this for Control UI access):"
+Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
-# Discover existing environment, resources, and secrets from the running app
-$appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "{envId:properties.managedEnvironmentId, cpu:properties.template.containers[0].resources.cpu, mem:properties.template.containers[0].resources.memory}" -o json 2>$null | ConvertFrom-Json
-if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
-$envId = $appInfo.envId
-$envName = $envId.Split("/")[-1]
+# --- Step 4/6: Update Container App with OpenClaw ---
+Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw ===" -ForegroundColor Cyan
 
-if ($Npm) {
-    $currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
-    $currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
-} else {
-    # Source-build: cap OpenClaw so the total stays within Consumption tier limits (4 CPU / 8Gi)
-    $ollamaCpu = 1.0
-    $ollamaMem = 2.0
-    $maxCpu = 4.0
-    $maxMem = 8.0
-    $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $ollamaCpu) } else { $maxCpu - $ollamaCpu }
-    $currentMem = if ($appInfo.mem) {
-        $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
-        "$([math]::Min($memVal, $maxMem - $ollamaMem))Gi"
-    } else { "$($maxMem - $ollamaMem)Gi" }
-}
-
-$StorageName = az containerapp env storage list `
-    --name $envName --resource-group $ResourceGroup `
-    --query "[0].name" -o tsv 2>$null
-if (-not $StorageName) { throw "No NFS storage found on environment $envName" }
-
-# Retrieve existing secrets so the YAML preserves them
 $AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
 if (-not $AcrCreds) { throw "Failed to get ACR credentials for $AcrName" }
 $AcrUsername = $AcrCreds.username
 $AcrPassword = $AcrCreds.passwords[0].value
 
-$GatewayToken = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
-    --secret-name gateway-token --query "value" -o tsv 2>$null
-if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
+# Get environment name and storage name from the Container App
+$envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "properties.managedEnvironmentId" -o tsv 2>$null
+if (-not $envId) { throw "Failed to get environment ID for $AppName" }
+$envName = $envId.Split("/")[-1]
+
+$StorageName = az containerapp env storage list `
+    --name $envName --resource-group $ResourceGroup `
+    --query "[0].name" -o tsv 2>$null
+if (-not $StorageName) { throw "No NFS storage found on environment $envName. Was $BicepFile deployed?" }
 
 $volumeName = "openclaw-state"
 
@@ -244,7 +251,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 
 if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
-    $updateYaml = @"
+    $updatedYaml = @"
 properties:
   managedEnvironmentId: $envId
   configuration:
@@ -281,8 +288,8 @@ properties:
         export OPENCLAW_NO_RESPAWN=1 &&
         exec openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
-        cpu: $currentCpu
-        memory: $currentMem
+        cpu: $Cpu
+        memory: $Memory
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
@@ -364,7 +371,7 @@ properties:
 "@
 } else {
     # --- Source-build variant YAML (with Ollama sidecar) ---
-    $updateYaml = @"
+    $updatedYaml = @"
 properties:
   managedEnvironmentId: $envId
   configuration:
@@ -398,8 +405,8 @@ properties:
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
-        cpu: $currentCpu
-        memory: $currentMem
+        cpu: $Cpu
+        memory: $Memory
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
@@ -458,7 +465,7 @@ properties:
 "@
 }
 
-$updateYaml | Set-Content $yamlPath -Encoding utf8
+$updatedYaml | Set-Content $yamlPath -Encoding utf8
 
 try {
     az containerapp update --name $AppName --resource-group $ResourceGroup --yaml $yamlPath
@@ -467,17 +474,15 @@ try {
     Remove-Item $yamlPath -ErrorAction SilentlyContinue
 }
 
-Write-Host "Container App updated via YAML" -ForegroundColor Green
-
 # Wait for the container to become ready
 Write-Host "`nWaiting for container to become ready..."
 $maxAttempts = 30
 $attempt = 0
 while ($attempt -lt $maxAttempts) {
     $attempt++
-    $latestRev = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    $status = az containerapp show --name $AppName --resource-group $ResourceGroup `
         --query "properties.latestRevisionName" -o tsv 2>$null
-    $running = az containerapp revision show --name $AppName --revision $latestRev --resource-group $ResourceGroup `
+    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
         --query "properties.runningState" -o tsv 2>$null
     if ($running -in "Running", "RunningAtMaxScale") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
@@ -490,32 +495,84 @@ if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
 }
 
-$rev = $latestRev
-$img = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "properties.template.containers[0].image" -o tsv 2>$null
+# --- Step 5/6: Configure OpenClaw (non-interactive) ---
+Write-Host "`n=== Step 5/6: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
 
-# --- Post-update: Show recent container logs ---
-Write-Host "`n=== Recent container logs ===" -ForegroundColor Cyan
-Write-Host "  Current revision: $rev (image: $img)" -ForegroundColor Green
-az containerapp logs show --name $AppName --resource-group $ResourceGroup --tail 60 2>$null
+# Retry helper — ACA exec can fail with ClusterExecFailure while the gateway
+# process is still initialising inside the container.
+function Invoke-ContainerExec {
+    param(
+        [string] $Label,
+        [string] $Command,
+        [int]    $MaxRetries = 3,
+        [int]    $DelaySec   = 15
+    )
+    for ($i = 1; $i -le $MaxRetries; $i++) {
+        Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
+        az containerapp exec --name $AppName --resource-group $ResourceGroup --command $Command
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($i -lt $MaxRetries) {
+            Write-Host "  [$Label] exec failed — retrying in ${DelaySec}s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySec
+        }
+    }
+    Write-Warning "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
+}
 
-Write-Host "`n=== Update complete ===" -ForegroundColor Green
+if ($Npm) {
+    # NPM variant uses bare 'openclaw' command
+    Invoke-ContainerExec -Label "Onboard" `
+        -Command "bash -c 'openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
+
+    Invoke-ContainerExec -Label "Model set" `
+        -Command "openclaw models set github-copilot/claude-opus-4.6"
+
+    Invoke-ContainerExec -Label "Security audit" `
+        -Command "openclaw security audit"
+
+    az containerapp exec --name $AppName --resource-group $ResourceGroup `
+        --command "openclaw models auth login-github-copilot"
+    if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
+} else {
+    # Source-build variant uses 'node openclaw.mjs'
+    Invoke-ContainerExec -Label "Onboard" `
+        -Command "bash -c 'node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
+
+    Invoke-ContainerExec -Label "Model set" `
+        -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
+
+    Invoke-ContainerExec -Label "Security audit" `
+        -Command "node openclaw.mjs security audit"
+
+    az containerapp exec --name $AppName --resource-group $ResourceGroup `
+        --command "node openclaw.mjs models auth login-github-copilot"
+    if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
+}
+
+# --- Step 6/6: Done ---
+Write-Host "`n=== Step 6/6: Gateway configured ===" -ForegroundColor Green
 $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
     --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 
-az containerapp revision list --name $AppName --resource-group $ResourceGroup -o table
-
 $variantLabel = if ($Npm) { "npm" } else { "source" }
-$refLabel = if (-not $Npm -and $ref) { " to: $ref" } else { "" }
-Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $img" -ForegroundColor Green
-Write-Host "  App restarted with new image, FQDN: $fqdn"
 Write-Host ""
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                 │" -ForegroundColor Yellow
+Write-Host "  │  $GatewayToken   │" -ForegroundColor Yellow
+Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken"
+Write-Host "OpenClaw ($variantLabel) URL: https://$fqdn"
+Write-Host "Control UI:   https://$fqdn/#token=$GatewayToken"
 Write-Host ""
-Write-Host "Your gateway token, config, and data are unchanged." -ForegroundColor Green
+Write-Host "=== One manual step remaining: GitHub Copilot auth ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "1. Connect to container:" -ForegroundColor Yellow
+Write-Host "   az containerapp exec --name $AppName --resource-group $ResourceGroup"
+Write-Host ""
+Write-Host "2. Inside the container:" -ForegroundColor Yellow
+$authCmd = if ($Npm) { "openclaw models auth login-github-copilot" } else { "node openclaw.mjs models auth login-github-copilot" }
+Write-Host "   $authCmd" -ForegroundColor White
+Write-Host "   (open browser, enter code, authorize, then type: exit)"
+Write-Host ""
+Write-Host "3. Open Control UI:" -ForegroundColor Yellow
+Write-Host "   https://$fqdn/#token=$GatewayToken"
