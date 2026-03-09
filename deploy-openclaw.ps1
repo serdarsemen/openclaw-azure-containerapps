@@ -94,13 +94,24 @@ Write-Host "This uploads source to Azure and builds remotely..."
 $env:PYTHONIOENCODING = "utf-8"
 
 # Two-step build: base OpenClaw image, then layer with pre-baked tools
+# Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
+# ACR Tasks uses the classic Docker builder; --mount=type=cache is unsupported and
+# provides no benefit on ACR's ephemeral build agents anyway.
+$AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
+(Get-Content "$SourcePath/Dockerfile" -Raw) `
+    -replace '--mount=type=cache,\S+\s*', '' `
+    -replace '(?m)^\s+\\\r?\n', '' |
+    Set-Content $AcrDockerfile -Encoding utf8
+Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
+
 Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
 az acr build `
     --registry $AcrName `
     --image openclaw:base `
-    --file "$SourcePath/Dockerfile" `
+    --file $AcrDockerfile `
     $SourcePath
 
+Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
 Write-Host "  Base image pushed to $AcrName.azurecr.io/openclaw:base" -ForegroundColor Green
 

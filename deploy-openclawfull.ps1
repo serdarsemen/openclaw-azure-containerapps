@@ -203,13 +203,22 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     $env:PYTHONIOENCODING = "utf-8"
 
+    # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
+    $AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
+    (Get-Content "$SourcePath/Dockerfile" -Raw) `
+        -replace '--mount=type=cache,\S+\s*', '' `
+        -replace '(?m)^\s+\\\r?\n', '' |
+        Set-Content $AcrDockerfile -Encoding utf8
+    Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
+
     Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
     az acr build `
         --registry $AcrName `
         --image openclaw:base `
-        --file "$SourcePath/Dockerfile" `
+        --file $AcrDockerfile `
         $SourcePath
 
+    Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
     Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
 
