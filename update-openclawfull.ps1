@@ -219,11 +219,11 @@ $envName = $envId.Split("/")[-1]
 $maxCpu = 4.0
 $maxMem = 8.0
 if ($Npm) {
-    # NPM: sidecars = Redis (0.25/0.5) + Ollama (1.0/2.0) + Postgres (0.25/0.5) = 1.5 CPU / 3.0Gi
-    $sidecarCpu = 1.5; $sidecarMem = 3.0
-} else {
-    # Source-build: sidecars = Ollama (1.0/2.0) + Postgres (0.25/0.5) = 1.25 CPU / 2.5Gi
+    # NPM: sidecars = Redis (0.25/0.5) + Ollama (1.0/2.0) = 1.25 CPU / 2.5Gi
     $sidecarCpu = 1.25; $sidecarMem = 2.5
+} else {
+    # Source-build: sidecars = Ollama (1.0/2.0) = 1.0 CPU / 2.0Gi
+    $sidecarCpu = 1.0; $sidecarMem = 2.0
 }
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
@@ -251,7 +251,7 @@ $volumeName = "openclaw-state"
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 if ($Npm) {
-    # --- NPM variant YAML (with Redis + Ollama + PostgreSQL sidecars) ---
+    # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -299,8 +299,6 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
-      - name: DATABASE_URL
-        value: postgresql://openclaw:openclaw@localhost:5432/openclaw
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -363,28 +361,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/ollama/.ollama
-    - name: postgres
-      image: postgres:17-alpine
-      resources:
-        cpu: 0.25
-        memory: 0.5Gi
-      env:
-      - name: POSTGRES_USER
-        value: openclaw
-      - name: POSTGRES_PASSWORD
-        value: openclaw
-      - name: POSTGRES_DB
-        value: openclaw
-      - name: PGDATA
-        value: /var/lib/postgresql/data/pgdata
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /var/lib/postgresql/data
-      probes:
-      - type: liveness
-        tcpSocket:
-          port: 5432
-        periodSeconds: 30
     scale:
       minReplicas: 1
       maxReplicas: 1
@@ -394,7 +370,7 @@ properties:
       storageName: $StorageName
 "@
 } else {
-    # --- Source-build variant YAML (with Ollama + PostgreSQL sidecars) ---
+    # --- Source-build variant YAML (with Ollama sidecar) ---
     $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -440,8 +416,6 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
-      - name: DATABASE_URL
-        value: postgresql://openclaw:openclaw@localhost:5432/openclaw
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -485,28 +459,6 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/ollama/.ollama
-    - name: postgres
-      image: postgres:17-alpine
-      resources:
-        cpu: 0.25
-        memory: 0.5Gi
-      env:
-      - name: POSTGRES_USER
-        value: openclaw
-      - name: POSTGRES_PASSWORD
-        value: openclaw
-      - name: POSTGRES_DB
-        value: openclaw
-      - name: PGDATA
-        value: /var/lib/postgresql/data/pgdata
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /var/lib/postgresql/data
-      probes:
-      - type: liveness
-        tcpSocket:
-          port: 5432
-        periodSeconds: 30
     scale:
       minReplicas: 1
       maxReplicas: 1
