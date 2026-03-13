@@ -216,21 +216,20 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
+$maxCpu = 4.0
+$maxMem = 8.0
 if ($Npm) {
-    $currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
-    $currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
+    # NPM: sidecars = Redis (0.25/0.5) + Ollama (1.0/2.0) + Postgres (0.25/0.5) = 1.5 CPU / 3.0Gi
+    $sidecarCpu = 1.5; $sidecarMem = 3.0
 } else {
-    # Source-build: cap OpenClaw so the total stays within Consumption tier limits (4 CPU / 8Gi)
-    $ollamaCpu = 1.0
-    $ollamaMem = 2.0
-    $maxCpu = 4.0
-    $maxMem = 8.0
-    $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $ollamaCpu) } else { $maxCpu - $ollamaCpu }
-    $currentMem = if ($appInfo.mem) {
-        $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
-        "$([math]::Min($memVal, $maxMem - $ollamaMem))Gi"
-    } else { "$($maxMem - $ollamaMem)Gi" }
+    # Source-build: sidecars = Ollama (1.0/2.0) + Postgres (0.25/0.5) = 1.25 CPU / 2.5Gi
+    $sidecarCpu = 1.25; $sidecarMem = 2.5
 }
+$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
+$currentMem = if ($appInfo.mem) {
+    $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
+    "$([math]::Min($memVal, $maxMem - $sidecarMem))Gi"
+} else { "$($maxMem - $sidecarMem)Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -252,7 +251,7 @@ $volumeName = "openclaw-state"
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 if ($Npm) {
-    # --- NPM variant YAML (with Redis + Ollama sidecars) ---
+    # --- NPM variant YAML (with Redis + Ollama + PostgreSQL sidecars) ---
     $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -300,6 +299,8 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
+      - name: DATABASE_URL
+        value: postgresql://openclaw:openclaw@localhost:5432/openclaw
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -362,6 +363,28 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/ollama/.ollama
+    - name: postgres
+      image: postgres:17-alpine
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      env:
+      - name: POSTGRES_USER
+        value: openclaw
+      - name: POSTGRES_PASSWORD
+        value: openclaw
+      - name: POSTGRES_DB
+        value: openclaw
+      - name: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /var/lib/postgresql/data
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 5432
+        periodSeconds: 30
     scale:
       minReplicas: 1
       maxReplicas: 1
@@ -371,7 +394,7 @@ properties:
       storageName: $StorageName
 "@
 } else {
-    # --- Source-build variant YAML (with Ollama sidecar) ---
+    # --- Source-build variant YAML (with Ollama + PostgreSQL sidecars) ---
     $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
@@ -417,6 +440,8 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
+      - name: DATABASE_URL
+        value: postgresql://openclaw:openclaw@localhost:5432/openclaw
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -460,6 +485,28 @@ properties:
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/ollama/.ollama
+    - name: postgres
+      image: postgres:17-alpine
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      env:
+      - name: POSTGRES_USER
+        value: openclaw
+      - name: POSTGRES_PASSWORD
+        value: openclaw
+      - name: POSTGRES_DB
+        value: openclaw
+      - name: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /var/lib/postgresql/data
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 5432
+        periodSeconds: 30
     scale:
       minReplicas: 1
       maxReplicas: 1
