@@ -1,0 +1,78 @@
+# Copilot Instructions — OpenClaw on Azure Container Apps
+
+## Project overview
+
+This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Container Apps using Bicep for infrastructure and PowerShell scripts for image build + app configuration. The deployment uses NFS-backed persistent storage, an Ollama sidecar for local model inference, and GitHub Copilot as the primary LLM provider.
+
+## Repository structure
+
+- `bicep/` — Infrastructure as Code (Bicep templates + parameter files)
+  - `main.bicep` / `main.bicepparam` — Source-build variant (deployment name: `main`)
+  - `mainnpm.bicep` / `mainnpm.bicepparam` — npm-install variant (deployment name: `mainnpm`)
+- `images/` — Dockerfiles for extended tool images (`Dockerfile.tools`, `Dockerfile.npmtools`)
+- `deploy-openclaw.ps1` / `deploy-openclawnpm.ps1` — First-time deploy scripts
+- `update-openclaw.ps1` / `update-openclawnpm.ps1` — Update scripts (preserve tokens/config)
+- `openclaw-repo/` — Cloned OpenClaw source (gitignored, populated at deploy time)
+
+## Bicep conventions
+
+- Follow Azure Cloud Adoption Framework (CAF) naming: `rg-`, `vnet-`, `snet-`, `cae-`, `ca-`, `law-`, `pep-`, `acr`, `st`.
+- Use `uniqueString(resourceGroup().id)` for globally unique names (ACR, Storage). Never hardcode globally unique names.
+- All resources deploy to a single resource group and region (`swedencentral` default).
+- NFS is used instead of SMB because some Azure tenants enforce `allowSharedKeyAccess: false`, which blocks SMB mounts. NFS authenticates via private endpoint network rules.
+- Bicep deploys a placeholder container first (Microsoft ACA quickstart image); the deploy script then swaps in the real OpenClaw image.
+
+## PowerShell script conventions
+
+- Scripts auto-discover resource names from Bicep deployment outputs (`az deployment group show --query`). Never hardcode resource names.
+- Use `$ErrorActionPreference = "Stop"` at the top of every script.
+- Check `$LASTEXITCODE` after every `az` CLI call and `throw` on failure.
+- Gateway tokens are 256-bit cryptographic random values generated via `[System.Security.Cryptography.RandomNumberGenerator]`.
+- Update scripts preserve existing secrets, environment variables, NFS volume mounts, and probes by reading them from the running app before generating the YAML update template.
+- YAML templates for `az containerapp update` are written to temp files and cleaned up in `finally` blocks.
+
+## Container image build
+
+- Images build remotely via `az acr build` — no local Docker required.
+- Two-step build: base OpenClaw image from source Dockerfile, then a tools layer (`Dockerfile.tools`) adding Go, GitHub CLI, Gemini CLI, and GoG CLI.
+- ACR Tasks uses the classic Docker builder, so BuildKit `--mount=type=cache` directives must be stripped from the Dockerfile before building. The scripts handle this automatically.
+- Set `$env:PYTHONIOENCODING = "utf-8"` before ACR builds to avoid encoding issues in Azure CLI output.
+
+## Container Apps constraints
+
+- Consumption tier limits: 4 vCPU / 8 GiB total per app (across all containers).
+- The Ollama sidecar uses 1.0 vCPU / 2 GiB; OpenClaw gets the remainder (default 3.0 vCPU / 6 GiB).
+- Always validate that total CPU + memory across all containers stays within tier limits.
+- Scale: `minReplicas: 1`, `maxReplicas: 1` (single-instance gateway).
+- Use TCP probes for OpenClaw startup/liveness (port 18789) and HTTP probes for Ollama (port 11434).
+
+## Security best practices
+
+- Never log or echo secrets (gateway tokens, ACR passwords) to stdout in plain text except in the final summary block.
+- Store secrets as Container App secrets and reference them via `secretRef` in environment variables.
+- Use private endpoints for storage access — no public blob/file endpoints.
+- `allowInsecureAuth` is enabled for initial setup convenience; recommend device pairing for production hardening.
+- Run `node openclaw.mjs security audit` after deployment to verify security posture.
+
+## Code style
+
+- PowerShell: use `Write-Host` with `-ForegroundColor` for progress output (Cyan for headers, Green for success, Gray for substeps, Yellow for tokens/warnings).
+- Bicep: include descriptive `@description()` decorators on all parameters. Add a file-level comment block explaining purpose and usage.
+- Dockerfiles: pin tool versions explicitly (e.g., `go1.24.1`, `gh_2.72.0`). Add header comments documenting all installed tools.
+- Use heredoc-style YAML (`@"..."@`) in PowerShell for Container App update templates. Escape `$` as `` `$ `` inside heredocs when referencing shell variables at container runtime.
+
+## Common tasks
+
+- **Adding a new tool to the image**: Edit `images/Dockerfile.tools`. Pin the version. Add a comment in the header listing the new tool.
+- **Changing default resources**: Update the `param` block in `deploy-openclaw.ps1` and the Ollama budget calculation. Verify total stays under 4 vCPU / 8 GiB.
+- **Adding a new environment variable**: Add it to both the deploy and update scripts' YAML templates to ensure it persists across updates.
+- **Adding a new Bicep parameter**: Add the param with `@description()`, add it to the `.bicepparam` file, and document it in the README.
+
+## Do not
+
+- Do not use SMB for storage mounts — use NFS with private endpoints.
+- Do not hardcode resource names that must be globally unique — use `uniqueString()`.
+- Do not use `--no-wait` on `az containerapp update` — the scripts need to verify the revision reaches Running state.
+- Do not skip the Dockerfile patching step (stripping `--mount=type=cache`) for ACR builds.
+- Do not add `docker` or `docker-compose` commands — all builds go through `az acr build`.
+- Do not store secrets in environment variables directly — use Container App secrets with `secretRef`.
