@@ -1,0 +1,55 @@
+name: Lint Dockerfiles
+
+on:
+  pull_request:
+    paths:
+      - 'images/**'
+  push:
+    branches: [main]
+    paths:
+      - 'images/**'
+
+permissions:
+  contents: read
+
+jobs:
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile.tools
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: images/Dockerfile.tools
+          # DL3008: pin apt versions — acceptable for tool images
+          # DL3059: multiple consecutive RUN — each tool is a separate logical step
+          ignore: DL3008,DL3059
+
+      - name: Lint Dockerfile.npmtools
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: images/Dockerfile.npmtools
+          ignore: DL3008,DL3059
+
+      - name: Check pinned versions
+        run: |
+          echo "Checking that tool versions are pinned (no :latest tags for tools)..."
+          for f in images/Dockerfile.*; do
+            # Flag any curl/wget download URLs without version numbers (heuristic)
+            if grep -Pn 'curl.*github.com/.*/releases/download/[^v]' "$f" 2>/dev/null; then
+              echo "::warning file=$f::Found potentially unpinned download URL"
+            fi
+          done
+          echo "Version pin check complete"
+
+      - name: Verify USER node at end
+        run: |
+          for f in images/Dockerfile.*; do
+            last_user=$(grep -n '^USER' "$f" | tail -1 | awk '{print $2}')
+            if [ "$last_user" != "node" ] && [ "$last_user" != "openclaw" ]; then
+              echo "::error file=$f::Last USER directive should be 'node' or 'openclaw', found '$last_user'"
+              exit 1
+            fi
+          done
+          echo "USER directive check passed"

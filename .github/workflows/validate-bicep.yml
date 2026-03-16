@@ -1,0 +1,47 @@
+name: Validate Bicep
+
+on:
+  pull_request:
+    paths:
+      - 'bicep/**'
+  push:
+    branches: [main]
+    paths:
+      - 'bicep/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bicep CLI
+        run: |
+          az bicep install
+          az bicep version
+
+      - name: Lint and build main.bicep
+        run: az bicep build --file bicep/main.bicep
+
+      - name: Lint and build mainnpm.bicep
+        run: az bicep build --file bicep/mainnpm.bicep
+
+      - name: Check for hardcoded unique names
+        run: |
+          # Globally unique names must use uniqueString(), never be hardcoded
+          if grep -Pn "name:\s*'(acr|st)[a-z0-9]+'" bicep/*.bicep | grep -v uniqueString; then
+            echo "::error::Found hardcoded globally unique names. Use uniqueString(resourceGroup().id) instead."
+            exit 1
+          fi
+
+      - name: Check for @description decorators on params
+        run: |
+          # Every param should have a @description() decorator
+          missing=$(awk '/^param / && !found { print FILENAME ":" NR ": " $0 } { found = /@description/ } /^param / { found = 0 }' bicep/*.bicep)
+          if [ -n "$missing" ]; then
+            echo "::warning::Parameters without @description() decorator:"
+            echo "$missing"
+          fi

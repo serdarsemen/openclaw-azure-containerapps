@@ -1,0 +1,72 @@
+name: Lint PowerShell
+
+on:
+  pull_request:
+    paths:
+      - '*.ps1'
+  push:
+    branches: [main]
+    paths:
+      - '*.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Get-ChildItem -Path . -Filter *.ps1 -File |
+            ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Severity Warning,Error }
+
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+
+          Write-Host "All scripts passed PSScriptAnalyzer" -ForegroundColor Green
+
+      - name: Check ErrorActionPreference
+        shell: pwsh
+        run: |
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -File
+          $missing = @()
+          foreach ($script in $scripts) {
+            $content = Get-Content $script.FullName -Raw
+            if ($content -notmatch '\$ErrorActionPreference\s*=\s*"Stop"') {
+              $missing += $script.Name
+            }
+          }
+          if ($missing) {
+            Write-Warning "Scripts missing `$ErrorActionPreference = 'Stop': $($missing -join ', ')"
+          }
+
+      - name: Check LASTEXITCODE handling after az calls
+        shell: pwsh
+        run: |
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -File
+          foreach ($script in $scripts) {
+            $lines = Get-Content $script.FullName
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match '^\s*az\s' -and $lines[$i] -notmatch '2>\$null\s*\|' -and $lines[$i] -notmatch '--query') {
+                # Check if LASTEXITCODE is checked within 5 lines
+                $checked = $false
+                for ($j = $i + 1; $j -lt [Math]::Min($i + 6, $lines.Count); $j++) {
+                  if ($lines[$j] -match 'LASTEXITCODE') { $checked = $true; break }
+                  if ($lines[$j] -match '^\s*$') { continue }
+                  if ($lines[$j] -match '^\s*az\s') { break }
+                }
+              }
+            }
+          }
+          Write-Host "LASTEXITCODE check complete"

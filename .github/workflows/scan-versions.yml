@@ -1,0 +1,76 @@
+name: Scan Tool Versions
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Go version
+        id: go
+        run: |
+          PINNED=$(grep -oP 'go\K[0-9.]+' images/Dockerfile.tools | head -1)
+          LATEST=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' | sed 's/go//')
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Go: pinned=$PINNED latest=$LATEST"
+
+      - name: Check GitHub CLI version
+        id: gh
+        run: |
+          PINNED=$(grep -oP 'gh_\K[0-9.]+' images/Dockerfile.tools | head -1)
+          LATEST=$(curl -fsSL 'https://api.github.com/repos/cli/cli/releases/latest' | jq -r '.tag_name' | sed 's/v//')
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "GitHub CLI: pinned=$PINNED latest=$LATEST"
+
+      - name: Create issue if updates available
+        if: steps.go.outputs.pinned != steps.go.outputs.latest || steps.gh.outputs.pinned != steps.gh.outputs.latest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const updates = [];
+            if ('${{ steps.go.outputs.pinned }}' !== '${{ steps.go.outputs.latest }}') {
+              updates.push(`- **Go**: ${{ steps.go.outputs.pinned }} → ${{ steps.go.outputs.latest }}`);
+            }
+            if ('${{ steps.gh.outputs.pinned }}' !== '${{ steps.gh.outputs.latest }}') {
+              updates.push(`- **GitHub CLI**: ${{ steps.gh.outputs.pinned }} → ${{ steps.gh.outputs.latest }}`);
+            }
+
+            const title = `Tool version updates available (${new Date().toISOString().split('T')[0]})`;
+            const body = `## Pinned tool versions in \`images/Dockerfile.tools\` are outdated\n\n${updates.join('\n')}\n\n**To update:** Edit \`images/Dockerfile.tools\`, update the version numbers, and rebuild.`;
+
+            // Check for existing open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'dependencies'
+            });
+
+            const existing = issues.data.find(i => i.title.startsWith('Tool version updates available'));
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['dependencies']
+              });
+            }
