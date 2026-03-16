@@ -1,0 +1,23 @@
+# CODEOWNERS — Auto-assign reviewers by file path
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+*                       @spiroskon
+
+# Infrastructure
+bicep/                  @spiroskon
+*.bicep                 @spiroskon
+*.bicepparam            @spiroskon
+
+# Deployment scripts
+*.ps1                   @spiroskon
+
+# Container images
+images/                 @spiroskon
+
+# CI workflows
+.github/workflows/      @spiroskon
+
+# Documentation
+README.md               @spiroskon
+.github/                @spiroskon

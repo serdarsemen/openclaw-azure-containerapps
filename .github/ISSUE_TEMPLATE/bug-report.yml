@@ -1,0 +1,79 @@
+---
+name: Bug Report
+description: Report a deployment or runtime issue
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: variant
+    attributes:
+      label: Deployment variant
+      options:
+        - Source-build (deploy-openclaw.ps1 / main.bicep)
+        - npm (deploy-openclawnpm.ps1 / mainnpm.bicep)
+        - Combined (deploy-openclawfull.ps1)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Bicep infrastructure
+        - Deploy script
+        - Update script
+        - Container image build
+        - Container runtime / gateway
+        - NFS storage
+        - Ollama sidecar
+        - Networking / ingress
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the issue clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands run, parameters used, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste output from:
+        - `az containerapp logs show --name ca-openclaw --resource-group <rg> --tail 60`
+        - `az containerapp revision list --name ca-openclaw --resource-group <rg> -o table`
+        - Any script error output
+      render: shell
+
+  - type: input
+    id: az-version
+    attributes:
+      label: Azure CLI version
+      description: Output of `az version --output tsv`
+      placeholder: "2.80.0"
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 / macOS 15 / Ubuntu 24.04"
