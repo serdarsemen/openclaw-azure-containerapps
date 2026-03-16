@@ -1,7 +1,6 @@
 ---
 description: "Update an existing OpenClaw deployment to latest version"
 agent: "agent"
-tools: ["run_in_terminal", "read_file"]
 ---
 
 # Update OpenClaw Deployment
