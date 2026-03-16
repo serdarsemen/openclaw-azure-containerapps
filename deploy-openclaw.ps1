@@ -111,8 +111,9 @@ az acr build `
     --file $AcrDockerfile `
     $SourcePath
 
+$buildExitCode = $LASTEXITCODE
 Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
-if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+if ($buildExitCode -ne 0) { throw "Base image build failed" }
 Write-Host "  Base image pushed to $AcrName.azurecr.io/openclaw:base" -ForegroundColor Green
 
 $AcrServer = "$AcrName.azurecr.io"

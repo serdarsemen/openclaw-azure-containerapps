@@ -95,6 +95,8 @@ if ($Npm) {
     if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
     New-Item -ItemType Directory -Path $buildDir | Out-Null
 
+    $npmTag = if ($Tag) { $Tag } else { "latest" }
+
     $dockerfile = @"
 FROM node:22-slim
 
@@ -113,7 +115,7 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV npm_config_fund=false npm_config_audit=false
 
 # Install OpenClaw globally via npm and clean cache
-RUN npm i -g openclaw@$TAG && npm cache clean --force
+RUN npm i -g openclaw@$npmTag && npm cache clean --force
 
 RUN node -v && npm -v
 
@@ -218,8 +220,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         --file $AcrDockerfile `
         $SourcePath
 
+    $buildExitCode = $LASTEXITCODE
     Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
-    if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+    if ($buildExitCode -ne 0) { throw "Base image build failed" }
     Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
@@ -426,10 +429,6 @@ properties:
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
-      - name: REDIS_HOST
-        value: localhost
-      - name: REDIS_PORT
-        value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
       - name: NODE_ENV
