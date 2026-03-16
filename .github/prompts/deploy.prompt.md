@@ -1,6 +1,6 @@
 ---
 description: "Deploy OpenClaw to Azure Container Apps from scratch"
-mode: "agent"
+agent: "agent"
 tools: ["run_in_terminal", "read_file", "create_file", "replace_string_in_file"]
 ---
 

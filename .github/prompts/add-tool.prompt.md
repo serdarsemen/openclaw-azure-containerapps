@@ -1,6 +1,6 @@
 ---
 description: "Add a new CLI tool to the OpenClaw container image"
-mode: "agent"
+agent: "agent"
 tools: ["read_file", "replace_string_in_file", "run_in_terminal"]
 ---
 
