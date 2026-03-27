@@ -31,7 +31,7 @@ if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('ResourceGroup'))  { $ResourceGroup  = "rg-openclawnpm" }
     if (-not $PSBoundParameters.ContainsKey('DeploymentName')) { $DeploymentName = "mainnpm" }
     $BicepFile       = "mainnpm.bicep"
-    $HomeDir         = "/home/openclaw"
+    # $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
