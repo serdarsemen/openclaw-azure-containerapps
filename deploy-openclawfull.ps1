@@ -43,14 +43,14 @@ if ($Npm) {
     $BicepFile       = "mainnpm.bicep"
     $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
-    if (-not $Cpu)    { $Cpu    = "1.5" }
-    if (-not $Memory) { $Memory = "3Gi" }
-    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 12Gi — validate total <= 4 CPU / 16Gi
-    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 12.0
+    if (-not $Cpu)    { $Cpu    = "4.0" }
+    if (-not $Memory) { $Memory = "8Gi" }
+    # Redis sidecar: 0.5 CPU / 1Gi, Ollama sidecar: 11.5 CPU / 55Gi — validate total <= 16 CPU / 64Gi
+    $redisCpu = 0.5; $redisMem = 1.0; $ollamaCpu = 11.5; $ollamaMem = 55.0
     $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
     $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-    if ($totalCpu -gt 4.0 -or $totalMem -gt 16.0) {
-        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed D4 profile max (4 CPU / 16Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 12Gi) sidecars."
+    if ($totalCpu -gt 16.0 -or $totalMem -gt 64.0) {
+        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed D16 profile max (16 CPU / 64Gi). Reduce -Cpu/-Memory to account for Redis (0.5 CPU / 1Gi) + Ollama (11.5 CPU / 55Gi) sidecars."
     }
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
@@ -259,18 +259,23 @@ $envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
 if (-not $envId) { throw "Failed to get environment ID for $AppName" }
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d4-profile workload profile exists on the environment
+# Ensure workload profile exists on the environment
+if ($Npm) {
+    $profileName = "my-d16-profile"; $profileType = "D16"; $profileLabel = "D16"
+} else {
+    $profileName = "my-d4-profile"; $profileType = "D4"; $profileLabel = "D4"
+}
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+    --query "[?name=='$profileName'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
-    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    Write-Host "Adding $profileLabel workload profile to environment $envName..." -ForegroundColor Yellow
     az containerapp env workload-profile add `
         --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --workload-profile-type $profileType --workload-profile-name $profileName `
         --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
-    Write-Host "D4 workload profile added" -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add $profileLabel workload profile" }
+    Write-Host "$profileLabel workload profile added" -ForegroundColor Green
 }
 
 $StorageName = az containerapp env storage list `
@@ -286,7 +291,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updatedYaml = @"
 properties:
-  workloadProfileName: my-d4-profile
+  workloadProfileName: my-d16-profile
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -364,8 +369,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.25
-        memory: 0.5Gi
+        cpu: 0.5
+        memory: 1Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -381,8 +386,8 @@ properties:
       - -c
       - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 2.25
-        memory: 12Gi
+        cpu: 11.5
+        memory: 55Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434

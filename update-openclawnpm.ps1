@@ -128,22 +128,22 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d4-profile workload profile exists on the environment
+# Ensure my-d16-profile workload profile exists on the environment
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+    --query "[?name=='my-d16-profile'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
-    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    Write-Host "Adding D16 workload profile to environment $envName..." -ForegroundColor Yellow
     az containerapp env workload-profile add `
         --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --workload-profile-type D16 --workload-profile-name "my-d16-profile" `
         --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
-    Write-Host "D4 workload profile added" -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add D16 workload profile" }
+    Write-Host "D16 workload profile added" -ForegroundColor Green
 }
 
-$currentCpu= if ($appInfo.cpu) { $appInfo.cpu } else { "1.5" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "3Gi" }
+$currentCpu= if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
+$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -167,7 +167,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
-  workloadProfileName: my-d4-profile
+  workloadProfileName: my-d16-profile
   configuration:
     ingress:
       external: true
@@ -243,8 +243,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.25
-        memory: 0.5Gi
+        cpu: 0.5
+        memory: 1Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -260,8 +260,8 @@ properties:
       - -c
       - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 2.25
-        memory: 12Gi
+        cpu: 11.5
+        memory: 55Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434

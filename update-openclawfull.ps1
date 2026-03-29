@@ -219,25 +219,33 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d4-profile workload profile exists on the environment
+# Ensure workload profile exists on the environment
+if ($Npm) {
+    $profileName = "my-d16-profile"; $profileType = "D16"; $profileLabel = "D16"
+} else {
+    $profileName = "my-d4-profile"; $profileType = "D4"; $profileLabel = "D4"
+}
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+    --query "[?name=='$profileName'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
-    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    Write-Host "Adding $profileLabel workload profile to environment $envName..." -ForegroundColor Yellow
     az containerapp env workload-profile add `
         --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --workload-profile-type $profileType --workload-profile-name $profileName `
         --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
-    Write-Host "D4 workload profile added" -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add $profileLabel workload profile" }
+    Write-Host "$profileLabel workload profile added" -ForegroundColor Green
 }
 
-$maxCpu = 4.0
-$maxMem = 16.0
 if ($Npm) {
-    # NPM: sidecars = Redis (0.25/0.5) + Ollama (2.25/12.0) = 2.5 CPU / 12.5Gi
-    $sidecarCpu = 2.5; $sidecarMem = 12.5
+    $maxCpu = 16.0; $maxMem = 64.0
+} else {
+    $maxCpu = 4.0; $maxMem = 16.0
+}
+if ($Npm) {
+    # NPM: sidecars = Redis (0.5/1.0) + Ollama (11.5/55.0) = 12.0 CPU / 56.0Gi
+    $sidecarCpu = 12.0; $sidecarMem = 56.0
 } else {
     # Source-build: sidecars = Redis (0.25/0.5) + Ollama (2.25/12.0) = 2.5 CPU / 12.5Gi
     $sidecarCpu = 2.5; $sidecarMem = 12.5
@@ -271,7 +279,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updateYaml = @"
 properties:
-  workloadProfileName: my-d4-profile
+  workloadProfileName: my-d16-profile
   managedEnvironmentId: $envId
   configuration:
     ingress:
