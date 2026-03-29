@@ -120,16 +120,31 @@ $appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup 
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
-# Ollama sidecar uses 1.0 CPU / 2Gi; cap OpenClaw so the total stays within Consumption tier limits (4 CPU / 8Gi)
-$ollamaCpu = 1.0
-$ollamaMem = 2.0
+
+# Ensure my-d4-profile workload profile exists on the environment
+$existingProfiles = az containerapp env workload-profile list `
+    --resource-group $ResourceGroup --name $envName `
+    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+if (-not $existingProfiles) {
+    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    az containerapp env workload-profile add `
+        --resource-group $ResourceGroup --name $envName `
+        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --min-nodes 1 --max-nodes 3
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
+    Write-Host "D4 workload profile added" -ForegroundColor Green
+}
+
+# Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 12Gi — cap OpenClaw within D4 profile (4 CPU / 16Gi)
+$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 12.0
+$sidecarCpu = $redisCpu + $ollamaCpu; $sidecarMem = $redisMem + $ollamaMem
 $maxCpu = 4.0
-$maxMem = 8.0
-$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $ollamaCpu) } else { $maxCpu - $ollamaCpu }
+$maxMem = 16.0
+$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
     $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
-    "$([math]::Min($memVal, $maxMem - $ollamaMem))Gi"
-} else { "$($maxMem - $ollamaMem)Gi" }
+    "$([math]::Min($memVal, $maxMem - $sidecarMem))Gi"
+} else { "$($maxMem - $sidecarMem)Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -155,6 +170,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
+  workloadProfileName: my-d4-profile
   configuration:
     ingress:
       external: true
@@ -215,11 +231,34 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: redis
+      image: redis:7-alpine
+      command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /data
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 6379
+        periodSeconds: 30
     - name: ollama
       image: ollama/ollama:latest
+      command:
+      - /bin/sh
+      - -c
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 1.0
-        memory: 2Gi
+        cpu: 2.25
+        memory: 12Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434

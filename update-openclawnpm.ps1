@@ -127,8 +127,23 @@ $appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup 
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
-$currentCpu = if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
+
+# Ensure my-d4-profile workload profile exists on the environment
+$existingProfiles = az containerapp env workload-profile list `
+    --resource-group $ResourceGroup --name $envName `
+    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+if (-not $existingProfiles) {
+    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    az containerapp env workload-profile add `
+        --resource-group $ResourceGroup --name $envName `
+        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --min-nodes 1 --max-nodes 3
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
+    Write-Host "D4 workload profile added" -ForegroundColor Green
+}
+
+$currentCpu= if ($appInfo.cpu) { $appInfo.cpu } else { "1.5" }
+$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "3Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -152,6 +167,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
+  workloadProfileName: my-d4-profile
   configuration:
     ingress:
       external: true
@@ -239,9 +255,13 @@ properties:
         periodSeconds: 30
     - name: ollama
       image: ollama/ollama:latest
+      command:
+      - /bin/sh
+      - -c
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 1.0
-        memory: 2Gi
+        cpu: 2.25
+        memory: 12Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434

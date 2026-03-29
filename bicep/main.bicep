@@ -235,6 +235,12 @@ resource acaEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' = {
         name: 'Consumption'
         workloadProfileType: 'Consumption'
       }
+      {
+        name: 'my-d4-profile'
+        workloadProfileType: 'D4'
+        minimumCount: 1
+        maximumCount: 3
+      }
     ]
     appLogsConfiguration: {
       destination: 'log-analytics'
@@ -273,6 +279,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   location: location
   properties: {
     managedEnvironmentId: acaEnvironment.id
+    workloadProfileName: 'my-d4-profile'
     configuration: {
       ingress: {
         external: true
@@ -286,9 +293,33 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           name: appName
           image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
+            cpu: json('1.5')
+            memory: '3Gi'
+          }
+        }
+        {
+          name: 'redis'
+          image: 'redis:7-alpine'
+          resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          command: [
+            'redis-server'
+            '--appendonly'
+            'yes'
+            '--dir'
+            '/data'
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              tcpSocket: {
+                port: 6379
+              }
+              periodSeconds: 30
+            }
+          ]
         }
       ]
       scale: {

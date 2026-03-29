@@ -219,14 +219,28 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
+# Ensure my-d4-profile workload profile exists on the environment
+$existingProfiles = az containerapp env workload-profile list `
+    --resource-group $ResourceGroup --name $envName `
+    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+if (-not $existingProfiles) {
+    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
+    az containerapp env workload-profile add `
+        --resource-group $ResourceGroup --name $envName `
+        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
+        --min-nodes 1 --max-nodes 3
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
+    Write-Host "D4 workload profile added" -ForegroundColor Green
+}
+
 $maxCpu = 4.0
-$maxMem = 8.0
+$maxMem = 16.0
 if ($Npm) {
-    # NPM: sidecars = Redis (0.25/0.5) + Ollama (1.0/2.0) = 1.25 CPU / 2.5Gi
-    $sidecarCpu = 1.25; $sidecarMem = 2.5
+    # NPM: sidecars = Redis (0.25/0.5) + Ollama (2.25/12.0) = 2.5 CPU / 12.5Gi
+    $sidecarCpu = 2.5; $sidecarMem = 12.5
 } else {
-    # Source-build: sidecars = Ollama (1.0/2.0) = 1.0 CPU / 2.0Gi
-    $sidecarCpu = 1.0; $sidecarMem = 2.0
+    # Source-build: sidecars = Redis (0.25/0.5) + Ollama (2.25/12.0) = 2.5 CPU / 12.5Gi
+    $sidecarCpu = 2.5; $sidecarMem = 12.5
 }
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
@@ -257,6 +271,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updateYaml = @"
 properties:
+  workloadProfileName: my-d4-profile
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -345,9 +360,13 @@ properties:
         periodSeconds: 30
     - name: ollama
       image: ollama/ollama:latest
+      command:
+      - /bin/sh
+      - -c
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 1.0
-        memory: 2Gi
+        cpu: 2.25
+        memory: 12Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
@@ -376,6 +395,7 @@ properties:
     # --- Source-build variant YAML (with Ollama sidecar) ---
     $updateYaml = @"
 properties:
+  workloadProfileName: my-d4-profile
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -437,11 +457,34 @@ properties:
         tcpSocket:
           port: 18789
         periodSeconds: 30
+    - name: redis
+      image: redis:7-alpine
+      command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /data
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 6379
+        periodSeconds: 30
     - name: ollama
       image: ollama/ollama:latest
+      command:
+      - /bin/sh
+      - -c
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 1.0
-        memory: 2Gi
+        cpu: 2.25
+        memory: 12Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
