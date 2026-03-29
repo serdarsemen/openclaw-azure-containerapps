@@ -160,6 +160,10 @@ $GatewayToken = az containerapp secret show --name $AppName --resource-group $Re
     --secret-name gateway-token --query "value" -o tsv 2>$null
 if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
 
+$GroqApiKey = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
+    --secret-name groq-api-key --query "value" -o tsv 2>$null
+if (-not $GroqApiKey) { Write-Host "  Warning: groq-api-key secret not found — will be empty" -ForegroundColor Yellow; $GroqApiKey = "" }
+
 $volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
@@ -182,6 +186,8 @@ properties:
       value: $AcrPassword
     - name: gateway-token
       value: $GatewayToken
+    - name: groq-api-key
+      value: $GroqApiKey
   template:
     containers:
     - name: $AppName
@@ -212,6 +218,8 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
+      - name: GROQ_API_KEY
+        secretRef: groq-api-key
       - name: NODE_ENV
         value: production
       - name: HOME

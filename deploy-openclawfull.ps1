@@ -31,7 +31,8 @@ param(
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
     [string] $Cpu = "",
-    [string] $Memory = ""
+    [string] $Memory = "",
+    [string] $GroqApiKey = ""  # Groq API key — passed as a secret, never hardcoded
 )
 
 $ErrorActionPreference = "Stop"
@@ -307,6 +308,8 @@ properties:
       value: $AcrPassword
     - name: gateway-token
       value: $GatewayToken
+    - name: groq-api-key
+      value: $GroqApiKey
   template:
     containers:
     - name: $AppName
@@ -338,6 +341,8 @@ properties:
         value: "6379"
       - name: OLLAMA_HOST
         value: http://localhost:11434
+      - name: GROQ_API_KEY
+        secretRef: groq-api-key
       - name: NODE_ENV
         value: production
       - name: HOME
@@ -432,6 +437,8 @@ properties:
       value: $AcrPassword
     - name: gateway-token
       value: $GatewayToken
+    - name: groq-api-key
+      value: $GroqApiKey
   template:
     containers:
     - name: $AppName
@@ -456,6 +463,8 @@ properties:
         secretRef: gateway-token
       - name: OLLAMA_HOST
         value: http://localhost:11434
+      - name: GROQ_API_KEY
+        secretRef: groq-api-key
       - name: NODE_ENV
         value: production
       - name: HOME
