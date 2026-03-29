@@ -356,8 +356,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.25
-        memory: 0.5Gi
+        cpu: 0.5
+        memory: 1Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -373,8 +373,8 @@ properties:
       - -c
       - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
       resources:
-        cpu: 2.25
-        memory: 12Gi
+        cpu: 11.5
+        memory: 55Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
