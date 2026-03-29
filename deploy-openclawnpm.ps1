@@ -29,12 +29,21 @@
 
 param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
+    [string] $Tag = "",  # Optional openclaw npm version to pin (default: latest)
     [string] $Cpu = "4.0",
     [string] $Memory = "8Gi",
     [string] $GroqApiKey = ""  # Groq API key — passed as a secret, never hardcoded
 )
 
 $ErrorActionPreference = "Stop"
+
+# Redis sidecar: 0.5 CPU / 1Gi, Ollama sidecar: 11.5 CPU / 55Gi — validate total <= 16 CPU / 64Gi
+$redisCpu = 0.5; $redisMem = 1.0; $ollamaCpu = 11.5; $ollamaMem = 55.0
+$totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
+if ($totalCpu -gt 16.0 -or $totalMem -gt 64.0) {
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed D16 profile max (16 CPU / 64Gi). Reduce -Cpu/-Memory to account for Redis (0.5 CPU / 1Gi) + Ollama (11.5 CPU / 55Gi) sidecars."
+}
 
 # Auto-discover resource names from Bicep deployment outputs
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
@@ -44,12 +53,14 @@ $AppName = az deployment group show --resource-group $ResourceGroup --name mainn
     --query "properties.outputs.appName.value" -o tsv 2>$null
 
 if (-not $AcrName -or -not $AppName) {
-    throw "Could not discover ACR or App name from deployment outputs. Was main.bicep deployed to '$ResourceGroup'?"
+    throw "Could not discover ACR or App name from deployment outputs. Was mainnpm.bicep deployed to '$ResourceGroup'?"
 }
 Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
 Write-Host "`n=== Step 1/6: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
+
+$npmTag = if ($Tag) { $Tag } else { "latest" }
 
 $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
 if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
@@ -73,7 +84,7 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV npm_config_fund=false npm_config_audit=false
 
 # Install OpenClaw globally via npm and clean cache
-RUN npm i -g openclaw@latest && npm cache clean --force
+RUN npm i -g openclaw@$npmTag && npm cache clean --force
 
 RUN node -v && npm -v
 

@@ -111,7 +111,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     supportsHttpsTrafficOnly: false // NFS uses plain TCP port 2049, not HTTPS
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: 'Allow'
+      defaultAction: 'Deny'
       virtualNetworkRules: [
         {
           id: vnet::acaSubnet.id
@@ -348,7 +348,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           volumeMounts: [
             {
               volumeName: 'openclaw-state'
-              mountPath: '/root/.ollama'
+              mountPath: '/home/ollama/.ollama'
             }
           ]
           probes: [

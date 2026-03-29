@@ -142,8 +142,16 @@ if (-not $existingProfiles) {
     Write-Host "D16 workload profile added" -ForegroundColor Green
 }
 
-$currentCpu= if ($appInfo.cpu) { $appInfo.cpu } else { "4.0" }
-$currentMem = if ($appInfo.mem) { $appInfo.mem } else { "8Gi" }
+# Redis sidecar: 0.5 CPU / 1Gi, Ollama sidecar: 11.5 CPU / 55Gi — cap OpenClaw within D16 profile (16 CPU / 64Gi)
+$redisCpu = 0.5; $redisMem = 1.0; $ollamaCpu = 11.5; $ollamaMem = 55.0
+$sidecarCpu = $redisCpu + $ollamaCpu; $sidecarMem = $redisMem + $ollamaMem
+$maxCpu = 16.0
+$maxMem = 64.0
+$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
+$currentMem = if ($appInfo.mem) {
+    $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
+    "$([math]::Min($memVal, $maxMem - $sidecarMem))Gi"
+} else { "$($maxMem - $sidecarMem)Gi" }
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
@@ -199,8 +207,9 @@ properties:
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
-        npm config set prefix '/home/openclaw/.openclaw/npm-global' &&
+        npm config set prefix '~/.openclaw/npm-global' &&
         mkdir -p /home/openclaw/.openclaw/workspace/memory &&
+        mkdir -p /home/openclaw/.cache/qmd/models &&
         mkdir -p "`$GOPATH/bin" &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
