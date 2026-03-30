@@ -9,9 +9,11 @@
 #   - GitHub CLI 2.72.0 → /usr/local/bin/gh
 #   - Gemini CLI       → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI          → /usr/local/bin/gog     (built from source)
+#   - Python 3.11.x    → /usr/bin/python3
 #   - redis-py         → Python redis client    (installed via pip)
 
 ARG BASE_IMAGE
+ARG PYTHON_MAJOR_MINOR=3.11
 FROM ${BASE_IMAGE}
 
 USER root
@@ -35,8 +37,14 @@ RUN git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && go build -o /usr/local/bin/gog ./cmd/gog \
     && rm -rf /tmp/gogcli /root/go
 
+# ── Python 3.11.x (explicitly installed and validated) ──────────────────────
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip \
+    && python3 --version | grep -E "^Python ${PYTHON_MAJOR_MINOR}\\." \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── redis-py (Python Redis client) ───────────────────────────────────────────
-RUN python3 -m pip install --no-cache-dir redis
+RUN python3 -m pip install --break-system-packages --no-cache-dir redis
 
 # GOPATH for runtime-installed Go packages (persisted on NFS at /home/node/.openclaw/gopath)
 ENV GOPATH=/home/node/.openclaw/gopath
