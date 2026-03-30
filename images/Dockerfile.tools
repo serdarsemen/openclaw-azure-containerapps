@@ -9,8 +9,7 @@
 #   - GitHub CLI 2.72.0 → /usr/local/bin/gh
 #   - Gemini CLI       → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI          → /usr/local/bin/gog     (built from source)
-#   - uv               → /usr/local/bin/uv      (fast Python package manager)
-#   - redis-py         → Python redis client    (installed via uv)
+#   - redis-py         → Python redis client    (installed via pip)
 
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
@@ -36,11 +35,8 @@ RUN git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && go build -o /usr/local/bin/gog ./cmd/gog \
     && rm -rf /tmp/gogcli /root/go
 
-# ── uv (fast Python package manager) ─────────────────────────────────────────
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-
 # ── redis-py (Python Redis client) ───────────────────────────────────────────
-RUN uv pip install --system redis
+RUN python3 -m pip install --no-cache-dir redis
 
 # GOPATH for runtime-installed Go packages (persisted on NFS at /home/node/.openclaw/gopath)
 ENV GOPATH=/home/node/.openclaw/gopath
