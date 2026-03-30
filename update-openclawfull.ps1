@@ -173,7 +173,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
-    Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
+    Write-Host "This uploads source to Azure and builds remotely (~15 min)..."
 
     $env:PYTHONIOENCODING = "utf-8"
 
@@ -185,7 +185,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Set-Content $AcrDockerfile -Encoding utf8
     Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
 
-    Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
+    Write-Host "  Step 2a: Building base OpenClaw image (~15 min)..." -ForegroundColor Gray
     az acr build `
         --registry $AcrName `
         --image openclaw:base `
