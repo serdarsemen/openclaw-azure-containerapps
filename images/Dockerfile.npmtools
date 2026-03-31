@@ -40,10 +40,10 @@ RUN git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && go build -o /usr/local/bin/gog ./cmd/gog \
     && rm -rf /tmp/gogcli /root/go
 
-# ── Python 3.11.x (explicitly installed and validated) ──────────────────────
+# ── Python 3.14.x (explicitly installed and validated) ──────────────────────
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip \
-    && python3 --version | grep -E "^Python ${PYTHON_MAJOR_MINOR}\\." \
+    && python3 --version | grep -E "^Python ${PYTHON_MAJOR_MINOR}(\\.|$)" \
     && rm -rf /var/lib/apt/lists/*
 
 # ── redis-py (Python Redis client) ───────────────────────────────────────────

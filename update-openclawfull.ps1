@@ -68,6 +68,9 @@ if ($Npm) {
     New-Item -ItemType Directory -Path $buildDir | Out-Null
 
     $npmTag = if ($Tag) { $Tag } else { "latest" }
+    $npmTagSafe = ($npmTag -replace '[^A-Za-z0-9_.-]', '-').ToLower()
+    $baseImageTag = "openclaw:base-npm-$npmTagSafe"
+    $baseTagName = "base-npm-$npmTagSafe"
 
     $dockerfile = @"
 FROM node:22-slim
@@ -115,27 +118,48 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 
     $env:PYTHONIOENCODING = "utf-8"
+    $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    Write-Host "  Step 2a: Building base OpenClaw image..." -ForegroundColor Gray
-    az acr build `
+    $baseTagExists = az acr repository show-tags `
+      --name $AcrName `
+      --repository openclaw `
+      --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
+    $reuseBase = ($Tag -and $baseTagExists -eq "1")
+
+    if ($reuseBase) {
+      $step2aMode = "cache-hit (reused base image)"
+      Write-Host "  Step 2a: Reusing existing base image $AcrServer/$baseImageTag" -ForegroundColor Gray
+    } else {
+      $step2aMode = "rebuilt base image"
+      Write-Host "  Step 2a: Building base OpenClaw image as $baseImageTag..." -ForegroundColor Gray
+      az acr build `
         --registry $AcrName `
-        --image openclaw:base `
+        --image $baseImageTag `
         --file "$buildDir/Dockerfile" `
         $buildDir
 
-    if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
-    Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
+      if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+      Write-Host "  Base image pushed to $AcrServer/$baseImageTag" -ForegroundColor Green
+    }
+    $step2aStopwatch.Stop()
+    Write-Host ("  Step 2a result: {0} in {1:N1}s" -f $step2aMode, $step2aStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
+    $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     az acr build `
         --registry $AcrName `
         --image openclaw:latest `
-        --build-arg "BASE_IMAGE=$AcrServer/openclaw:base" `
+      --build-arg "BASE_IMAGE=$AcrServer/$baseImageTag" `
         --file $ToolsDockerfile `
         images
 
     if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
+    $step2bStopwatch.Stop()
+    $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
+    Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+    Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
     # Clean up temp build dir
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -169,44 +193,70 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Pop-Location
     }
 
-    $ref = if ($Tag) { $Tag } else { "latest (main)" }
+    $sourceCommit = git -C $SourcePath rev-parse --short=12 HEAD 2>$null
+    if (-not $sourceCommit) { throw "Failed to read source commit from $SourcePath" }
+
+    $baseImageTag = "openclaw:base-$sourceCommit"
+    $baseTagName = "base-$sourceCommit"
+
+    $ref = if ($Tag) { "$Tag ($sourceCommit)" } else { "latest (main @ $sourceCommit)" }
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
     Write-Host "This uploads source to Azure and builds remotely (~15 min)..."
 
     $env:PYTHONIOENCODING = "utf-8"
+    $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
-    $AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
-    (Get-Content "$SourcePath/Dockerfile" -Raw) `
+    $baseTagExists = az acr repository show-tags `
+      --name $AcrName `
+      --repository openclaw `
+      --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
+
+    if ($baseTagExists -eq "1") {
+      $step2aMode = "cache-hit (reused base image)"
+      Write-Host "  Step 2a: Reusing existing base image $AcrServer/$baseImageTag" -ForegroundColor Gray
+    } else {
+      $step2aMode = "rebuilt base image"
+      # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
+      $AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
+      (Get-Content "$SourcePath/Dockerfile" -Raw) `
         -replace '--mount=type=cache,\S+\s*', '' `
         -replace '(?m)^\s+\\\r?\n', '' |
         Set-Content $AcrDockerfile -Encoding utf8
-    Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
+      Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
 
-    Write-Host "  Step 2a: Building base OpenClaw image (~15 min)..." -ForegroundColor Gray
-    az acr build `
+      Write-Host "  Step 2a: Building base OpenClaw image as $baseImageTag (~15 min)..." -ForegroundColor Gray
+      az acr build `
         --registry $AcrName `
-        --image openclaw:base `
+        --image $baseImageTag `
         --file $AcrDockerfile `
         $SourcePath
 
-    $buildExitCode = $LASTEXITCODE
-    Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
-    if ($buildExitCode -ne 0) { throw "Base image build failed" }
-    Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
+      $buildExitCode = $LASTEXITCODE
+      Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
+      if ($buildExitCode -ne 0) { throw "Base image build failed" }
+      Write-Host "  Base image pushed to $AcrServer/$baseImageTag" -ForegroundColor Green
+    }
+    $step2aStopwatch.Stop()
+    Write-Host ("  Step 2a result: {0} in {1:N1}s" -f $step2aMode, $step2aStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
+    $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     az acr build `
         --registry $AcrName `
         --image openclaw:latest `
-        --build-arg "BASE_IMAGE=$AcrServer/openclaw:base" `
+      --build-arg "BASE_IMAGE=$AcrServer/$baseImageTag" `
         --file $ToolsDockerfile `
         images
 
     if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
+    $step2bStopwatch.Stop()
+    $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
+    Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+    Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 }
 
 # --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
