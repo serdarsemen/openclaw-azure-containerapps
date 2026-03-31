@@ -55,4 +55,11 @@ RUN python3 -m pip install --no-cache-dir redis
 ENV GOPATH=/home/node/.openclaw/gopath
 ENV PATH="${GOPATH}/bin:${PATH}"
 
+RUN cp /home/node/.openclaw/openclaw.json /home/node/.openclaw/openclaw.json.corrupt \
+    && echo '{}' > /home/node/.openclaw/openclaw.json
+
+
+# COPY /home/node/.openclaw/openclaw.json2 /home/node/.openclaw/openclaw.json
+# COPY /home/node/.openclaw/openclaw.json.bak /home/node/.openclaw/openclaw.json
+
 USER node

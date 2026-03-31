@@ -223,6 +223,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
       $AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
       (Get-Content "$SourcePath/Dockerfile" -Raw) `
         -replace '--mount=type=cache,\S+\s*', '' `
+        -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
         -replace '(?m)^\s+\\\r?\n', '' |
         Set-Content $AcrDockerfile -Encoding utf8
       Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
