@@ -9,11 +9,11 @@
 #   - GitHub CLI 2.72.0 → /usr/local/bin/gh
 #   - Gemini CLI       → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI          → /usr/local/bin/gog     (built from source)
-#   - Python 3.14.3    → /usr/bin/python3
+#   - Python 3.14    → /usr/bin/python3
 #   - redis-py         → Python redis client    (installed via pip)
 
 ARG BASE_IMAGE
-ARG PYTHON_MAJOR_MINOR=3.14.3
+ARG PYTHON_MAJOR_MINOR=3.14
 FROM ${BASE_IMAGE}
 ARG PYTHON_MAJOR_MINOR
 
