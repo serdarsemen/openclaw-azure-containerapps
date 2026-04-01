@@ -24,15 +24,18 @@ ARG PYTHON_VERSION
 
 USER root
 
-# ── Python runtime (headers excluded — not needed at runtime) ────────────────
-COPY --from=python-runtime /usr/local/bin/ /usr/local/bin/
-COPY --from=python-runtime /usr/local/lib/ /usr/local/lib/
+# ── Python runtime (targeted copy — avoids overwriting node/npm binaries) ────
+COPY --from=python-runtime /usr/local/bin/python* /usr/local/bin/
+COPY --from=python-runtime /usr/local/bin/pip* /usr/local/bin/
+COPY --from=python-runtime /usr/local/lib/python${PYTHON_VERSION} /usr/local/lib/python${PYTHON_VERSION}
+COPY --from=python-runtime /usr/local/lib/libpython* /usr/local/lib/
 
 # ── All CLI tools in a single layer ─────────────────────────────────────────
 ENV GOROOT=/usr/local/go \
     PATH="/usr/local/go/bin:${PATH}"
 
 RUN set -eux \
+    && ldconfig \
     # Go 1.24.1
     && curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz \
        | tar -xz -C /usr/local \
@@ -40,7 +43,7 @@ RUN set -eux \
     && curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
        | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh \
     # Gemini CLI (npm)
-    && npm install -g @google/gemini-cli@latest 2>/dev/null \
+    && npm install -g @google/gemini-cli@latest \
     # GoG CLI (built from source)
     && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && cd /tmp/gogcli && go build -o /usr/local/bin/gog ./cmd/gog \
