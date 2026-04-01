@@ -53,10 +53,10 @@ RUN set -eux \
     && BUN_INSTALL=/usr/local curl -fsSL https://bun.sh/install | bash \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
     # Python validation + redis-py
-    && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}$" \
+    && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
     && python3 -m pip install --no-cache-dir redis \
     # Clean up build artifacts, Go module cache, npm cache
-    && rm -rf /tmp/gogcli /root/go /root/.cache/go-build \
+    && cd / && rm -rf /tmp/gogcli /root/go /root/.cache/go-build \
     && npm cache clean --force
 
 ENV GOPATH=/home/openclaw/.openclaw/gopath \
