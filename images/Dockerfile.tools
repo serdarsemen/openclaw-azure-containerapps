@@ -16,7 +16,7 @@
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
 
 ARG BASE_IMAGE
-ARG PYTHON_VERSION=3.14.3
+ARG PYTHON_VERSION=3.14
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-runtime
 
 FROM ${BASE_IMAGE}
