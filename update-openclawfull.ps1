@@ -509,7 +509,7 @@ properties:
       - -c
       - >-
         chmod -R 755 /app/extensions &&
-        # mkdir -p /home/node/.openclaw/workspace/memory &&
+        mkdir -p /home/node/.openclaw/workspace/memory &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&

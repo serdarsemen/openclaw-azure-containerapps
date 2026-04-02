@@ -37,6 +37,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Azure Container Apps rejects secrets with empty values — use a placeholder
+if (-not $GroqApiKey) { $GroqApiKey = "REPLACE_ME" }
+
 # --- Set variant-specific defaults ---
 if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('ResourceGroup'))  { $ResourceGroup  = "rg-openclawnpm" }
