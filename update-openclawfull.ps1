@@ -291,7 +291,7 @@ $envName = $envId.Split("/")[-1]
 
 # Ensure workload profile exists on the environment
 if ($Npm) {
-    $profileName = "my-d16-profile"; $profileType = "D16"; $profileLabel = "D16"
+    $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
 } else {
   $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
 }
@@ -313,16 +313,16 @@ if (-not $existingProfiles) {
 }
 
 if ($Npm) {
-    $maxCpu = 16.0; $maxMem = 64.0
+    $maxCpu = 4.0; $maxMem = 8.0
 } else {
-    $maxCpu = 4.0; $maxMem = 16.0
+    $maxCpu = 4.0; $maxMem = 8.0
 }
 if ($Npm) {
-    # NPM: sidecars = Redis (0.5/1.0) + Ollama (11.5/55.0) = 12.0 CPU / 56.0Gi
-    $sidecarCpu = 12.0; $sidecarMem = 56.0
+    # NPM: sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
+    $sidecarCpu = 2.5; $sidecarMem = 6.0
 } else {
-    # Source-build: sidecars = Redis (0.25/0.5) + Ollama (2.25/12.0) = 2.5 CPU / 12.5Gi
-    $sidecarCpu = 2.5; $sidecarMem = 12.5
+    # Source-build: sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
+    $sidecarCpu = 2.5; $sidecarMem = 6.0
 }
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
@@ -357,7 +357,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updateYaml = @"
 properties:
-  workloadProfileName: my-d16-profile
+  workloadProfileName: Consumption
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -439,8 +439,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.5
-        memory: 1Gi
+        cpu: 0.25
+        memory: 0.5Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -454,10 +454,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
-        cpu: 11.5
-        memory: 55Gi
+        cpu: 2.25
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
@@ -580,10 +580,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
         cpu: 2.25
-        memory: 12Gi
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434

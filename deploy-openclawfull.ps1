@@ -47,14 +47,14 @@ if ($Npm) {
     $BicepFile       = "mainnpm.bicep"
     $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
-    if (-not $Cpu)    { $Cpu    = "4.0" }
-    if (-not $Memory) { $Memory = "8Gi" }
-    # Redis sidecar: 0.5 CPU / 1Gi, Ollama sidecar: 11.5 CPU / 55Gi — validate total <= 16 CPU / 64Gi
-    $redisCpu = 0.5; $redisMem = 1.0; $ollamaCpu = 11.5; $ollamaMem = 55.0
+    if (-not $Cpu)    { $Cpu    = "1.5" }
+    if (-not $Memory) { $Memory = "2Gi" }
+    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — validate total <= 4 CPU / 8Gi
+    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
     $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
     $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-    if ($totalCpu -gt 16.0 -or $totalMem -gt 64.0) {
-        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed D16 profile max (16 CPU / 64Gi). Reduce -Cpu/-Memory to account for Redis (0.5 CPU / 1Gi) + Ollama (11.5 CPU / 55Gi) sidecars."
+    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
     }
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
@@ -62,13 +62,13 @@ if ($Npm) {
     $HomeDir         = "/home/node"
     $ToolsDockerfile = "images/Dockerfile.tools"
     if (-not $Cpu)    { $Cpu    = "1.5" }
-    if (-not $Memory) { $Memory = "3Gi" }
-    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 12Gi — validate total <= 4 CPU / 16Gi
-    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 12.0
+    if (-not $Memory) { $Memory = "2Gi" }
+    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — validate total <= 4 CPU / 8Gi
+    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
     $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
     $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-    if ($totalCpu -gt 4.0 -or $totalMem -gt 16.0) {
-        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed source profile budget (4 CPU / 16Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 12Gi) sidecars."
+    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
     }
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
@@ -265,7 +265,7 @@ $envName = $envId.Split("/")[-1]
 
 # Ensure workload profile exists on the environment
 if ($Npm) {
-    $profileName = "my-d16-profile"; $profileType = "D16"; $profileLabel = "D16"
+    $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
 } else {
   $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
 }
@@ -299,7 +299,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis + Ollama sidecars) ---
     $updatedYaml = @"
 properties:
-  workloadProfileName: my-d16-profile
+  workloadProfileName: Consumption
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -381,8 +381,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.5
-        memory: 1Gi
+        cpu: 0.25
+        memory: 0.5Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -396,10 +396,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
-        cpu: 11.5
-        memory: 55Gi
+        cpu: 2.25
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
@@ -522,10 +522,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
         cpu: 2.25
-        memory: 12Gi
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
