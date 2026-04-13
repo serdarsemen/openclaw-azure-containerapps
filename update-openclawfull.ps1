@@ -293,19 +293,23 @@ $envName = $envId.Split("/")[-1]
 if ($Npm) {
     $profileName = "my-d16-profile"; $profileType = "D16"; $profileLabel = "D16"
 } else {
-    $profileName = "my-d4-profile"; $profileType = "D4"; $profileLabel = "D4"
+  $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
 }
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
     --query "[?name=='$profileName'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
+  if ($profileName -eq "Consumption") {
+    Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
+  } else {
     Write-Host "Adding $profileLabel workload profile to environment $envName..." -ForegroundColor Yellow
     az containerapp env workload-profile add `
-        --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type $profileType --workload-profile-name $profileName `
-        --min-nodes 1 --max-nodes 3
+      --resource-group $ResourceGroup --name $envName `
+      --workload-profile-type $profileType --workload-profile-name $profileName `
+      --min-nodes 1 --max-nodes 3
     if ($LASTEXITCODE -ne 0) { throw "Failed to add $profileLabel workload profile" }
     Write-Host "$profileLabel workload profile added" -ForegroundColor Green
+  }
 }
 
 if ($Npm) {
@@ -482,7 +486,7 @@ properties:
     # --- Source-build variant YAML (with Ollama sidecar) ---
     $updateYaml = @"
 properties:
-  workloadProfileName: my-d4-profile
+  workloadProfileName: Consumption
   managedEnvironmentId: $envId
   configuration:
     ingress:

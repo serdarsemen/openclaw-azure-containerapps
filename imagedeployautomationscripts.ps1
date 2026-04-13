@@ -1,4 +1,5 @@
-# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # Parameters and resource discovery
 # ---------------------------------------------------------------------------
 param(
@@ -24,19 +25,8 @@ $envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
 if (-not $envId) { throw "Failed to get environment ID for $AppName" }
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d4-profile workload profile exists on the environment
-$existingProfiles = az containerapp env workload-profile list `
-    --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
-if (-not $existingProfiles) {
-    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
-    az containerapp env workload-profile add `
-        --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
-        --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
-    Write-Host "D4 workload profile added" -ForegroundColor Green
-}
+# Use built-in Consumption workload profile
+Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
 
 Write-Host "  ResourceGroup: $ResourceGroup" -ForegroundColor Green
 Write-Host "  ACR:           $AcrName" -ForegroundColor Green
@@ -75,7 +65,7 @@ az containerapp update `
     --name $AppName `
     --resource-group $ResourceGroup `
     --image "$AcrName.azurecr.io/openclaw:latest" `
-    --workload-profile-name "my-d4-profile"
+    --workload-profile-name "Consumption"
 
 # Or use ACR webhook to trigger a restart
 az acr webhook create `
@@ -96,7 +86,7 @@ az containerapp job create `
     --trigger-type Schedule `
     --cron-expression "0 3 * * *" `
     --cpu 1.0 --memory 2Gi `
-    --workload-profile-name "my-d4-profile" `
+    --workload-profile-name "Consumption" `
     --command "bash" "-c" `
     "az login --identity && az acr build --registry $AcrName --image openclaw:latest --file Dockerfile https://github.com/openclaw/openclaw.git && az containerapp update --name $AppName --resource-group $ResourceGroup --image $AcrName.azurecr.io/openclaw:latest"
 
