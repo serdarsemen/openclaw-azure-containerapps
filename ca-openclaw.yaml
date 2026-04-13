@@ -1,0 +1,173 @@
+id: /subscriptions/5dd947d8-7b09-4ad2-ba93-c543e1af12d5/resourceGroups/rg-openclaw/providers/Microsoft.App/containerapps/ca-openclaw
+identity:
+  type: None
+location: Sweden Central
+name: ca-openclaw
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    dapr: null
+    identitySettings: []
+    ingress:
+      additionalPortMappings: null
+      allowInsecure: false
+      clientCertificateMode: null
+      corsPolicy: null
+      customDomains: null
+      exposedPort: 0
+      external: true
+      fqdn: ca-openclaw.niceglacier-29f64b94.swedencentral.azurecontainerapps.io
+      ipSecurityRestrictions: null
+      stickySessions: null
+      targetPort: 18789
+      traffic:
+      - latestRevision: true
+        weight: 100
+      transport: Http
+    maxInactiveRevisions: 100
+    registries:
+    - identity: ''
+      passwordSecretRef: acr-password
+      server: acropenclawwyk6wkoab5a4a.azurecr.io
+      username: acropenclawwyk6wkoab5a4a
+    runtime: null
+    secrets:
+    - name: acr-password
+    - name: gateway-token
+    - name: groq-api-key
+    service: null
+  customDomainVerificationId: E33BA2DB7F41115BDFFC7BD7E381511707B25B4C371E2EBB76AA2D9D0CD55214
+  delegatedIdentities: []
+  environmentId: /subscriptions/5dd947d8-7b09-4ad2-ba93-c543e1af12d5/resourceGroups/rg-openclaw/providers/Microsoft.App/managedEnvironments/cae-openclaw
+  eventStreamEndpoint: https://swedencentral.azurecontainerapps.dev/subscriptions/5dd947d8-7b09-4ad2-ba93-c543e1af12d5/resourceGroups/rg-openclaw/containerApps/ca-openclaw/eventstream
+  latestReadyRevisionName: ca-openclaw--0000036
+  latestRevisionFqdn: ca-openclaw--0000037.niceglacier-29f64b94.swedencentral.azurecontainerapps.io
+  latestRevisionName: ca-openclaw--0000037
+  managedEnvironmentId: /subscriptions/5dd947d8-7b09-4ad2-ba93-c543e1af12d5/resourceGroups/rg-openclaw/providers/Microsoft.App/managedEnvironments/cae-openclaw
+  outboundIpAddresses:
+  - 20.240.28.167
+  - 20.240.28.184
+  - 20.240.28.187
+  - 20.240.29.51
+  - 74.241.193.90
+  - 74.241.192.157
+  - 74.241.192.45
+  - 74.241.193.154
+  - 74.241.192.111
+  - 74.241.193.34
+  - 9.223.20.105
+  - 135.116.6.186
+  - 9.223.21.30
+  - 9.223.218.210
+  - 135.116.14.134
+  - 9.223.143.243
+  - 9.223.9.149
+  - 74.241.137.85
+  - 74.241.139.161
+  - 74.241.138.64
+  - 74.241.136.237
+  - 9.223.21.119
+  - 9.223.10.153
+  - 9.223.225.145
+  - 9.223.220.233
+  - 74.241.136.44
+  - 9.223.87.134
+  - 74.241.139.29
+  - 9.223.20.250
+  - 9.223.20.145
+  - 20.240.38.142
+  - 20.240.38.235
+  - 20.240.37.255
+  - 20.240.37.231
+  - 74.241.204.139
+  - 74.241.204.246
+  - 74.241.202.17
+  - 74.241.200.59
+  - 74.241.205.78
+  - 74.241.203.192
+  - 9.223.237.26
+  - 9.223.246.165
+  - 74.241.209.91
+  - 74.241.211.241
+  - 9.223.245.238
+  - 135.116.14.86
+  - 9.223.173.128
+  - 9.223.237.22
+  - 4.225.86.27
+  - 9.223.75.69
+  - 9.223.245.208
+  - 9.223.237.31
+  - 9.223.45.114
+  - 9.223.24.231
+  - 74.241.210.170
+  - 9.223.246.185
+  - 9.223.16.144
+  - 135.116.37.178
+  - 9.223.247.36
+  - 9.223.18.163
+  - 4.225.210.148
+  provisioningState: Succeeded
+  runningStatus: Running
+  template:
+    containers:
+    - args:
+      - -c
+      - sleep infinity
+      command:
+      - /bin/sh
+      image: acropenclawwyk6wkoab5a4a.azurecr.io/openclaw:latest
+      name: ca-openclaw
+      resources:
+        cpu: 1.5
+        ephemeralStorage: 8Gi
+        memory: 2Gi
+      volumeMounts:
+      - mountPath: /home/node/.openclaw
+        volumeName: openclaw-state
+    - command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --dir
+      - /data
+      image: redis:7-alpine
+      name: redis
+      resources:
+        cpu: 0.25
+        ephemeralStorage: 1Gi
+        memory: 0.5Gi
+    - command:
+      - /bin/sh
+      - -c
+      - ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b
+        && ollama pull phi4-mini; wait
+      image: ollama/ollama:latest
+      name: ollama
+      resources:
+        cpu: 2.25
+        ephemeralStorage: 8Gi
+        memory: 5.5Gi
+    initContainers: null
+    revisionSuffix: ''
+    scale:
+      cooldownPeriod: 300
+      maxReplicas: 1
+      minReplicas: 1
+      pollingInterval: 30
+      rules: null
+    serviceBinds: null
+    terminationGracePeriodSeconds: null
+    volumes:
+    - name: openclaw-state
+      storageName: openclawstorage
+      storageType: NfsAzureFile
+  workloadProfileName: Consumption
+resourceGroup: rg-openclaw
+systemData:
+  createdAt: '2026-02-28T14:21:24.430062'
+  createdBy: serdar_semen@hotmail.com
+  createdByType: User
+  lastModifiedAt: '2026-04-13T12:14:31.9950884'
+  lastModifiedBy: serdar_semen@hotmail.com
+  lastModifiedByType: User
+type: Microsoft.App/containerApps
