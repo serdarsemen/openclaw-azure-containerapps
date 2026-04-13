@@ -235,12 +235,6 @@ resource acaEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' = {
         name: 'Consumption'
         workloadProfileType: 'Consumption'
       }
-      {
-        name: 'my-d16-profile'
-        workloadProfileType: 'D16'
-        minimumCount: 1
-        maximumCount: 3
-      }
     ]
     appLogsConfiguration: {
       destination: 'log-analytics'
@@ -279,7 +273,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   location: location
   properties: {
     managedEnvironmentId: acaEnvironment.id
-    workloadProfileName: 'my-d16-profile'
+    workloadProfileName: 'Consumption'
     configuration: {
       ingress: {
         external: true
@@ -293,16 +287,16 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           name: appName
           image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
-            cpu: json('4.0')
-            memory: '8Gi'
+            cpu: json('1.5')
+            memory: '2Gi'
           }
         }
         {
           name: 'redis'
           image: 'redis:7-alpine'
           resources: {
-            cpu: json('0.5')
-            memory: '1Gi'
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           command: [
             'redis-server'
@@ -333,11 +327,11 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           command: [
             '/bin/sh'
             '-c'
-            'ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait'
+            'ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait'
           ]
           resources: {
-            cpu: json('11.5')
-            memory: '55Gi'
+            cpu: json('2.25')
+            memory: '5.5Gi'
           }
           env: [
             {

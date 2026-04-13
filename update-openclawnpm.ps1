@@ -128,25 +128,19 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d16-profile workload profile exists on the environment
+# Ensure Consumption workload profile exists on the environment (it should by default)
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d16-profile'].name" -o tsv 2>$null
+    --query "[?name=='Consumption'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
-    Write-Host "Adding D16 workload profile to environment $envName..." -ForegroundColor Yellow
-    az containerapp env workload-profile add `
-        --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D16 --workload-profile-name "my-d16-profile" `
-        --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D16 workload profile" }
-    Write-Host "D16 workload profile added" -ForegroundColor Green
+    throw "Consumption workload profile not found on environment $envName"
 }
 
-# Redis sidecar: 0.5 CPU / 1Gi, Ollama sidecar: 11.5 CPU / 55Gi — cap OpenClaw within D16 profile (16 CPU / 64Gi)
-$redisCpu = 0.5; $redisMem = 1.0; $ollamaCpu = 11.5; $ollamaMem = 55.0
+# Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — cap OpenClaw within Consumption profile (4 CPU / 8Gi)
+$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
 $sidecarCpu = $redisCpu + $ollamaCpu; $sidecarMem = $redisMem + $ollamaMem
-$maxCpu = 16.0
-$maxMem = 64.0
+$maxCpu = 4.0
+$maxMem = 8.0
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
     $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
@@ -179,7 +173,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 $updateYaml = @"
 properties:
   managedEnvironmentId: $envId
-  workloadProfileName: my-d16-profile
+  workloadProfileName: Consumption
   configuration:
     ingress:
       external: true
@@ -260,8 +254,8 @@ properties:
       - --dir
       - /data
       resources:
-        cpu: 0.5
-        memory: 1Gi
+        cpu: 0.25
+        memory: 0.5Gi
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /data
@@ -275,10 +269,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
-        cpu: 11.5
-        memory: 55Gi
+        cpu: 2.25
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
