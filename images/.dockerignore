@@ -1,0 +1,5 @@
+# Exclude non-build assets from ACR build context upload.
+# Only Dockerfiles are needed; images are documentation-only.
+*.png
+*.jpg
+*.jpeg

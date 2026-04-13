@@ -202,25 +202,45 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     $env:PYTHONIOENCODING = "utf-8"
 
-    # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
-    $AcrDockerfile = Join-Path $SourcePath "Dockerfile.acr"
-    (Get-Content "$SourcePath/Dockerfile" -Raw) `
-        -replace '--mount=type=cache,\S+\s*', '' `
-        -replace '(?m)^\s+\\\r?\n', '' |
-        Set-Content $AcrDockerfile -Encoding utf8
-    Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
+    # Export tracked files only into a clean temp context to avoid uploading untracked/modified files.
+    $BuildContextDir = Join-Path ([System.IO.Path]::GetTempPath()) ("openclaw-acr-context-" + [System.IO.Path]::GetRandomFileName())
+    $ArchivePath = "$BuildContextDir.zip"
+    New-Item -ItemType Directory -Path $BuildContextDir | Out-Null
 
-    Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
-    az acr build `
-        --registry $AcrName `
-        --image openclaw:base `
-        --file $AcrDockerfile `
-        $SourcePath
+    try {
+        git -C $SourcePath archive --format=zip --output $ArchivePath HEAD
+        if ($LASTEXITCODE -ne 0) { throw "Failed to export source archive for ACR build context" }
 
-    $buildExitCode = $LASTEXITCODE
-    Remove-Item $AcrDockerfile -ErrorAction SilentlyContinue
-    if ($buildExitCode -ne 0) { throw "Base image build failed" }
-    Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
+        Expand-Archive -Path $ArchivePath -DestinationPath $BuildContextDir -Force
+        Remove-Item $ArchivePath -Force -ErrorAction SilentlyContinue
+        Write-Host "  Prepared clean ACR build context from tracked source files" -ForegroundColor Gray
+
+        # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives
+        # and suppress pnpm self-update checks that can stall headless builds.
+        $AcrDockerfile = Join-Path $BuildContextDir "Dockerfile.acr"
+        (Get-Content (Join-Path $BuildContextDir "Dockerfile") -Raw) `
+            -replace '--mount=type=cache,\S+\s*', '' `
+            -replace 'pnpm install --frozen-lockfile', 'PNPM_DISABLE_SELF_UPDATE_CHECK=1 pnpm install --frozen-lockfile' `
+            -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
+            -replace 'CI=true PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
+            -replace '(?m)^\s+\\\r?\n', '' |
+            Set-Content $AcrDockerfile -Encoding utf8
+        Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
+
+        Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
+        az acr build `
+            --registry $AcrName `
+            --image openclaw:base `
+            --file $AcrDockerfile `
+            $BuildContextDir
+
+        if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+        Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
+    }
+    finally {
+        Remove-Item $ArchivePath -Force -ErrorAction SilentlyContinue
+        Remove-Item $BuildContextDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
     az acr build `
