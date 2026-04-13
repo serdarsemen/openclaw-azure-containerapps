@@ -235,12 +235,6 @@ resource acaEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' = {
         name: 'Consumption'
         workloadProfileType: 'Consumption'
       }
-      {
-        name: 'my-d4-profile'
-        workloadProfileType: 'D4'
-        minimumCount: 1
-        maximumCount: 3
-      }
     ]
     appLogsConfiguration: {
       destination: 'log-analytics'
@@ -279,7 +273,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   location: location
   properties: {
     managedEnvironmentId: acaEnvironment.id
-    workloadProfileName: 'my-d4-profile'
+    workloadProfileName: 'Consumption'
     configuration: {
       ingress: {
         external: true
@@ -294,7 +288,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
             cpu: json('1.5')
-            memory: '3Gi'
+            memory: '2Gi'
           }
         }
         {

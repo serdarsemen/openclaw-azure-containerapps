@@ -4,8 +4,8 @@
 # Variant: SOURCE BUILD (lightweight)
 #   - Builds from the OpenClaw Git repo Dockerfile
 #   - Two containers: OpenClaw gateway + Ollama sidecar
-#   - Default resources: 1.5 vCPU / 3 GiB (OpenClaw) + 0.25 vCPU / 0.5 GiB (Redis)
-#                        + 2.25 vCPU / 12 GiB (Ollama) [D4 profile: 4 vCPU / 16 GiB]
+#   - Default resources: 1.5 vCPU / 2 GiB (OpenClaw) + 0.25 vCPU / 0.5 GiB (Redis)
+#                        + 2.25 vCPU / 5.5 GiB (Ollama) [Consumption profile: 4 vCPU / 8 GiB]
 #   - Bicep template: main.bicep (deployment name: "main")
 #   - Home directory: /home/node
 #   - Ollama enables local model inference
@@ -30,18 +30,18 @@ param(
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",  # Optional Git tag or branch to check out (default: latest main)
     [string] $Cpu = "1.5",
-    [string] $Memory = "3Gi",
+    [string] $Memory = "2Gi",
     [string] $GroqApiKey = ""  # Groq API key — passed as a secret, never hardcoded
 )
 
 $ErrorActionPreference = "Stop"
 
-# Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 12Gi — validate total <= 4 CPU / 16Gi
-$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 12.0
+# Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — validate total <= 4 CPU / 8Gi
+$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
 $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
 $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-if ($totalCpu -gt 4.0 -or $totalMem -gt 16.0) {
-    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed D4 profile max (4 CPU / 16Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 12Gi) sidecars."
+if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
 }
 
 # Auto-discover resource names from Bicep deployment outputs
@@ -151,18 +151,12 @@ $envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
 if (-not $envId) { throw "Failed to get environment ID for $AppName" }
 $envName = $envId.Split("/")[-1]
 
-# Ensure my-d4-profile workload profile exists on the environment
+# Ensure Consumption workload profile exists on the environment (it should by default)
 $existingProfiles = az containerapp env workload-profile list `
     --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='my-d4-profile'].name" -o tsv 2>$null
+    --query "[?name=='Consumption'].name" -o tsv 2>$null
 if (-not $existingProfiles) {
-    Write-Host "Adding D4 workload profile to environment $envName..." -ForegroundColor Yellow
-    az containerapp env workload-profile add `
-        --resource-group $ResourceGroup --name $envName `
-        --workload-profile-type D4 --workload-profile-name "my-d4-profile" `
-        --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add D4 workload profile" }
-    Write-Host "D4 workload profile added" -ForegroundColor Green
+    throw "Consumption workload profile not found on environment $envName"
 }
 
 $StorageName= az containerapp env storage list `
@@ -179,7 +173,7 @@ $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRa
 $updatedYaml = @"
 properties:
   managedEnvironmentId: $envId
-  workloadProfileName: my-d4-profile
+  workloadProfileName: Consumption
   configuration:
     ingress:
       external: true
@@ -272,10 +266,10 @@ properties:
       command:
       - /bin/sh
       - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:14b && ollama pull deepseek-r1:14b && ollama pull phi4:14b; wait"
+      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
       resources:
         cpu: 2.25
-        memory: 12Gi
+        memory: 5.5Gi
       env:
       - name: OLLAMA_HOST
         value: 0.0.0.0:11434
