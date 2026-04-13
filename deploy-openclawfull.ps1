@@ -6,7 +6,7 @@
 #
 # Without -Npm: source-build variant (rg-openclaw, main.bicep, ca-openclaw, acropenclaw)
 #   - Builds from the OpenClaw Git repo Dockerfile
-#   - Two containers: OpenClaw gateway + Ollama sidecar
+#   - Three containers: OpenClaw gateway + Redis + Ollama
 #   - Home directory: /home/node
 #
 # With -Npm: npm-install variant (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
@@ -47,30 +47,23 @@ if ($Npm) {
     $BicepFile       = "mainnpm.bicep"
     $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
-    if (-not $Cpu)    { $Cpu    = "1.5" }
-    if (-not $Memory) { $Memory = "2Gi" }
-    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — validate total <= 4 CPU / 8Gi
-    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
-    $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
-    $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
-        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
-    }
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
     $BicepFile       = "main.bicep"
     $HomeDir         = "/home/node"
     $ToolsDockerfile = "images/Dockerfile.tools"
-    if (-not $Cpu)    { $Cpu    = "1.5" }
-    if (-not $Memory) { $Memory = "2Gi" }
-    # Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — validate total <= 4 CPU / 8Gi
-    $redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
-    $totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
-    $totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
-    if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
-        throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
-    }
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
+}
+
+# --- Resource defaults (both variants use Consumption: 4 CPU / 8Gi max) ---
+if (-not $Cpu)    { $Cpu    = "1.5" }
+if (-not $Memory) { $Memory = "2Gi" }
+# Sidecars: Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) — validate total <= 4 CPU / 8Gi
+$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
+$totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
+if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
 }
 
 # --- Discover resource names from Bicep deployment outputs ---
@@ -263,28 +256,9 @@ $envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
 if (-not $envId) { throw "Failed to get environment ID for $AppName" }
 $envName = $envId.Split("/")[-1]
 
-# Ensure workload profile exists on the environment
-if ($Npm) {
-    $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
-} else {
-  $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
-}
-$existingProfiles = az containerapp env workload-profile list `
-    --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='$profileName'].name" -o tsv 2>$null
-if (-not $existingProfiles) {
-  if ($profileName -eq "Consumption") {
-    Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
-  } else {
-    Write-Host "Adding $profileLabel workload profile to environment $envName..." -ForegroundColor Yellow
-    az containerapp env workload-profile add `
-      --resource-group $ResourceGroup --name $envName `
-      --workload-profile-type $profileType --workload-profile-name $profileName `
-      --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add $profileLabel workload profile" }
-    Write-Host "$profileLabel workload profile added" -ForegroundColor Green
-  }
-}
+# Both variants use the built-in Consumption workload profile
+$profileName = "Consumption"
+Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `

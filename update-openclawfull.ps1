@@ -289,41 +289,13 @@ if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container Ap
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
-# Ensure workload profile exists on the environment
-if ($Npm) {
-    $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
-} else {
-  $profileName = "Consumption"; $profileType = ""; $profileLabel = "Consumption"
-}
-$existingProfiles = az containerapp env workload-profile list `
-    --resource-group $ResourceGroup --name $envName `
-    --query "[?name=='$profileName'].name" -o tsv 2>$null
-if (-not $existingProfiles) {
-  if ($profileName -eq "Consumption") {
-    Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
-  } else {
-    Write-Host "Adding $profileLabel workload profile to environment $envName..." -ForegroundColor Yellow
-    az containerapp env workload-profile add `
-      --resource-group $ResourceGroup --name $envName `
-      --workload-profile-type $profileType --workload-profile-name $profileName `
-      --min-nodes 1 --max-nodes 3
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add $profileLabel workload profile" }
-    Write-Host "$profileLabel workload profile added" -ForegroundColor Green
-  }
-}
+# Both variants use the built-in Consumption workload profile
+$profileName = "Consumption"
+Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
 
-if ($Npm) {
-    $maxCpu = 4.0; $maxMem = 8.0
-} else {
-    $maxCpu = 4.0; $maxMem = 8.0
-}
-if ($Npm) {
-    # NPM: sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
-    $sidecarCpu = 2.5; $sidecarMem = 6.0
-} else {
-    # Source-build: sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
-    $sidecarCpu = 2.5; $sidecarMem = 6.0
-}
+# Both variants use Consumption: 4 CPU / 8Gi max, sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
+$maxCpu = 4.0; $maxMem = 8.0
+$sidecarCpu = 2.5; $sidecarMem = 6.0
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
     $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
