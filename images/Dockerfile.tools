@@ -39,19 +39,23 @@ RUN set -eux \
     # Go 1.24.1
     && curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz \
        | tar -xz -C /usr/local \
-    # GitHub CLI v2.72.0
+    # GitHub CLI v2.72.0 — strip debug symbols to halve binary size
     && curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
        | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh \
+    && strip /usr/local/bin/gh 2>/dev/null || true \
     # Gemini CLI (npm)
     && npm install -g @google/gemini-cli@latest \
-    # GoG CLI (built from source)
+    # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
     && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
-    && cd /tmp/gogcli && go build -o /usr/local/bin/gog ./cmd/gog \
+    && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
     # Python validation + redis-py
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
     && python3 -m pip install --no-cache-dir redis \
-    # Clean up build artifacts, Go module cache, npm cache
-    && cd / && rm -rf /tmp/gogcli /root/go /root/.cache/go-build \
+    # Comprehensive cleanup: Go caches, npm caches, pip caches, Python bytecache, test dirs
+    && cd / && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
+    && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
+    && find /usr/local/lib/python${PYTHON_VERSION} -type d -name "test*" -prune -exec rm -rf {} + 2>/dev/null || true \
+    && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
     && npm cache clean --force
 
 ENV GOPATH=/home/node/.openclaw/gopath \
