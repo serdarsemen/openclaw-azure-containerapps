@@ -283,46 +283,36 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
 # Discover existing environment, resources, and secrets from the running app
-$appInfo = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "{envId:properties.managedEnvironmentId, cpu:properties.template.containers[0].resources.cpu, mem:properties.template.containers[0].resources.memory}" -o json 2>$null | ConvertFrom-Json
+# Run 5 independent az CLI calls in parallel (saves ~10-15s vs sequential)
+Write-Host "  Running discovery queries in parallel..." -ForegroundColor Gray
+$jAppInfo  = Start-Job -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jAcr      = Start-Job -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
+$jGwToken  = Start-Job -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jGroqKey  = Start-Job -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jOllama   = Start-Job -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
+
+Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
+
+$appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
+$acrCredsJson = (Receive-Job $jAcr) -join "`n"
+$GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
+$GroqApiKey   = ((Receive-Job $jGroqKey) -join "").Trim()
+$OllamaFqdn   = ((Receive-Job $jOllama) -join "").Trim()
+Remove-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama -Force
+
+$appInfo = $appInfoJson | ConvertFrom-Json
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
 $envId = $appInfo.envId
 $envName = $envId.Split("/")[-1]
 
-# Both variants use the built-in Consumption workload profile
-$profileName = "Consumption"
-Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
-
-# Both variants use Consumption: 4 CPU / 8Gi max, sidecar = Redis (0.25/0.5)
-$maxCpu = 4.0; $maxMem = 8.0
-$sidecarCpu = 0.25; $sidecarMem = 0.5
-$currentCpu = $maxCpu - $sidecarCpu
-$currentMem = "$($maxMem - $sidecarMem)Gi"
-
-$StorageName = az containerapp env storage list `
-    --name $envName --resource-group $ResourceGroup `
-    --query "[0].name" -o tsv 2>$null
-if (-not $StorageName) { throw "No NFS storage found on environment $envName" }
-
-# Retrieve existing secrets so the YAML preserves them
-$AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
+$AcrCreds = $acrCredsJson | ConvertFrom-Json
 if (-not $AcrCreds) { throw "Failed to get ACR credentials for $AcrName" }
 $AcrUsername = $AcrCreds.username
 $AcrPassword = $AcrCreds.passwords[0].value
 
-$GatewayToken = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
-    --secret-name gateway-token --query "value" -o tsv 2>$null
 if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
-
-$GroqApiKey = az containerapp secret show --name $AppName --resource-group $ResourceGroup `
-    --secret-name groq-api-key --query "value" -o tsv 2>$null
 if (-not $GroqApiKey) { Write-Host "  Warning: groq-api-key secret not found — will be empty" -ForegroundColor Yellow; $GroqApiKey = "" }
 
-$volumeName = "openclaw-state"
-
-# Discover Ollama internal URL from the ca-ollama Container App in the same environment
-$OllamaFqdn = az containerapp show --name ca-ollama --resource-group $ResourceGroup `
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 if ($OllamaFqdn) {
     $OllamaHost = "http://${OllamaFqdn}"
     Write-Host "  Ollama URL: $OllamaHost" -ForegroundColor Green
@@ -330,6 +320,24 @@ if ($OllamaFqdn) {
     Write-Host "  ca-ollama not found — OLLAMA_HOST will not be set" -ForegroundColor Yellow
     $OllamaHost = ""
 }
+
+# Both variants use the built-in Consumption workload profile
+$profileName = "Consumption"
+Write-Host "  Workload profile: Consumption on $envName" -ForegroundColor Gray
+
+# Both variants use Consumption: 4 CPU / 8Gi max, sidecar = Redis (0.25/0.5)
+$maxCpu = 4.0; $maxMem = 8.0
+$sidecarCpu = 0.25; $sidecarMem = 0.5
+$currentCpu = $maxCpu - $sidecarCpu
+$currentMem = "$($maxMem - $sidecarMem)Gi"
+
+# Storage depends on envName — runs after parallel block
+$StorageName = az containerapp env storage list `
+    --name $envName --resource-group $ResourceGroup `
+    --query "[0].name" -o tsv 2>$null
+if (-not $StorageName) { throw "No NFS storage found on environment $envName" }
+
+$volumeName = "openclaw-state"
 
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
@@ -551,16 +559,17 @@ try {
 
 Write-Host "Container App updated via YAML" -ForegroundColor Green
 
-# Wait for the container to become ready
+# Wait for the container to become ready (single az call per iteration)
 Write-Host "`nWaiting for container to become ready..."
 $maxAttempts = 30
 $attempt = 0
 while ($attempt -lt $maxAttempts) {
     $attempt++
-    $latestRev = az containerapp show --name $AppName --resource-group $ResourceGroup `
-        --query "properties.latestRevisionName" -o tsv 2>$null
-    $running = az containerapp revision show --name $AppName --revision $latestRev --resource-group $ResourceGroup `
-        --query "properties.runningState" -o tsv 2>$null
+    $revTsv = az containerapp revision list --name $AppName --resource-group $ResourceGroup `
+        --query "reverse(sort_by(@, &properties.createdTime))[0].[name,properties.runningState]" -o tsv 2>$null
+    $parts = $revTsv -split "`t"
+    $latestRev = $parts[0]
+    $running = $parts[1]
     if ($running -in "Running", "RunningAtMaxScale") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
         break
@@ -573,8 +582,12 @@ if ($running -notin "Running", "RunningAtMaxScale") {
 }
 
 $rev = $latestRev
-$img = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "properties.template.containers[0].image" -o tsv 2>$null
+# Single call for both image and FQDN
+$postTsv = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "[properties.template.containers[0].image, properties.configuration.ingress.fqdn]" -o tsv 2>$null
+$postParts = $postTsv -split "`t"
+$img = $postParts[0]
+$fqdn = $postParts[1]
 
 # --- Post-update: Show recent container logs ---
 Write-Host "`n=== Recent container logs ===" -ForegroundColor Cyan
@@ -582,8 +595,6 @@ Write-Host "  Current revision: $rev (image: $img)" -ForegroundColor Green
 az containerapp logs show --name $AppName --resource-group $ResourceGroup --tail 60 2>$null
 
 Write-Host "`n=== Update complete ===" -ForegroundColor Green
-$fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 
 az containerapp revision list --name $AppName --resource-group $ResourceGroup -o table
 
