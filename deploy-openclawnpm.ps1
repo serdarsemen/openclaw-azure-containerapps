@@ -271,16 +271,13 @@ properties:
       image: redis:7-alpine
       command:
       - redis-server
+      - --save
+      - ""
       - --appendonly
-      - "yes"
-      - --dir
-      - /data
+      - "no"
       resources:
         cpu: 0.25
         memory: 0.5Gi
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /data
       probes:
       - type: liveness
         tcpSocket:

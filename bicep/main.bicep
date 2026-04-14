@@ -300,10 +300,10 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           }
           command: [
             'redis-server'
+            '--save'
+            ''
             '--appendonly'
-            'yes'
-            '--dir'
-            '/data'
+            'no'
           ]
           probes: [
             {
