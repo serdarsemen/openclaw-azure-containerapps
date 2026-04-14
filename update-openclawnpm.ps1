@@ -141,11 +141,8 @@ $redisCpu = 0.25; $redisMem = 0.5
 $sidecarCpu = $redisCpu; $sidecarMem = $redisMem
 $maxCpu = 4.0
 $maxMem = 8.0
-$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
-$currentMem = if ($appInfo.mem) {
-    $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
-    "$([math]::Min($memVal, $maxMem - $sidecarMem))Gi"
-} else { "$($maxMem - $sidecarMem)Gi" }
+$currentCpu = $maxCpu - $sidecarCpu
+$currentMem = "$($maxMem - $sidecarMem)Gi"
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `

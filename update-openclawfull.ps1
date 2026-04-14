@@ -296,11 +296,8 @@ Write-Host "Using built-in Consumption workload profile on environment $envName"
 # Both variants use Consumption: 4 CPU / 8Gi max, sidecar = Redis (0.25/0.5)
 $maxCpu = 4.0; $maxMem = 8.0
 $sidecarCpu = 0.25; $sidecarMem = 0.5
-$currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
-$currentMem = if ($appInfo.mem) {
-    $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
-    "$([math]::Min($memVal, $maxMem - $sidecarMem))Gi"
-} else { "$($maxMem - $sidecarMem)Gi" }
+$currentCpu = $maxCpu - $sidecarCpu
+$currentMem = "$($maxMem - $sidecarMem)Gi"
 
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
