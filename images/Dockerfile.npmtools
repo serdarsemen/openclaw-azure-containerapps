@@ -11,6 +11,7 @@
 #   - GoG CLI            → /usr/local/bin/gog     (built from source)
 #   - Python 3.14.3     → /usr/local/bin/python3
 #   - redis-py           → Python redis client    (installed via pip)
+#   - sqlite-vec         → SQLite vector extension (native .so for QMD)
 #   - Bun                → /usr/local/bin/bun
 #   - QMD                → /usr/local/bin/qmd     (installed via bun)
 #
@@ -45,8 +46,8 @@ RUN set -eux \
     && curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
        | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh \
     && strip /usr/local/bin/gh 2>/dev/null || true \
-    # Gemini CLI (npm)
-    && npm install -g @google/gemini-cli@latest \
+    # Gemini CLI + sqlite-vec (npm) — sqlite-vec provides the native .so for QMD vector ops
+    && npm install -g @google/gemini-cli@latest sqlite-vec \
     # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
     && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
