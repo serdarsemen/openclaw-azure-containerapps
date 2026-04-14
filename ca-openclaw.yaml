@@ -118,9 +118,9 @@ properties:
       image: acropenclawwyk6wkoab5a4a.azurecr.io/openclaw:latest
       name: ca-openclaw
       resources:
-        cpu: 1.5
+        cpu: 3.75
         ephemeralStorage: 8Gi
-        memory: 2Gi
+        memory: 7.5Gi
       volumeMounts:
       - mountPath: /home/node/.openclaw
         volumeName: openclaw-state
@@ -136,17 +136,6 @@ properties:
         cpu: 0.25
         ephemeralStorage: 1Gi
         memory: 0.5Gi
-    - command:
-      - /bin/sh
-      - -c
-      - ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b
-        && ollama pull phi4-mini; wait
-      image: ollama/ollama:latest
-      name: ollama
-      resources:
-        cpu: 2.25
-        ephemeralStorage: 8Gi
-        memory: 5.5Gi
     initContainers: null
     revisionSuffix: ''
     scale:

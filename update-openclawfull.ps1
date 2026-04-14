@@ -293,9 +293,9 @@ $envName = $envId.Split("/")[-1]
 $profileName = "Consumption"
 Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
 
-# Both variants use Consumption: 4 CPU / 8Gi max, sidecars = Redis (0.25/0.5) + Ollama (2.25/5.5) = 2.5 CPU / 6.0Gi
+# Both variants use Consumption: 4 CPU / 8Gi max, sidecar = Redis (0.25/0.5)
 $maxCpu = 4.0; $maxMem = 8.0
-$sidecarCpu = 2.5; $sidecarMem = 6.0
+$sidecarCpu = 0.25; $sidecarMem = 0.5
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
 $currentMem = if ($appInfo.mem) {
     $memVal = [double]($appInfo.mem -replace '[^0-9.]','')
@@ -326,7 +326,7 @@ $volumeName = "openclaw-state"
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 if ($Npm) {
-    # --- NPM variant YAML (with Redis + Ollama sidecars) ---
+    # --- NPM variant YAML (with Redis sidecar) ---
     $updateYaml = @"
 properties:
   workloadProfileName: Consumption
@@ -376,8 +376,6 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
-      - name: OLLAMA_HOST
-        value: http://localhost:11434
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -421,31 +419,6 @@ properties:
         tcpSocket:
           port: 6379
         periodSeconds: 30
-    - name: ollama
-      image: ollama/ollama:latest
-      command:
-      - /bin/sh
-      - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
-      resources:
-        cpu: 2.25
-        memory: 5.5Gi
-      env:
-      - name: OLLAMA_HOST
-        value: 0.0.0.0:11434
-      - name: OLLAMA_MODELS
-        value: /home/ollama/.ollama/models
-      - name: HOME
-        value: /home/ollama
-      probes:
-      - type: liveness
-        httpGet:
-          path: /
-          port: 11434
-        periodSeconds: 30
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1
@@ -455,7 +428,7 @@ properties:
       storageName: $StorageName
 "@
 } else {
-    # --- Source-build variant YAML (with Ollama sidecar) ---
+    # --- Source-build variant YAML (with Redis sidecar) ---
     $updateYaml = @"
 properties:
   workloadProfileName: Consumption
@@ -502,8 +475,6 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
-      - name: OLLAMA_HOST
-        value: http://localhost:11434
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -547,31 +518,6 @@ properties:
         tcpSocket:
           port: 6379
         periodSeconds: 30
-    - name: ollama
-      image: ollama/ollama:latest
-      command:
-      - /bin/sh
-      - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
-      resources:
-        cpu: 2.25
-        memory: 5.5Gi
-      env:
-      - name: OLLAMA_HOST
-        value: 0.0.0.0:11434
-      - name: OLLAMA_MODELS
-        value: /home/ollama/.ollama/models
-      - name: HOME
-        value: /home/ollama
-      probes:
-      - type: liveness
-        httpGet:
-          path: /
-          port: 11434
-        periodSeconds: 30
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1

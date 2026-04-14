@@ -287,8 +287,8 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           name: appName
           image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
-            cpu: json('1.5')
-            memory: '2Gi'
+            cpu: json('3.75')
+            memory: '7.5Gi'
           }
         }
         {
@@ -316,41 +316,6 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
               type: 'liveness'
               tcpSocket: {
                 port: 6379
-              }
-              periodSeconds: 30
-            }
-          ]
-        }
-        {
-          name: 'ollama'
-          image: 'ollama/ollama:latest'
-          command: [
-            '/bin/sh'
-            '-c'
-            'ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait'
-          ]
-          resources: {
-            cpu: json('2.25')
-            memory: '5.5Gi'
-          }
-          env: [
-            {
-              name: 'OLLAMA_HOST'
-              value: '0.0.0.0:11434'
-            }
-          ]
-          volumeMounts: [
-            {
-              volumeName: 'openclaw-state'
-              mountPath: '/home/ollama/.ollama'
-            }
-          ]
-          probes: [
-            {
-              type: 'liveness'
-              httpGet: {
-                path: '/'
-                port: 11434
               }
               periodSeconds: 30
             }

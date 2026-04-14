@@ -146,9 +146,9 @@ if (-not $existingProfiles) {
     throw "Consumption workload profile not found on environment $envName"
 }
 
-# Redis sidecar: 0.25 CPU / 0.5Gi, Ollama sidecar: 2.25 CPU / 5.5Gi — cap OpenClaw within Consumption profile (4 CPU / 8Gi)
-$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
-$sidecarCpu = $redisCpu + $ollamaCpu; $sidecarMem = $redisMem + $ollamaMem
+# Redis sidecar: 0.25 CPU / 0.5Gi — cap OpenClaw within Consumption profile (4 CPU / 8Gi)
+$redisCpu = 0.25; $redisMem = 0.5
+$sidecarCpu = $redisCpu; $sidecarMem = $redisMem
 $maxCpu = 4.0
 $maxMem = 8.0
 $currentCpu = if ($appInfo.cpu) { [math]::Min([double]$appInfo.cpu, $maxCpu - $sidecarCpu) } else { $maxCpu - $sidecarCpu }
@@ -228,8 +228,6 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
-      - name: OLLAMA_HOST
-        value: http://localhost:11434
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -273,31 +271,6 @@ properties:
         tcpSocket:
           port: 6379
         periodSeconds: 30
-    - name: ollama
-      image: ollama/ollama:latest
-      command:
-      - /bin/sh
-      - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
-      resources:
-        cpu: 2.25
-        memory: 5.5Gi
-      env:
-      - name: OLLAMA_HOST
-        value: 0.0.0.0:11434
-      - name: OLLAMA_MODELS
-        value: /home/ollama/.ollama/models
-      - name: HOME
-        value: /home/ollama
-      probes:
-      - type: liveness
-        httpGet:
-          path: /
-          port: 11434
-        periodSeconds: 30
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1

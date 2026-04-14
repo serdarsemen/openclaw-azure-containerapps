@@ -6,12 +6,12 @@
 #
 # Without -Npm: source-build variant (rg-openclaw, main.bicep, ca-openclaw, acropenclaw)
 #   - Builds from the OpenClaw Git repo Dockerfile
-#   - Three containers: OpenClaw gateway + Redis + Ollama
+#   - Two containers: OpenClaw gateway + Redis
 #   - Home directory: /home/node
 #
 # With -Npm: npm-install variant (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
 #   - Builds a custom Dockerfile (node:22-slim + npm i -g openclaw)
-#   - Three containers: OpenClaw gateway + Redis + Ollama
+#   - Two containers: OpenClaw gateway + Redis
 #   - Home directory: /home/openclaw
 #   - Includes Bun, Playwright/Chromium, QMD
 #
@@ -56,14 +56,14 @@ if ($Npm) {
 }
 
 # --- Resource defaults (both variants use Consumption: 4 CPU / 8Gi max) ---
-if (-not $Cpu)    { $Cpu    = "1.5" }
-if (-not $Memory) { $Memory = "2Gi" }
-# Sidecars: Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) — validate total <= 4 CPU / 8Gi
-$redisCpu = 0.25; $redisMem = 0.5; $ollamaCpu = 2.25; $ollamaMem = 5.5
-$totalCpu = [double]$Cpu + $redisCpu + $ollamaCpu
-$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $ollamaMem
+if (-not $Cpu)    { $Cpu    = "3.75" }
+if (-not $Memory) { $Memory = "7.5Gi" }
+# Sidecar: Redis (0.25 CPU / 0.5Gi) — validate total <= 4 CPU / 8Gi
+$redisCpu = 0.25; $redisMem = 0.5
+$totalCpu = [double]$Cpu + $redisCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem
 if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
-    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + Ollama (2.25 CPU / 5.5Gi) sidecars."
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) sidecar."
 }
 
 # --- Discover resource names from Bicep deployment outputs ---
@@ -290,7 +290,7 @@ $volumeName = "openclaw-state"
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 if ($Npm) {
-    # --- NPM variant YAML (with Redis + Ollama sidecars) ---
+    # --- NPM variant YAML (with Redis sidecar) ---
     $updatedYaml = @"
 properties:
   workloadProfileName: Consumption
@@ -340,8 +340,6 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
-      - name: OLLAMA_HOST
-        value: http://localhost:11434
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -385,31 +383,6 @@ properties:
         tcpSocket:
           port: 6379
         periodSeconds: 30
-    - name: ollama
-      image: ollama/ollama:latest
-      command:
-      - /bin/sh
-      - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
-      resources:
-        cpu: 2.25
-        memory: 5.5Gi
-      env:
-      - name: OLLAMA_HOST
-        value: 0.0.0.0:11434
-      - name: OLLAMA_MODELS
-        value: /home/ollama/.ollama/models
-      - name: HOME
-        value: /home/ollama
-      probes:
-      - type: liveness
-        httpGet:
-          path: /
-          port: 11434
-        periodSeconds: 30
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1
@@ -419,7 +392,7 @@ properties:
       storageName: $StorageName
 "@
 } else {
-    # --- Source-build variant YAML (with Ollama sidecar) ---
+    # --- Source-build variant YAML (with Redis sidecar) ---
     $updatedYaml = @"
 properties:
   workloadProfileName: Consumption
@@ -466,8 +439,6 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
-      - name: OLLAMA_HOST
-        value: http://localhost:11434
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -511,31 +482,6 @@ properties:
         tcpSocket:
           port: 6379
         periodSeconds: 30
-    - name: ollama
-      image: ollama/ollama:latest
-      command:
-      - /bin/sh
-      - -c
-      - "ollama serve & sleep 10 && ollama pull qwen2.5-coder:7b && ollama pull deepseek-r1:7b && ollama pull phi4-mini; wait"
-      resources:
-        cpu: 2.25
-        memory: 5.5Gi
-      env:
-      - name: OLLAMA_HOST
-        value: 0.0.0.0:11434
-      - name: OLLAMA_MODELS
-        value: /home/ollama/.ollama/models
-      - name: HOME
-        value: /home/ollama
-      probes:
-      - type: liveness
-        httpGet:
-          path: /
-          port: 11434
-        periodSeconds: 30
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /home/ollama/.ollama
     scale:
       minReplicas: 1
       maxReplicas: 1
