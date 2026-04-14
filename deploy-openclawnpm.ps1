@@ -178,6 +178,17 @@ if (-not $StorageName) { throw "No NFS storage found on environment $envName. Wa
 # Volume name for the YAML — this is a local alias, not an Azure resource name
 $volumeName = "openclaw-state"
 
+# Discover Ollama internal URL from the ca-ollama Container App in the same environment
+$OllamaFqdn = az containerapp show --name ca-ollama --resource-group $ResourceGroup `
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
+if ($OllamaFqdn) {
+    $OllamaHost = "http://${OllamaFqdn}"
+    Write-Host "  Ollama URL: $OllamaHost" -ForegroundColor Green
+} else {
+    Write-Host "  ca-ollama not found — OLLAMA_HOST will not be set" -ForegroundColor Yellow
+    $OllamaHost = ""
+}
+
 # Build the updated YAML for the Container App
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 # chmod -R 700 /home/openclaw/.openclaw && fails on NFS disk
@@ -240,6 +251,8 @@ properties:
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
         value: /usr/local/lib/node_modules/openclaw/extensions
+      - name: OLLAMA_HOST
+        value: "$OllamaHost"
       volumeMounts:
       - volumeName: $volumeName
         mountPath: /home/openclaw/.openclaw
