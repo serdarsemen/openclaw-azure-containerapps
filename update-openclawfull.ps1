@@ -31,7 +31,7 @@ if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('ResourceGroup'))  { $ResourceGroup  = "rg-openclawnpm" }
     if (-not $PSBoundParameters.ContainsKey('DeploymentName')) { $DeploymentName = "mainnpm" }
     $BicepFile       = "mainnpm.bicep"
-    # $HomeDir         = "/home/openclaw"
+    $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
@@ -345,7 +345,7 @@ if ($Npm) {
     # --- NPM variant YAML (with Redis sidecar) ---
     $updateYaml = @"
 properties:
-  workloadProfileName: Consumption
+  workloadProfileName: $profileName
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -375,8 +375,8 @@ properties:
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
         npm config set prefix '~/.openclaw/npm-global' &&
-        mkdir -p /home/openclaw/.openclaw/workspace/memory &&
-        mkdir -p /home/openclaw/.cache/qmd/models &&
+        mkdir -p $HomeDir/.openclaw/workspace/memory &&
+        mkdir -p $HomeDir/.cache/qmd/models &&
         mkdir -p "`$GOPATH/bin" &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
@@ -397,7 +397,7 @@ properties:
       - name: NODE_ENV
         value: production
       - name: HOME
-        value: /home/openclaw
+        value: $HomeDir
       - name: TERM
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
@@ -406,7 +406,7 @@ properties:
         value: "$OllamaHost"
       volumeMounts:
       - volumeName: $volumeName
-        mountPath: /home/openclaw/.openclaw
+        mountPath: $HomeDir/.openclaw
       probes:
       - type: startup
         tcpSocket:
@@ -446,7 +446,7 @@ properties:
     # --- Source-build variant YAML (with Redis sidecar) ---
     $updateYaml = @"
 properties:
-  workloadProfileName: Consumption
+  workloadProfileName: $profileName
   managedEnvironmentId: $envId
   configuration:
     ingress:
@@ -473,7 +473,7 @@ properties:
       - -c
       - >-
         chmod -R 755 /app/extensions &&
-        mkdir -p /home/node/.openclaw/workspace/memory &&
+        mkdir -p $HomeDir/.openclaw/workspace/memory &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
@@ -495,7 +495,7 @@ properties:
       - name: NODE_ENV
         value: production
       - name: HOME
-        value: /home/node
+        value: $HomeDir
       - name: TERM
         value: xterm-256color
       - name: OPENCLAW_BUNDLED_PLUGINS_DIR
@@ -504,7 +504,7 @@ properties:
         value: "$OllamaHost"
       volumeMounts:
       - volumeName: $volumeName
-        mountPath: /home/node/.openclaw
+        mountPath: $HomeDir/.openclaw
       probes:
       - type: startup
         tcpSocket:
@@ -520,16 +520,13 @@ properties:
       image: redis:7-alpine
       command:
       - redis-server
+      - --save
+      - ""
       - --appendonly
-      - "yes"
-      - --dir
-      - /data
+      - "no"
       resources:
         cpu: 0.25
         memory: 0.5Gi
-      volumeMounts:
-      - volumeName: $volumeName
-        mountPath: /data
       probes:
       - type: liveness
         tcpSocket:
