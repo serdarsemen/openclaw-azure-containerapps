@@ -158,6 +158,17 @@ foreach ($model in $models) {
 }
 
 Write-Host "`n=== Ollama update complete ===" -ForegroundColor Green
-Write-Host "  Models: $($models.name -join ', ')"
+Write-Host "  Models: $($models.name -join ', ')" 
+
+# Pre-load default model so it's ready for inference immediately
+$defaultModel = "deepseek-r1:8b"
+Write-Host "`n  Loading $defaultModel as default model..." -ForegroundColor Cyan
+az containerapp exec --name $AppName --resource-group $ResourceGroup `
+    --command "ollama run $defaultModel --keepalive 24h ''"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "  Failed to pre-load $defaultModel — load manually via: az containerapp exec --name $AppName -g $ResourceGroup --command 'ollama run $defaultModel'"
+} else {
+    Write-Host "  $defaultModel loaded and kept alive (24h)" -ForegroundColor Green
+}
 
 Write-Host "`n=== Ollama update complete ===" -ForegroundColor Green

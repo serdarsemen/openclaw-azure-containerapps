@@ -101,6 +101,17 @@ foreach ($model in $models) {
 }
 
 # --- Done ---
+Write-Host "`n=== Step 3/3 complete — pre-loading default model ===" -ForegroundColor Cyan
+$defaultModel = "deepseek-r1:8b"
+Write-Host "  Loading $defaultModel as default model..." -ForegroundColor Gray
+az containerapp exec --name $OllamaAppName --resource-group $ResourceGroup `
+    --command "ollama run $defaultModel --keepalive 24h ''"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "  Failed to pre-load $defaultModel — load manually via: az containerapp exec --name $OllamaAppName -g $ResourceGroup --command 'ollama run $defaultModel'"
+} else {
+    Write-Host "  $defaultModel loaded and kept alive (24h)" -ForegroundColor Green
+}
+
 Write-Host "`n=== Ollama deployment complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Ollama App:  $OllamaAppName"
