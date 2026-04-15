@@ -2,8 +2,8 @@
 # update-ollama.ps1 — Update the standalone Ollama Container App
 #
 # Updates ca-ollama to the latest ollama/ollama image or changes resources.
-# Preserves existing models stored in the container's ephemeral storage.
-# Note: models are lost on restart — re-pull after updates.
+# Models are stored on an NFS volume (ollama-state) mounted at /root/.ollama,
+# so they survive container restarts and updates — no re-pull needed.
 #
 # Usage:
 #   .\update-ollama.ps1 -ResourceGroup rg-openclaw
@@ -30,6 +30,15 @@ $envId = $appInfo.envId
 
 Write-Host "  App:         $AppName" -ForegroundColor Green
 Write-Host "  Environment: $($envId.Split('/')[-1])" -ForegroundColor Green
+
+# Discover NFS storage mount name from the environment
+$envName = $envId.Split('/')[-1]
+$OllamaStorageName = az containerapp env storage list `
+    --name $envName --resource-group $ResourceGroup `
+    --query "[?contains(name,'ollama')].name | [0]" -o tsv 2>`$null
+if (-not $OllamaStorageName) { throw "No Ollama NFS storage found on environment $envName" }
+$volumeName = "ollama-state"
+Write-Host "  NFS Storage: $OllamaStorageName (volume: $volumeName)" -ForegroundColor Green
 
 # --- Determine resource allocation ---
 # Consumption max: 4 CPU / 8Gi
@@ -66,6 +75,9 @@ properties:
       env:
       - name: OLLAMA_HOST
         value: "0.0.0.0:11434"
+      volumeMounts:
+      - volumeName: $volumeName
+        mountPath: /root/.ollama
       probes:
       - type: startup
         httpGet:
@@ -82,6 +94,10 @@ properties:
     scale:
       minReplicas: 1
       maxReplicas: 1
+    volumes:
+    - name: $volumeName
+      storageType: NfsAzureFile
+      storageName: $OllamaStorageName
 "@
 
 $updateYaml | Set-Content $yamlPath -Encoding utf8
@@ -95,7 +111,7 @@ try {
 
 Write-Host "  Ollama Container App updated" -ForegroundColor Green
 
-# --- Step 3/3: Wait and re-pull models ---
+# --- Step 3/3: Wait and verify models ---
 Write-Host "`n=== Step 3/3: Waiting for Ollama to start ===" -ForegroundColor Cyan
 $maxAttempts = 30
 $attempt = 0
@@ -116,7 +132,7 @@ if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Ollama did not reach Running state after $maxAttempts attempts"
 }
 
-Write-Host "`n  Models were lost during the update — re-pulling..." -ForegroundColor Yellow
+Write-Host "`n  Models are persisted on NFS — checking availability..." -ForegroundColor Gray
 
 $models = @(
     @{ name = "qwen2.5-coder:7b"; desc = "Best coding model at 7B — code generation, completion, refactoring" },
@@ -125,13 +141,19 @@ $models = @(
 )
 
 foreach ($model in $models) {
-    Write-Host "  Pulling $($model.name) ($($model.desc))..." -ForegroundColor Gray
-    az containerapp exec --name $AppName --resource-group $ResourceGroup `
-        --command "ollama pull $($model.name)"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "  Failed to pull $($model.name) — pull later via: az containerapp exec --name $AppName -g $ResourceGroup --command 'ollama pull $($model.name)'"
+    $exists = az containerapp exec --name $AppName --resource-group $ResourceGroup `
+        --command "ollama show $($model.name)" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  $($model.name) already present on NFS" -ForegroundColor Green
     } else {
-        Write-Host "  $($model.name) ready" -ForegroundColor Green
+        Write-Host "  Pulling $($model.name) ($($model.desc))..." -ForegroundColor Gray
+        az containerapp exec --name $AppName --resource-group $ResourceGroup `
+            --command "ollama pull $($model.name)"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "  Failed to pull $($model.name) — pull later via: az containerapp exec --name $AppName -g $ResourceGroup --command 'ollama pull $($model.name)'"
+        } else {
+            Write-Host "  $($model.name) ready" -ForegroundColor Green
+        }
     }
 }
 

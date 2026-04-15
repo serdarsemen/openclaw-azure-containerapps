@@ -5,6 +5,9 @@
 # Must be run AFTER the main infrastructure (main.bicep or mainnpm.bicep)
 # is deployed, since the Ollama app joins the existing cae-openclaw environment.
 #
+# Models are stored on an NFS volume (ollama-state) mounted at /root/.ollama,
+# so they survive container restarts and updates.
+#
 # After deployment, ca-openclaw reaches Ollama via internal DNS:
 #   http://ca-ollama.internal.<env-default-domain>:11434
 #
@@ -76,7 +79,8 @@ if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Ollama did not reach Running state after $maxAttempts attempts"
 }
 
-# --- Step 3/3: Pull models that fit within 8 GiB memory ---
+# --- Step 3/3: Pull models to NFS volume ---
+# Models are stored on the NFS-backed volume (/root/.ollama) and persist across restarts.
 # Each model is ~4.7-4.9 GB on disk. Ollama loads one at a time, so all three fit the 8 GiB budget.
 $models = @(
     @{ name = "qwen2.5-coder:7b"; desc = "Best coding model at 7B — code generation, completion, refactoring" },

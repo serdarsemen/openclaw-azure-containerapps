@@ -26,12 +26,57 @@ param ollamaCpu string = '4'
 @description('Ollama container memory (Consumption max 8Gi).')
 param ollamaMemory string = '8Gi'
 
+@description('Name of the existing storage account deployed by main.bicep.')
+param storageName string = 'stopenclaw${uniqueString(resourceGroup().id)}'
+
+@description('NFS file share quota in GiB (100 GiB minimum for Premium FileStorage).')
+param storageShareQuota int = 100
+
 // --- Naming (CAF conventions) ---
 var appName = 'ca-ollama'
+var shareName = 'ollama-state'
+var envStorageName = 'ollamastorage'
 
 // ---- Reference existing environment ----
 resource acaEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' existing = {
   name: envName
+}
+
+// ---- Storage (NFS share for Ollama state) ----
+// Reuses the Premium NFS storage account from main.bicep.
+// Creates a separate share for Ollama model cache / state.
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+  name: storageName
+}
+
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' existing = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+  parent: fileService
+  name: shareName
+  properties: {
+    shareQuota: storageShareQuota
+    enabledProtocols: 'NFS'
+  }
+}
+
+resource acaStorage 'Microsoft.App/managedEnvironments/storages@2025-01-01' = {
+  parent: acaEnvironment
+  name: envStorageName
+  properties: {
+    nfsAzureFile: {
+      server: '${storageName}.file.${environment().suffixes.storage}'
+      shareName: '/${storageName}/${shareName}'
+      accessMode: 'ReadWrite'
+    }
+  }
+  dependsOn: [
+    fileShare
+  ]
 }
 
 // ---- Ollama Container App ----
@@ -67,6 +112,12 @@ resource ollamaApp 'Microsoft.App/containerApps@2025-01-01' = {
               value: '0.0.0.0:11434'
             }
           ]
+          volumeMounts: [
+            {
+              volumeName: 'ollama-state'
+              mountPath: '/root/.ollama'
+            }
+          ]
           probes: [
             {
               type: 'startup'
@@ -93,8 +144,18 @@ resource ollamaApp 'Microsoft.App/containerApps@2025-01-01' = {
         minReplicas: 1
         maxReplicas: 1
       }
+      volumes: [
+        {
+          name: 'ollama-state'
+          storageType: 'NfsAzureFile'
+          storageName: envStorageName
+        }
+      ]
     }
   }
+  dependsOn: [
+    acaStorage
+  ]
 }
 
 // ---- Outputs ----
