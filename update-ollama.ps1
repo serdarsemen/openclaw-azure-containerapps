@@ -35,7 +35,7 @@ Write-Host "  Environment: $($envId.Split('/')[-1])" -ForegroundColor Green
 $envName = $envId.Split('/')[-1]
 $OllamaStorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
-    --query "[?contains(name,'ollama')].name | [0]" -o tsv 2>`$null
+    --query "[?contains(name,'ollama')].name | [0]" -o tsv 2>$null
 if (-not $OllamaStorageName) { throw "No Ollama NFS storage found on environment $envName" }
 $volumeName = "ollama-state"
 Write-Host "  NFS Storage: $OllamaStorageName (volume: $volumeName)" -ForegroundColor Green
