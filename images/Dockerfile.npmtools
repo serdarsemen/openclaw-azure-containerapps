@@ -16,7 +16,6 @@
 #   - QMD                → /usr/local/bin/qmd     (installed via bun)
 #   - Freqtrade          → /usr/local/bin/freqtrade (crypto trading bot)
 #   - freqtrade-strategies → /opt/freqtrade-strategies (community strategies)
-#   - OpenStock           → /opt/openstock (open-source stock market dashboard)
 #
 # Performance: all tool installs are merged into a single RUN to minimise
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
@@ -62,14 +61,6 @@ RUN set -eux \
     && python3 -m pip install --no-cache-dir redis freqtrade \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
-    # OpenStock — open-source stock market dashboard (Next.js)
-    && git clone --depth 1 https://github.com/Open-Dev-Society/OpenStock.git /opt/openstock \
-    && cd /opt/openstock \
-    && printf 'NEXT_PUBLIC_FINNHUB_API_KEY=d7gk3f9r01qmqj45mfc0d7gk3f9r01qmqj45mfcg\nFINNHUB_BASE_URL=https://finnhub.io/api/v1\n' > .env.local \
-    && npm install --production=false \
-    && npm run build \
-    && rm -rf node_modules/.cache .git \
-    && cd / \
     # Comprehensive cleanup: Go caches, npm caches, pip caches, Bun caches, Python bytecache, test dirs
     && cd / && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
     && rm -rf /root/.bun/install /root/.bun/cache \
