@@ -221,7 +221,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         (Get-Content (Join-Path $BuildContextDir "Dockerfile") -Raw) `
             -replace '--mount=type=cache,\S+\s*', '' `
             -replace 'pnpm install --frozen-lockfile', 'PNPM_DISABLE_SELF_UPDATE_CHECK=1 pnpm install --frozen-lockfile' `
-            -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_
+            -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
+            -replace '(?m)^\s+\\\r?\n', '' |
             Set-Content $AcrDockerfile -Encoding utf8
         Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
 
@@ -340,7 +341,7 @@ properties:
         export OPENCLAW_NO_RESPAWN=1 &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         openclaw gateway --allow-unconfigured --bind lan --port 18789
-      rees:
+      resources:
         cpu: $Cpu
         memory: $Memory
       env:
@@ -439,7 +440,7 @@ properties:
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
-      rees:
+      resources:
         cpu: $Cpu
         memory: $Memory
       env:

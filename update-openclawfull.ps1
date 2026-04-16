@@ -381,7 +381,7 @@ if ($Npm) {
     $updateYaml = @"
 properties:
   workloadProfileName: $profileName
-  manageronmentId: $envId
+  managedEnvironmentId: $envId
   configuration:
     ingress:
       external: true
@@ -480,7 +480,7 @@ properties:
 "@
 } else {
     # --- Source-build variant YAML (with Redis sidecar) ---
-    $updml = @"
+    $updateYaml = @"
 properties:
   workloadProfileName: $profileName
   managedEnvironmentId: $envId
