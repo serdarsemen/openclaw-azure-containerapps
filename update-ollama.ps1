@@ -158,7 +158,7 @@ foreach ($model in $models) {
 }
 
 Write-Host "`n=== Ollama update complete ===" -ForegroundColor Green
-Write-Host "  Models: $($models.name -join ', ')" 
+Write-Host "  Models: $($models.name -join ', ')"
 
 # Pre-load default model so it's ready for inference immediately
 $defaultModel = "deepseek-r1:8b"
