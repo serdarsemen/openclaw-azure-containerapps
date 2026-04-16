@@ -56,6 +56,10 @@ RUN set -eux \
     && python3 -m pip install --no-cache-dir redis freqtrade \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
+    # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
+    && mkdir -p /opt/freqtrade/user_data/strategies \
+    && cp /opt/freqtrade-strategies/user_data/strategies/berlinguyinca/*.py /opt/freqtrade/user_data/strategies/ 2>/dev/null || true \
+    && printf '{\n  "max_open_trades": 3,\n  "stake_currency": "USDT",\n  "stake_amount": "unlimited",\n  "tradable_balance_ratio": 0.99,\n  "fiat_display_currency": "USD",\n  "dry_run": true,\n  "dry_run_wallet": 1000,\n  "trading_mode": "spot",\n  "cancel_open_orders_on_exit": false,\n  "unfilledtimeout": { "entry": 10, "exit": 10, "unit": "minutes" },\n  "entry_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exit_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exchange": {\n    "name": "binance",\n    "key": "",\n    "secret": "",\n    "pair_whitelist": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"],\n    "pair_blacklist": []\n  },\n  "pairlists": [{ "method": "StaticPairList" }],\n  "bot_name": "freqtrade-openclaw",\n  "initial_state": "running",\n  "internals": { "process_throttle_secs": 5 },\n  "strategy": "SampleStrategy",\n  "strategy_path": "/opt/freqtrade/user_data/strategies"\n}\n' > /opt/freqtrade/config.json \
     # Comprehensive cleanup: Go caches, npm caches, pip caches, Python bytecache, test dirs
     && cd / && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
     && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
