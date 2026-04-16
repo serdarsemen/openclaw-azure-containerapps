@@ -68,6 +68,12 @@ if ($Npm) {
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
 
+# $HomeDir is interpolated unquoted into YAML shell commands and path values —
+# whitespace or YAML-special characters would break both layers.
+if ($HomeDir -match '\s' -or $HomeDir -match '["''`:#]') {
+    throw "HomeDir '$HomeDir' contains whitespace or YAML-special characters; refuse to interpolate."
+}
+
 # --- Discover resource names from Bicep deployment outputs ---
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
 $AcrName = az deployment group show --resource-group $ResourceGroup --name $DeploymentName `
@@ -328,6 +334,18 @@ $jOllama   = & $startJob -ScriptBlock { param($r) az containerapp show --name ca
 
 Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
 
+# Surface job failures rather than silently swallowing them (Receive-Job would
+# otherwise just return $null and downstream parsing would mask the cause).
+$allJobs = @($jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama)
+$failed  = $allJobs | Where-Object { $_.State -ne 'Completed' }
+if ($failed) {
+    $details = foreach ($j in $failed) {
+        $reason = if ($j.ChildJobs -and $j.ChildJobs[0].JobStateInfo.Reason) { $j.ChildJobs[0].JobStateInfo.Reason.Message } else { $j.State }
+        "    [$($j.Name)] $reason"
+    }
+    throw "Parallel discovery jobs failed:`n$($details -join "`n")"
+}
+
 $appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
 $acrCredsJson = (Receive-Job $jAcr) -join "`n"
 $GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
@@ -471,6 +489,9 @@ properties:
           port: 6379
         periodSeconds: 30
     scale:
+      # Single-instance gateway: local SQLite + in-memory OpenClaw state means
+      # replicas cannot be scaled horizontally. Do not change without adopting
+      # a shared-state model (external Redis, Postgres, etc.).
       minReplicas: 1
       maxReplicas: 1
     volumes:
@@ -570,6 +591,9 @@ properties:
           port: 6379
         periodSeconds: 30
     scale:
+      # Single-instance gateway: local SQLite + in-memory OpenClaw state means
+      # replicas cannot be scaled horizontally. Do not change without adopting
+      # a shared-state model (external Redis, Postgres, etc.).
       minReplicas: 1
       maxReplicas: 1
     volumes:

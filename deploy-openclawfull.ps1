@@ -55,6 +55,12 @@ if ($Npm) {
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
 
+# $HomeDir is interpolated unquoted into YAML shell commands and path values —
+# whitespace or YAML-special characters would break both layers.
+if ($HomeDir -match '\s' -or $HomeDir -match '["''`:#]') {
+    throw "HomeDir '$HomeDir' contains whitespace or YAML-special characters; refuse to interpolate."
+}
+
 # --- Resource defaults (both variants use Consumption: 4 CPU / 8Gi max) ---
 if (-not $Cpu)    { $Cpu    = "3.75" }
 if (-not $Memory) { $Memory = "7.5Gi" }
@@ -394,6 +400,9 @@ properties:
           port: 6379
         periodSeconds: 30
     scale:
+      # Single-instance gateway: local SQLite + in-memory OpenClaw state means
+      # replicas cannot be scaled horizontally. Do not change without adopting
+      # a shared-state model (external Redis, Postgres, etc.).
       minReplicas: 1
       maxReplicas: 1
     volumes:
@@ -493,6 +502,9 @@ properties:
           port: 6379
         periodSeconds: 30
     scale:
+      # Single-instance gateway: local SQLite + in-memory OpenClaw state means
+      # replicas cannot be scaled horizontally. Do not change without adopting
+      # a shared-state model (external Redis, Postgres, etc.).
       minReplicas: 1
       maxReplicas: 1
     volumes:
