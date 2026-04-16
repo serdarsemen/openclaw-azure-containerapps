@@ -123,7 +123,7 @@ resource ollamaApp 'Microsoft.App/containerApps@2025-01-01' = {
               type: 'startup'
               httpGet: {
                 port: 11434
-                path: '/'
+                path: '/api/version'
               }
               initialDelaySeconds: 5
               periodSeconds: 10
@@ -133,7 +133,7 @@ resource ollamaApp 'Microsoft.App/containerApps@2025-01-01' = {
               type: 'liveness'
               httpGet: {
                 port: 11434
-                path: '/'
+                path: '/api/version'
               }
               periodSeconds: 30
             }

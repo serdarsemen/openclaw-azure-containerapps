@@ -21,10 +21,37 @@ param(
     [string] $DeploymentName = "main",
     [string] $AppName = "",
     [string] $SourcePath = "openclaw-repo",
-    [string] $Tag = ""
+    [string] $Tag = "",
+    [int]    $KeepBaseImages = 3   # retain N newest openclaw:base-* tags; older ones are deleted
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Helper: prune old base-* image tags to stay under ACR Basic (10 GiB) quota ---
+function Invoke-AcrBaseImageSweep {
+    param(
+        [Parameter(Mandatory)][string] $Registry,
+        [Parameter(Mandatory)][string] $Repository,
+        [Parameter(Mandatory)][string] $KeepTagPrefix,
+        [int] $Keep = 3
+    )
+    Write-Host "  Sweeping old '$KeepTagPrefix*' tags in $Registry/$Repository (keeping newest $Keep)..." -ForegroundColor Gray
+    $tagsJson = az acr repository show-tags `
+        --name $Registry `
+        --repository $Repository `
+        --orderby time_desc `
+        --detail `
+        --query "[?starts_with(name, '$KeepTagPrefix')].{name:name,created:createdTime}" `
+        -o json 2>$null
+    if (-not $tagsJson) { return }
+    try { $tags = $tagsJson | ConvertFrom-Json } catch { return }
+    if (-not $tags -or $tags.Count -le $Keep) { return }
+    $toDelete = $tags | Select-Object -Skip $Keep
+    foreach ($t in $toDelete) {
+        Write-Host "    Deleting $Repository:$($t.name)" -ForegroundColor DarkGray
+        az acr repository delete --name $Registry --image "${Repository}:$($t.name)" --yes 2>$null | Out-Null
+    }
+}
 
 # --- Set variant-specific defaults ---
 if ($Npm) {
@@ -161,6 +188,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-npm-' -Keep $KeepBaseImages
+
     # Clean up temp build dir
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -209,7 +238,6 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    $baseTagExists = az acr repository show-tags `
       --name $AcrName `
       --repository openclaw `
       --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
@@ -237,8 +265,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         (Get-Content (Join-Path $BuildContextDir "Dockerfile") -Raw) `
           -replace '--mount=type=cache,\S+\s*', '' `
           -replace 'pnpm install --frozen-lockfile', 'PNPM_DISABLE_SELF_UPDATE_CHECK=1 pnpm install --frozen-lockfile' `
-          -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
-          -replace 'CI=true PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
+          -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
           -replace '(?m)^\s+\\\r?\n', '' |
           Set-Content $AcrDockerfile -Encoding utf8
         Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
@@ -277,19 +304,27 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages
 }
 
 # --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
 Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
 # Discover existing environment, resources, and secrets from the running app
-# Run 5 independent az CLI calls in parallel (saves ~10-15s vs sequential)
+# Run 5 independent az CLI calls in parallel (saves ~10-15s vs sequential).
+# Start-ThreadJob runs in-process thread runspaces (~10x faster startup than
+# Start-Job, which forks a new PowerShell.exe per job). Module ThreadJob is
+# bundled with PowerShell 7+; fall back to Start-Job on Windows PowerShell 5.1.
 Write-Host "  Running discovery queries in parallel..." -ForegroundColor Gray
-$jAppInfo  = Start-Job -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jAcr      = Start-Job -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
-$jGwToken  = Start-Job -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jGroqKey  = Start-Job -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jOllama   = Start-Job -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
+$useThreadJob = $null -ne (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
+$startJob = if ($useThreadJob) { Get-Command Start-ThreadJob } else { Get-Command Start-Job }
+
+$jAppInfo  = & $startJob -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jAcr      = & $startJob -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
+$jGwToken  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jGroqKey  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jOllama   = & $startJob -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
 
 Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
 
@@ -346,7 +381,7 @@ if ($Npm) {
     $updateYaml = @"
 properties:
   workloadProfileName: $profileName
-  managedEnvironmentId: $envId
+  manageronmentId: $envId
   configuration:
     ingress:
       external: true
@@ -382,7 +417,7 @@ properties:
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
-        exec openclaw gateway --allow-unconfigured --bind lan --port 18789
+        openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
         memory: $currentMem
@@ -445,7 +480,7 @@ properties:
 "@
 } else {
     # --- Source-build variant YAML (with Redis sidecar) ---
-    $updateYaml = @"
+    $updml = @"
 properties:
   workloadProfileName: $profileName
   managedEnvironmentId: $envId
@@ -481,7 +516,7 @@ properties:
         (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
-        exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
         cpu: $currentCpu
         memory: $currentMem

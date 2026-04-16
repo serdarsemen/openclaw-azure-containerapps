@@ -29,6 +29,11 @@ param peSubnetPrefix string = '10.1.0.32/28'
 @description('NFS file share quota in GiB (100 GiB minimum for Premium FileStorage).')
 param storageShareQuota int = 100
 
+@description('Log Analytics retention in days. 7 is usually enough for a single-instance gateway; raise for longer forensics windows.')
+@minValue(7)
+@maxValue(730)
+param logRetentionDays int = 7
+
 // --- Naming (CAF conventions) ---
 // Globally unique names use uniqueString() — deterministic hash of the resource group ID.
 // This means: same RG = same names (idempotent), different RG = different names (no collisions).
@@ -216,7 +221,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 30
+    retentionInDays: logRetentionDays
   }
 }
 

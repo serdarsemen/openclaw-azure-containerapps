@@ -82,6 +82,11 @@ if ($running -notin "Running", "RunningAtMaxScale") {
 # --- Step 3/3: Pull models to NFS volume ---
 # Models are stored on the NFS-backed volume (/root/.ollama) and persist across restarts.
 # Each model is ~4.7-4.9 GB on disk. Ollama loads one at a time, so all three fit the 8 GiB budget.
+#
+# NOTE: model names flow unquoted into `az containerapp exec --command`, which
+# hands them to the shell inside the container. Only tags matching
+# [A-Za-z0-9._:/-]+ are safe. If you customise this list, keep names simple
+# (no spaces, quotes, or shell metachars) or properly escape before interpolation.
 $models = @(
     @{ name = "qwen2.5-coder:7b"; desc = "Best coding model at 7B — code generation, completion, refactoring" },
     @{ name = "deepseek-r1:8b";   desc = "Strong chain-of-thought reasoning" },
@@ -103,13 +108,17 @@ foreach ($model in $models) {
 # --- Done ---
 Write-Host "`n=== Step 3/3 complete — pre-loading default model ===" -ForegroundColor Cyan
 $defaultModel = "deepseek-r1:8b"
+# Keep the model resident for 1h after last request. Longer keep-alive (e.g. 24h)
+# pins 5+ GiB of the 8 GiB container budget permanently and blocks swapping to
+# other models. 1h gives fast first-token for active sessions but lets cold
+# periods free memory.
 Write-Host "  Loading $defaultModel as default model..." -ForegroundColor Gray
 az containerapp exec --name $OllamaAppName --resource-group $ResourceGroup `
-    --command "ollama run $defaultModel --keepalive 24h ''"
+    --command "ollama run $defaultModel --keepalive 1h ''"
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "  Failed to pre-load $defaultModel — load manually via: az containerapp exec --name $OllamaAppName -g $ResourceGroup --command 'ollama run $defaultModel'"
 } else {
-    Write-Host "  $defaultModel loaded and kept alive (24h)" -ForegroundColor Green
+    Write-Host "  $defaultModel loaded and kept alive (1h)" -ForegroundColor Green
 }
 
 Write-Host "`n=== Ollama deployment complete ===" -ForegroundColor Green
