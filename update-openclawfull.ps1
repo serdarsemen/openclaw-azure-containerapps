@@ -331,14 +331,17 @@ $startJob = if ($useThreadJob) { Get-Command Start-ThreadJob } else { Get-Comman
 
 $jAppInfo  = & $startJob -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
 $jAcr      = & $startJob -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
-$jSecrets  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret list --name $a --resource-group $r -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
+# NOTE: `az containerapp secret list` returns names only (no values). To read the
+# actual secret value you MUST use `secret show --secret-name X --query value`.
+$jGwToken  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jGroqKey  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key  --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
 $jOllama   = & $startJob -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
 
-Wait-Job $jAppInfo,$jAcr,$jSecrets,$jOllama | Out-Null
+Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
 
 # Surface job failures rather than silently swallowing them (Receive-Job would
 # otherwise just return $null and downstream parsing would mask the cause).
-$allJobs = @($jAppInfo,$jAcr,$jSecrets,$jOllama)
+$allJobs = @($jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama)
 $failed  = $allJobs | Where-Object { $_.State -ne 'Completed' }
 if ($failed) {
     $details = foreach ($j in $failed) {
@@ -350,17 +353,10 @@ if ($failed) {
 
 $appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
 $acrCredsJson = (Receive-Job $jAcr) -join "`n"
-$secretsJson  = (Receive-Job $jSecrets) -join "`n"
+$GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
+$GroqApiKey   = ((Receive-Job $jGroqKey) -join "").Trim()
 $OllamaFqdn   = ((Receive-Job $jOllama) -join "").Trim()
-Remove-Job $jAppInfo,$jAcr,$jSecrets,$jOllama -Force
-
-# Extract individual secret values from the consolidated list
-$secrets = @()
-try { $secrets = @($secretsJson | ConvertFrom-Json) } catch { }
-$gwSecret   = $secrets | Where-Object { $_.name -eq 'gateway-token' } | Select-Object -First 1
-$groqSecret = $secrets | Where-Object { $_.name -eq 'groq-api-key'  } | Select-Object -First 1
-$GatewayToken = if ($gwSecret)   { "$($gwSecret.value)".Trim() }   else { '' }
-$GroqApiKey   = if ($groqSecret) { "$($groqSecret.value)".Trim() } else { '' }
+Remove-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama -Force
 
 $appInfo = $appInfoJson | ConvertFrom-Json
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
