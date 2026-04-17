@@ -394,10 +394,12 @@ $currentCpu = $maxCpu - $sidecarCpu
 $currentMem = "$($maxMem - $sidecarMem)Gi"
 
 # Storage depends on envName — runs after parallel block
+# Pin to the OpenClaw storage link by name — the environment may also have
+# an 'ollamastorage' link (added by ollama.bicep) and [0] is non-deterministic.
 $StorageName = az containerapp env storage list `
     --name $envName --resource-group $ResourceGroup `
-    --query "[0].name" -o tsv 2>$null
-if (-not $StorageName) { throw "No NFS storage found on environment $envName" }
+    --query "[?name=='openclawstorage'].name | [0]" -o tsv 2>$null
+if (-not $StorageName) { throw "openclawstorage link not found on environment $envName" }
 
 $volumeName = "openclaw-state"
 
