@@ -48,7 +48,7 @@ function Invoke-AcrBaseImageSweep {
     if (-not $tags -or $tags.Count -le $Keep) { return }
     $toDelete = $tags | Select-Object -Skip $Keep
     foreach ($t in $toDelete) {
-        Write-Host "    Deleting $Repository:$($t.name)" -ForegroundColor DarkGray
+        Write-Host "    Deleting ${Repository}:$($t.name)" -ForegroundColor DarkGray
         az acr repository delete --name $Registry --image "${Repository}:$($t.name)" --yes 2>$null | Out-Null
     }
 }
