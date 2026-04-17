@@ -318,7 +318,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
 # Discover existing environment, resources, and secrets from the running app
-# Run 5 independent az CLI calls in parallel (saves ~10-15s vs sequential).
+# Run 4 independent az CLI calls in parallel (saves ~10-15s vs sequential).
+# Secrets are fetched with a single `secret list` call instead of one
+# `secret show` per name \u2014 halves the secret round-trips.
 # Start-ThreadJob runs in-process thread runspaces (~10x faster startup than
 # Start-Job, which forks a new PowerShell.exe per job). Module ThreadJob is
 # bundled with PowerShell 7+; fall back to Start-Job on Windows PowerShell 5.1.
@@ -328,15 +330,14 @@ $startJob = if ($useThreadJob) { Get-Command Start-ThreadJob } else { Get-Comman
 
 $jAppInfo  = & $startJob -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
 $jAcr      = & $startJob -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
-$jGwToken  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jGroqKey  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
+$jSecrets  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret list --name $a --resource-group $r -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
 $jOllama   = & $startJob -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
 
-Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
+Wait-Job $jAppInfo,$jAcr,$jSecrets,$jOllama | Out-Null
 
 # Surface job failures rather than silently swallowing them (Receive-Job would
 # otherwise just return $null and downstream parsing would mask the cause).
-$allJobs = @($jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama)
+$allJobs = @($jAppInfo,$jAcr,$jSecrets,$jOllama)
 $failed  = $allJobs | Where-Object { $_.State -ne 'Completed' }
 if ($failed) {
     $details = foreach ($j in $failed) {
@@ -348,10 +349,17 @@ if ($failed) {
 
 $appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
 $acrCredsJson = (Receive-Job $jAcr) -join "`n"
-$GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
-$GroqApiKey   = ((Receive-Job $jGroqKey) -join "").Trim()
+$secretsJson  = (Receive-Job $jSecrets) -join "`n"
 $OllamaFqdn   = ((Receive-Job $jOllama) -join "").Trim()
-Remove-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama -Force
+Remove-Job $jAppInfo,$jAcr,$jSecrets,$jOllama -Force
+
+# Extract individual secret values from the consolidated list
+$secrets = @()
+try { $secrets = @($secretsJson | ConvertFrom-Json) } catch { }
+$gwSecret   = $secrets | Where-Object { $_.name -eq 'gateway-token' } | Select-Object -First 1
+$groqSecret = $secrets | Where-Object { $_.name -eq 'groq-api-key'  } | Select-Object -First 1
+$GatewayToken = if ($gwSecret)   { "$($gwSecret.value)".Trim() }   else { '' }
+$GroqApiKey   = if ($groqSecret) { "$($groqSecret.value)".Trim() } else { '' }
 
 $appInfo = $appInfoJson | ConvertFrom-Json
 if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
