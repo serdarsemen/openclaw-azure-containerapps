@@ -244,6 +244,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+    $baseTagExists = az acr repository show-tags `
       --name $AcrName `
       --repository openclaw `
       --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
