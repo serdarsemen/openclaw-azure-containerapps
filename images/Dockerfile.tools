@@ -14,6 +14,11 @@
 #   - sqlite-vec       → SQLite vector extension (native .so for QMD)
 #   - Freqtrade        → /usr/local/bin/freqtrade (crypto trading bot)
 #   - freqtrade-strategies → /opt/freqtrade-strategies (community strategies)
+#   - PyTorch (CPU)    → torch inference runtime (CPU-only, no CUDA)
+#   - einops           → tensor operations      (installed via pip)
+#   - safetensors      → fast model serialization(installed via pip)
+#   - huggingface_hub  → HF model downloads     (installed via pip)
+#   - yfinance         → Yahoo Finance data      (installed via pip)
 #
 # Performance: all tool installs are merged into a single RUN to minimise
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
@@ -54,6 +59,8 @@ RUN set -eux \
     # Python validation + redis-py
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
     && python3 -m pip install --no-cache-dir redis freqtrade \
+       einops safetensors huggingface_hub yfinance \
+       torch --extra-index-url https://download.pytorch.org/whl/cpu \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
