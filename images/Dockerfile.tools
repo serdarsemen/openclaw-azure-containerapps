@@ -56,11 +56,14 @@ RUN set -eux \
     # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
     && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
     && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
-    # Python validation + redis-py
+    # Python validation + pip packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
     && python3 -m pip install --no-cache-dir redis freqtrade \
        einops safetensors huggingface_hub yfinance \
-       torch --extra-index-url https://download.pytorch.org/whl/cpu \
+    # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI for Python 3.14+ compat
+    && ( python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         || python3 -m pip install --no-cache-dir torch ) \
+    && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK')" \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
