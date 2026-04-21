@@ -62,10 +62,11 @@ if (-not (Test-WslDocker)) {
     $startJob | Remove-Job -Force
     Start-Sleep -Seconds 3
     if (-not (Test-WslDocker)) {
+        $wslUser = (wsl whoami 2>$null).Trim()
         throw @"
 Docker is not running inside WSL and could not be auto-started.
 Fix: run this once in WSL to enable passwordless Docker start:
-  wsl bash -c "echo '$env:USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/service docker *' | sudo tee /etc/sudoers.d/docker-service"
+  wsl bash -c "echo '$wslUser ALL=(ALL) NOPASSWD: /usr/sbin/service docker *' | sudo tee /etc/sudoers.d/docker-service"
 Or start Docker manually before running this script:
   wsl sudo service docker start
 "@
