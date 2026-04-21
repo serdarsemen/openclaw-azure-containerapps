@@ -16,10 +16,10 @@
 #   - Includes Bun, Playwright/Chromium, QMD
 #
 # Ollama modes:
-#   - Default: auto-adds Ollama sidecar, pulls 3 models (same as ACA variant)
+#   - Default: no Ollama sidecar (OpenClaw only + Redis)
+#   - -Ollama: add Ollama sidecar container and pull models
 #   - -OllamaHost <url>: use an external Ollama instance (no sidecar)
 #   - -OllamaModel <name>: pull only this model instead of the default set
-#   - -NoOllama: skip Ollama entirely
 #
 # Prerequisites:
 #   - WSL 2 with a Linux distro installed
@@ -29,13 +29,14 @@
 #   .\deploy-openclaw-wsl.ps1                                  # source build
 #   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build, pinned tag
 #   .\deploy-openclaw-wsl.ps1 -Npm                             # npm install
+#   .\deploy-openclaw-wsl.ps1 -Ollama                          # add Ollama sidecar
+#   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel llama3.1:8b # sidecar + specific model
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
-#   .\deploy-openclaw-wsl.ps1 -NoOllama                        # no Ollama sidecar
 # ---------------------------------------------------------------------------
 
 param(
     [switch] $Npm,
-    [switch] $NoOllama,
+    [switch] $Ollama,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
@@ -363,8 +364,8 @@ $envBlock
       retries: 3
 "@
 
-# Add Ollama sidecar if no external host is specified and -NoOllama is not set
-$ollamaEnabled = (-not $OllamaHost) -and (-not $NoOllama)
+# Add Ollama sidecar only when -Ollama is specified (and no external host)
+$ollamaEnabled = $Ollama -and (-not $OllamaHost)
 if ($ollamaEnabled) {
     Write-Host "  Ollama sidecar: enabled" -ForegroundColor Green
 
@@ -390,8 +391,8 @@ volumes:
 "@
     # Update env to point at the local Ollama service
     $composeYaml = $composeYaml -replace "(environment:`n(?:.*`n)*?)(    depends_on:)", "`$1      - OLLAMA_HOST=http://ollama:11434`n    depends_on:"
-} elseif ($NoOllama) {
-    Write-Host "  Ollama: disabled (-NoOllama)" -ForegroundColor Yellow
+} elseif (-not $Ollama) {
+    Write-Host "  Ollama: not enabled (use -Ollama to add sidecar)" -ForegroundColor Gray
 }
 
 # Write compose file

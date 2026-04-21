@@ -132,21 +132,35 @@ wsl docker exec -it openclaw bash
 
 ### WSL Ollama options
 
-By default, the WSL deploy script adds an **Ollama sidecar container** and pulls three models (`qwen2.5-coder:7b`, `deepseek-r1:8b`, `qwen2.5:7b`) — the same set used in the ACA variant.
+By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or `-OllamaHost` to point at an existing instance.
 
 ```powershell
-# Default: auto-adds Ollama sidecar + pulls 3 models
+# Default: OpenClaw + Redis only (no Ollama)
 .\deploy-openclaw-wsl.ps1
 
-# Pull only a specific model instead of the default set
-.\deploy-openclaw-wsl.ps1 -OllamaModel llama3.1:8b
+# Add Ollama sidecar + pull 3 default models
+.\deploy-openclaw-wsl.ps1 -Ollama
+
+# Ollama sidecar with a specific model instead of the default set
+.\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel llama3.1:8b
 
 # Use an external Ollama instance (no sidecar added)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
-
-# Disable Ollama entirely
-.\deploy-openclaw-wsl.ps1 -NoOllama
 ```
+
+#### Using a local Ollama instance (no sidecar)
+
+If Ollama is already running on your Windows PC, use `-OllamaHost` to point OpenClaw at it instead of spinning up a sidecar container:
+
+```powershell
+.\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+```
+
+`host.docker.internal` is a special hostname that Docker containers use to reach services on the Windows host. Ollama listens on port `11434` by default.
+
+> **Note:** If Ollama is bound only to `127.0.0.1`, set `OLLAMA_HOST=0.0.0.0` in your local Ollama environment so it accepts connections from the Docker bridge network.
+
+When using `-OllamaHost`, the script skips the Ollama sidecar container and model pulling entirely — you manage models on the external instance yourself.
 
 **Ollama management commands** (when sidecar is running):
 
