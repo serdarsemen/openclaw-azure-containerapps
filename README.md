@@ -14,15 +14,27 @@ Deploy [OpenClaw](https://github.com/openclaw/openclaw) on Azure Container Apps 
 
 ## What this repo does
 
-This repo provides a Bicep template and a PowerShell script that deploy OpenClaw to Azure Container Apps. GitHub Copilot authenticates via device flow with your existing GitHub account, so there are no API keys to manage. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed on your machine.
+This repo provides two ways to deploy OpenClaw:
 
-The Bicep template creates the full Azure infrastructure (VNet, NFS storage with private endpoint, container registry, Container Apps environment). The deploy script builds the OpenClaw image from source, configures the gateway, and outputs a ready-to-use Control UI URL.
+1. **Azure Container Apps** — Bicep templates and PowerShell scripts that deploy to Azure with managed HTTPS, NFS storage, and consumption-based pricing. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed.
+2. **WSL Docker (local)** — PowerShell scripts that build and run OpenClaw as Docker containers inside WSL 2 on your Windows machine. No Azure subscription required.
+
+Both options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants.
 
 ## Prerequisites
+
+### Azure Container Apps deployment
 
 - Azure CLI 2.80+ (`az version`)
 - An active Azure subscription (`az account show`)
 - Git
+
+### WSL Docker deployment (local)
+
+- Windows 10/11 with [WSL 2](https://learn.microsoft.com/windows/wsl/install)
+- Docker Engine running inside WSL (Docker Desktop with WSL 2 backend, or native Docker CE in a WSL distro)
+- Git
+- PowerShell 5.1+ (ships with Windows)
 
 Verify resource providers are registered:
 
@@ -36,7 +48,7 @@ az provider show --namespace Microsoft.ManagedIdentity --query "registrationStat
 
 If any show `NotRegistered`: `az provider register --namespace <name>`.
 
-## Deploy
+## Deploy (Azure Container Apps)
 
 ```powershell
 # 1. Clone this repo
@@ -69,6 +81,114 @@ az containerapp logs show --name ca-openclaw --resource-group rg-openclaw --tail
 ```
 
 You should see a valid FQDN, an active revision, and gateway startup logs without crash loops.
+
+---
+
+## Deploy (WSL Docker — local)
+
+Run OpenClaw locally as Docker containers inside WSL 2. No Azure subscription needed.
+
+```powershell
+# 1. Clone this repo
+git clone https://github.com/spiroskon/openclaw-azure-containerapps.git
+cd openclaw-azure-containerapps
+
+# 2. Deploy (source-build variant, ~10 min first time)
+.\deploy-openclaw-wsl.ps1
+
+# Or use the npm-install variant
+.\deploy-openclaw-wsl.ps1 -Npm
+```
+
+Open the Control UI URL printed by the script. Authenticate GitHub Copilot:
+
+```powershell
+wsl docker exec -it openclaw bash
+#   node openclaw.mjs models auth login-github-copilot
+#   Follow the device flow in your browser, then type: exit
+```
+
+### WSL deploy options
+
+```powershell
+# Source build (default)
+.\deploy-openclaw-wsl.ps1
+
+# NPM variant
+.\deploy-openclaw-wsl.ps1 -Npm
+
+# Pin to a specific version
+.\deploy-openclaw-wsl.ps1 -Tag v2026.3.2
+
+# With Groq API key for cloud inference
+.\deploy-openclaw-wsl.ps1 -GroqApiKey sk-...
+
+# With external Ollama for local models
+.\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+
+# Custom port and data directory
+.\deploy-openclaw-wsl.ps1 -GatewayPort 9000 -DataDir D:\openclaw-data
+```
+
+### WSL Ollama options
+
+By default, the WSL deploy script adds an **Ollama sidecar container** and pulls three models (`qwen2.5-coder:7b`, `deepseek-r1:8b`, `qwen2.5:7b`) — the same set used in the ACA variant.
+
+```powershell
+# Default: auto-adds Ollama sidecar + pulls 3 models
+.\deploy-openclaw-wsl.ps1
+
+# Enable NVIDIA GPU passthrough (requires WSL 2 GPU support + nvidia-container-toolkit)
+.\deploy-openclaw-wsl.ps1 -OllamaGpu
+
+# Pull only a specific model instead of the default set
+.\deploy-openclaw-wsl.ps1 -OllamaModel llama3.1:8b
+
+# GPU + specific model
+.\deploy-openclaw-wsl.ps1 -OllamaGpu -OllamaModel codellama:13b
+
+# Use an external Ollama instance (no sidecar added)
+.\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+
+# Disable Ollama entirely
+.\deploy-openclaw-wsl.ps1 -NoOllama
+```
+
+**Ollama management commands** (when sidecar is running):
+
+```powershell
+wsl docker exec openclaw-ollama ollama list             # list models
+wsl docker exec openclaw-ollama ollama pull <model>     # pull a model
+wsl docker exec -it openclaw-ollama ollama run <model>  # interactive chat
+wsl docker logs -f openclaw-ollama                      # Ollama logs
+```
+
+Model data persists in the `ollama-data` Docker volume across restarts and updates.
+
+### WSL update
+
+```powershell
+# Update to latest (rebuilds image, preserves config and gateway token)
+.\update-openclaw-wsl.ps1
+
+# Update npm variant
+.\update-openclaw-wsl.ps1 -Npm
+
+# Pin to a specific tag
+.\update-openclaw-wsl.ps1 -Tag v2026.3.2
+
+# Just restart without rebuilding
+.\update-openclaw-wsl.ps1 -PullOnly
+```
+
+### WSL useful commands
+
+```powershell
+wsl docker logs -f openclaw           # stream logs
+wsl docker exec -it openclaw bash      # shell into container
+wsl docker compose -f docker-compose-wsl.yaml down    # stop
+wsl docker compose -f docker-compose-wsl.yaml restart  # restart
+```
 
 ---
 
@@ -141,19 +261,20 @@ Globally unique names (ACR, storage) are auto-generated using `uniqueString()`.
 
 ### Deploy script variants
 
-Two deploy scripts are provided. Choose based on your needs:
+Four deploy scripts are provided — two for Azure, two for local WSL Docker:
 
-| | `deploy-openclaw.ps1` | `deploy-openclawnpm.ps1` |
-|---|---|---|
-| **Build method** | Source clone + repo Dockerfile | Inline Dockerfile + `npm i -g openclaw` |
-| **Bicep template** | `main.bicep` (deployment: `main`) | `mainnpm.bicep` (deployment: `mainnpm`) |
-| **Containers** | OpenClaw gateway only | OpenClaw + Redis + Ollama |
-| **Default resources** | 2 vCPU / 4 GiB | 4 vCPU / 8 GiB + 0.25/0.5 (Redis) + 1/2 (Ollama) |
-| **Home directory** | `/home/node` | `/home/openclaw` |
-| **Extras** | — | Bun, Playwright/Chromium, QMD |
-| **Use case** | Lightweight, cloud-LLM-only | Full-featured with local models via Ollama |
+| | `deploy-openclaw.ps1` | `deploy-openclawnpm.ps1` | `deploy-openclaw-wsl.ps1` | `deploy-openclaw-wsl.ps1 -Npm` |
+|---|---|---|---|---|
+| **Target** | Azure Container Apps | Azure Container Apps | WSL Docker (local) | WSL Docker (local) |
+| **Build method** | Source clone + repo Dockerfile | Inline Dockerfile + `npm i -g openclaw` | Source clone + local `docker build` | Inline Dockerfile + `npm i -g openclaw` |
+| **Bicep template** | `main.bicep` | `mainnpm.bicep` | — | — |
+| **Containers** | OpenClaw gateway only | OpenClaw + Redis + Ollama | OpenClaw + Redis | OpenClaw + Redis |
+| **Default resources** | 2 vCPU / 4 GiB | 4 vCPU / 8 GiB + sidecars | Host resources (configurable) | Host resources (configurable) |
+| **Home directory** | `/home/node` | `/home/openclaw` | `/home/node` | `/home/openclaw` |
+| **Storage** | NFS (Azure private endpoint) | NFS (Azure private endpoint) | Bind mount (host filesystem) | Bind mount (host filesystem) |
+| **Use case** | Lightweight cloud deploy | Full-featured cloud + local models | Local dev / no Azure needed | Local dev / npm variant |
 
-Both scripts auto-discover resource names from Bicep deployment outputs, then:
+The Azure scripts auto-discover resource names from Bicep deployment outputs, then:
 
 1. Build the container image remotely via `az acr build`
 2. Generate a 256-bit gateway token
@@ -162,6 +283,8 @@ Both scripts auto-discover resource names from Bicep deployment outputs, then:
 5. Output the Control UI URL with embedded token
 
 > **Note:** The `update-openclaw.ps1` script is currently tied to the source-build variant (deployment name `main`). To update an npm-based deployment, pass `-DeploymentName mainnpm` (or modify the script).
+
+The WSL scripts (`deploy-openclaw-wsl.ps1`, `update-openclaw-wsl.ps1`) handle both variants via the `-Npm` switch. The update script preserves the existing gateway token and configuration by reading them from the running container.
 
 ---
 
@@ -400,14 +523,36 @@ Tracked in [#13989](https://github.com/openclaw/openclaw/issues/13989) and [#202
 az group delete --name rg-openclaw --yes --no-wait
 ```
 
+## Repository structure
+
+```
+├── bicep/                         # Azure infrastructure templates
+│   ├── main.bicep / .bicepparam   # Source-build variant
+│   ├── mainnpm.bicep / .bicepparam# NPM variant
+│   └── ollama.bicep / .bicepparam # Standalone Ollama
+├── images/                        # Extended tool-layer Dockerfiles
+│   ├── Dockerfile.tools           # Go, gh, Gemini CLI, GoG CLI, etc.
+│   └── Dockerfile.npmtools        # Adds Bun, QMD on top of npm base
+├── deploy-openclawfull.ps1        # Azure deploy (full variant)
+├── update-openclawfull.ps1        # Azure update (full variant)
+├── deploy-openclaw-wsl.ps1        # WSL Docker deploy (local)
+├── update-openclaw-wsl.ps1        # WSL Docker update (local)
+├── deploy-ollama.ps1              # Azure Ollama sidecar deploy
+├── update-ollama.ps1              # Azure Ollama sidecar update
+└── openclaw-repo/                 # Cloned OpenClaw source (gitignored)
+```
+
+---
+
 ## Tested with
 
 | Component | Version |
 |-----------|---------|
-| OpenClaw | Latest from `main` branch (Feb 2026) |
+| OpenClaw | Latest from `main` branch (Apr 2026) |
 | Azure CLI | 2.80+ |
 | Bicep | Built-in with Azure CLI |
-| Region | Sweden Central |
+| Docker (WSL) | 27.x / Docker Desktop 4.x with WSL 2 backend |
+| Region | Sweden Central (Azure) |
 | LLM | `github-copilot/claude-opus-4.6` |
 
 ## Related
