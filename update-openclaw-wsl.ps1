@@ -54,9 +54,16 @@ function Test-WslDocker {
 Write-Host "`n=== Pre-flight checks ===" -ForegroundColor Cyan
 
 if (-not (Test-WslDocker)) {
-    throw "Docker is not running inside WSL. Start Docker Engine or Docker Desktop with WSL 2 backend."
+    Write-Host "  Docker not running — attempting to start..." -ForegroundColor Yellow
+    wsl bash -c "sudo service docker start" 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+    if (-not (Test-WslDocker)) {
+        throw "Docker is not running inside WSL and could not be started. Start Docker Engine or Docker Desktop with WSL 2 backend."
+    }
+    Write-Host "  Docker (WSL): started" -ForegroundColor Green
+} else {
+    Write-Host "  Docker (WSL): OK" -ForegroundColor Green
 }
-Write-Host "  Docker (WSL): OK" -ForegroundColor Green
 
 # Verify the container exists (was previously deployed)
 $containerExists = Invoke-Wsl "docker ps -a --filter name=^${ContainerName}$ --format '{{.Names}}' 2>/dev/null"

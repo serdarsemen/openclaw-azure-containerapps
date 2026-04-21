@@ -85,11 +85,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  WSL: OK" -ForegroundColor Green
 
-# Check Docker inside WSL
+# Check Docker inside WSL — auto-start if not running
 if (-not (Test-WslDocker)) {
-    throw "Docker is not running inside WSL. Start Docker Engine or Docker Desktop with WSL 2 backend."
+    Write-Host "  Docker not running — attempting to start..." -ForegroundColor Yellow
+    wsl bash -c "sudo service docker start" 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+    if (-not (Test-WslDocker)) {
+        throw "Docker is not running inside WSL and could not be started. Start Docker Engine or Docker Desktop with WSL 2 backend."
+    }
+    Write-Host "  Docker (WSL): started" -ForegroundColor Green
+} else {
+    Write-Host "  Docker (WSL): OK" -ForegroundColor Green
 }
-Write-Host "  Docker (WSL): OK" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # Set variant-specific defaults
