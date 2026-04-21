@@ -138,14 +138,8 @@ By default, the WSL deploy script adds an **Ollama sidecar container** and pulls
 # Default: auto-adds Ollama sidecar + pulls 3 models
 .\deploy-openclaw-wsl.ps1
 
-# Enable NVIDIA GPU passthrough (requires WSL 2 GPU support + nvidia-container-toolkit)
-.\deploy-openclaw-wsl.ps1 -OllamaGpu
-
 # Pull only a specific model instead of the default set
 .\deploy-openclaw-wsl.ps1 -OllamaModel llama3.1:8b
-
-# GPU + specific model
-.\deploy-openclaw-wsl.ps1 -OllamaGpu -OllamaModel codellama:13b
 
 # Use an external Ollama instance (no sidecar added)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434

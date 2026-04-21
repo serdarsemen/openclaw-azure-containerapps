@@ -18,7 +18,6 @@
 # Ollama modes:
 #   - Default: auto-adds Ollama sidecar, pulls 3 models (same as ACA variant)
 #   - -OllamaHost <url>: use an external Ollama instance (no sidecar)
-#   - -OllamaGpu: enable NVIDIA GPU passthrough for the Ollama sidecar
 #   - -OllamaModel <name>: pull only this model instead of the default set
 #   - -NoOllama: skip Ollama entirely
 #
@@ -31,14 +30,12 @@
 #   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build, pinned tag
 #   .\deploy-openclaw-wsl.ps1 -Npm                             # npm install
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
-#   .\deploy-openclaw-wsl.ps1 -OllamaGpu                      # Ollama with GPU
 #   .\deploy-openclaw-wsl.ps1 -NoOllama                        # no Ollama sidecar
 # ---------------------------------------------------------------------------
 
 param(
     [switch] $Npm,
     [switch] $NoOllama,
-    [switch] $OllamaGpu,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
@@ -369,22 +366,7 @@ $envBlock
 # Add Ollama sidecar if no external host is specified and -NoOllama is not set
 $ollamaEnabled = (-not $OllamaHost) -and (-not $NoOllama)
 if ($ollamaEnabled) {
-    # GPU passthrough block — requires WSL 2 GPU support and nvidia-container-toolkit
-    $gpuBlock = ""
-    if ($OllamaGpu) {
-        $gpuBlock = @"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-"@
-        Write-Host "  Ollama GPU passthrough: enabled (nvidia)" -ForegroundColor Green
-    } else {
-        Write-Host "  Ollama running on CPU (use -OllamaGpu for GPU passthrough)" -ForegroundColor Gray
-    }
+    Write-Host "  Ollama sidecar: enabled" -ForegroundColor Green
 
     $composeYaml += @"
 
@@ -396,7 +378,6 @@ if ($ollamaEnabled) {
     ports:
       - "11434:11434"
     restart: unless-stopped
-$gpuBlock
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
       interval: 30s
@@ -579,7 +560,6 @@ Write-Host "  Data dir:   $DataDir" -ForegroundColor White
 Write-Host ""
 if ($ollamaEnabled) {
     Write-Host "  Ollama:     http://localhost:11434" -ForegroundColor White
-    Write-Host "  Ollama GPU: $(if ($OllamaGpu) { 'enabled (nvidia)' } else { 'disabled (use -OllamaGpu)' })" -ForegroundColor White
     Write-Host "  Models:     $(if ($OllamaModel) { $OllamaModel } else { 'qwen2.5-coder:7b, deepseek-r1:8b, qwen2.5:7b' })" -ForegroundColor White
 } elseif ($OllamaHost) {
     Write-Host "  Ollama:     $OllamaHost (external)" -ForegroundColor White
