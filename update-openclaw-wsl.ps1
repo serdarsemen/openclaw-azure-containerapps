@@ -55,10 +55,20 @@ Write-Host "`n=== Pre-flight checks ===" -ForegroundColor Cyan
 
 if (-not (Test-WslDocker)) {
     Write-Host "  Docker not running — attempting to start..." -ForegroundColor Yellow
-    wsl bash -c "sudo service docker start" 2>&1 | Out-Null
+    # Use timeout to avoid hanging on sudo password prompt
+    $startJob = Start-Job { wsl bash -c "sudo -n service docker start 2>/dev/null || service docker start 2>/dev/null" }
+    $null = $startJob | Wait-Job -Timeout 10
+    if ($startJob.State -eq 'Running') { $startJob | Stop-Job }
+    $startJob | Remove-Job -Force
     Start-Sleep -Seconds 3
     if (-not (Test-WslDocker)) {
-        throw "Docker is not running inside WSL and could not be started. Start Docker Engine or Docker Desktop with WSL 2 backend."
+        throw @"
+Docker is not running inside WSL and could not be auto-started.
+Fix: run this once in WSL to enable passwordless Docker start:
+  wsl bash -c "echo '$env:USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/service docker *' | sudo tee /etc/sudoers.d/docker-service"
+Or start Docker manually before running this script:
+  wsl sudo service docker start
+"@
     }
     Write-Host "  Docker (WSL): started" -ForegroundColor Green
 } else {
