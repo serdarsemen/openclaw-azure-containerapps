@@ -79,24 +79,13 @@ function New-WslTransferArchive {
         [string] $ArchiveName
     )
 
-    $archiveRoot = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-wsl-transfer"
-    if (-not (Test-Path $archiveRoot)) {
-        New-Item -ItemType Directory -Path $archiveRoot | Out-Null
-    }
+    $wslTransferRoot = "/tmp/openclaw-transfer"
+    $wslArchivePath = "$wslTransferRoot/$ArchiveName.tar"
 
-    $windowsArchivePath = Join-Path $archiveRoot "$ArchiveName.tar"
-    if (Test-Path $windowsArchivePath) {
-        Remove-Item $windowsArchivePath -Force
-    }
-
-    $wslWindowsArchivePath = (Invoke-Wsl "wslpath -u '$($windowsArchivePath -replace '\\','/')'") -join ""
-    $wslWindowsArchivePath = $wslWindowsArchivePath.Trim()
-
-    Invoke-Wsl "set -e; rm -f '$wslWindowsArchivePath'; cd '$SourcePath' && tar --exclude=.git -cf '$wslWindowsArchivePath' ."
+    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; cd '$SourcePath' && tar --exclude=.git -cf '$wslArchivePath' ."
 
     return [pscustomobject]@{
-        WindowsArchivePath = $windowsArchivePath
-        WslWindowsArchivePath = $wslWindowsArchivePath
+        WslArchivePath = $wslArchivePath
     }
 }
 
@@ -106,15 +95,12 @@ function Expand-WslTransferArchive {
         [string] $ContextName
     )
 
-    $wslTransferRoot = "/tmp/openclaw-transfer"
     $wslContextRoot = "/tmp/openclaw-docker-context"
-    $wslArchivePath = "$wslTransferRoot/$ContextName.tar"
     $wslContextPath = "$wslContextRoot/$ContextName"
 
-    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot' '$wslContextRoot'; rm -f '$wslArchivePath'; rm -rf '$wslContextPath'; cp '$ArchivePath' '$wslArchivePath'; mkdir -p '$wslContextPath'; tar -xf '$wslArchivePath' -C '$wslContextPath'"
+    Invoke-Wsl "set -e; mkdir -p '$wslContextRoot'; rm -rf '$wslContextPath'; mkdir -p '$wslContextPath'; tar -xf '$ArchivePath' -C '$wslContextPath'"
 
     return [pscustomobject]@{
-        WslArchivePath = $wslArchivePath
         WslContextPath = $wslContextPath
     }
 }
@@ -139,8 +125,17 @@ if (-not (Test-WslDocker)) {
     $null = $startJob | Wait-Job -Timeout 10
     if ($startJob.State -eq 'Running') { $startJob | Stop-Job }
     $startJob | Remove-Job -Force
-    Start-Sleep -Seconds 3
-    if (-not (Test-WslDocker)) {
+    $dockerReady = $false
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        if (Test-WslDocker) {
+            $dockerReady = $true
+            break
+        }
+        if ($attempt -lt 6) {
+            Start-Sleep -Seconds 1
+        }
+    }
+    if (-not $dockerReady) {
         $wslUser = (wsl whoami 2>$null).Trim()
         throw @"
 Docker is not running inside WSL and could not be auto-started.
@@ -300,12 +295,12 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     }
     $WslSourcePath = $WslSourcePath.Trim()
 
-    Write-Host "  Step 2a: Creating source archive..." -ForegroundColor Gray
+    Write-Host "  Step 2a: Packaging source as WSL transfer archive..." -ForegroundColor Gray
     $SourceArchive = New-WslTransferArchive -SourcePath $WslSourcePath -ArchiveName "$ImageName-source"
-    Write-Host "  Source archive created: $($SourceArchive.WindowsArchivePath)" -ForegroundColor Green
+    Write-Host "  Source archive (WSL): $($SourceArchive.WslArchivePath)" -ForegroundColor Green
 
-    Write-Host "  Step 2b: Transferring source archive to WSL..." -ForegroundColor Gray
-    $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslWindowsArchivePath -ContextName "$ImageName-source"
+    Write-Host "  Step 2b: Expanding source archive in WSL..." -ForegroundColor Gray
+    $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
     Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
     Write-Host "  Step 2c: Building base OpenClaw image from source..." -ForegroundColor Gray
@@ -319,9 +314,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
     Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
 
-    Remove-Item $SourceArchive.WindowsArchivePath -Force -ErrorAction SilentlyContinue
     try {
-        Invoke-Wsl "rm -f '$($WslBuildContext.WslArchivePath)'"
+        Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'"
     } catch {}
 }
 
@@ -494,7 +488,6 @@ $attempt = 0
 $healthy = $false
 while ($attempt -lt $maxAttempts) {
     $attempt++
-    Start-Sleep -Seconds 5
     try {
         $response = Invoke-WebRequest -Uri "http://localhost:${GatewayPort}/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
         if ($response.StatusCode -eq 200) {
@@ -503,7 +496,10 @@ while ($attempt -lt $maxAttempts) {
             break
         }
     } catch {}
-    Write-Host "  Not ready yet — retrying in 5s ($attempt/$maxAttempts)..." -ForegroundColor Gray
+    if ($attempt -lt $maxAttempts) {
+        Write-Host "  Not ready yet — retrying in 5s ($attempt/$maxAttempts)..." -ForegroundColor Gray
+        Start-Sleep -Seconds 5
+    }
 }
 if (-not $healthy) {
     Write-Warning "Gateway did not become healthy after $maxAttempts attempts — check logs with: wsl docker logs $ContainerName"
@@ -566,7 +562,6 @@ if ($ollamaEnabled) {
     Write-Host "  Waiting for Ollama to become ready..."
     $ollamaReady = $false
     for ($i = 1; $i -le 20; $i++) {
-        Start-Sleep -Seconds 3
         try {
             $resp = Invoke-WebRequest -Uri "http://localhost:11434/" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
             if ($resp.StatusCode -eq 200) {
@@ -575,7 +570,10 @@ if ($ollamaEnabled) {
                 break
             }
         } catch {}
-        Write-Host "  Not ready yet — retrying ($i/20)..." -ForegroundColor Gray
+        if ($i -lt 20) {
+            Write-Host "  Not ready yet — retrying ($i/20)..." -ForegroundColor Gray
+            Start-Sleep -Seconds 3
+        }
     }
 
     if ($ollamaReady) {
