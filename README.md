@@ -14,12 +14,13 @@ Deploy [OpenClaw](https://github.com/openclaw/openclaw) on Azure Container Apps 
 
 ## What this repo does
 
-This repo provides two ways to deploy OpenClaw:
+This repo provides three ways to deploy OpenClaw:
 
-1. **Azure Container Apps** — Bicep templates and PowerShell scripts that deploy to Azure with managed HTTPS, NFS storage, and consumption-based pricing. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed.
-2. **WSL Docker (local)** — PowerShell scripts that build and run OpenClaw as Docker containers inside WSL 2 on your Windows machine. No Azure subscription required.
+1. **Azure Container Apps (ACA)** — Bicep templates and PowerShell scripts that deploy to Azure with managed HTTPS, NFS storage, and consumption-based pricing. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed.
+2. **Azure Kubernetes Service (AKS)** — PowerShell scripts that provision an AKS cluster, reuse the ACA ACR + NFS share, and deploy OpenClaw and **Ollama as separate pods** with a `LoadBalancer` Service. See [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) for a full walkthrough of migrating an existing ACA instance to AKS.
+3. **WSL Docker (local)** — PowerShell scripts that build and run OpenClaw as Docker containers inside WSL 2 on your Windows machine. No Azure subscription required. See [`ACA2WSLMigration.md`](./ACA2WSLMigration.md) for migrating an existing ACA instance to WSL.
 
-Both options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants.
+All three options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch).
 
 ## Prerequisites
 
@@ -28,6 +29,12 @@ Both options support GitHub Copilot as the LLM provider (device-flow OAuth, no A
 - Azure CLI 2.80+ (`az version`)
 - An active Azure subscription (`az account show`)
 - Git
+
+### Azure Kubernetes Service deployment
+
+- Everything from the ACA prerequisites (the AKS deploy reuses the ACA ACR + NFS storage)
+- `kubectl` — install with `az aks install-cli`
+- ACA Bicep deployment already applied (the AKS script discovers ACR and storage from its outputs)
 
 ### WSL Docker deployment (local)
 
@@ -61,13 +68,25 @@ az deployment group create --resource-group rg-openclaw `
   --template-file bicep/main.bicep --parameters bicep/main.bicepparam
 
 # 3. Build and configure OpenClaw (~10 min)
-.\deploy-openclaw.ps1 -ResourceGroup rg-openclaw
+.\deploy-openclaw-ACA.ps1                   # source-build variant
+# .\deploy-openclaw-ACA.ps1 -Npm            # npm variant
 
 # 4. Authenticate GitHub Copilot (interactive, ~2 min)
 az containerapp exec --name ca-openclaw --resource-group rg-openclaw
-#   node openclaw.mjs models auth login-github-copilot
+#   node openclaw.mjs models auth login-github-copilot   # (source variant)
+#   openclaw models auth login-github-copilot            # (npm variant)
 #   Follow the device flow in your browser, then type: exit
 ```
+
+### ACA update
+
+```powershell
+.\update-openclaw-ACA.ps1                   # rebuild + roll source variant
+.\update-openclaw-ACA.ps1 -Npm              # npm variant
+.\update-openclaw-ACA.ps1 -Tag v2026.3.2    # pin to a tag
+```
+
+The update script preserves the existing gateway token, env vars, NFS mount, and probes by reading them from the running app before patching.
 
 Open the Control UI URL printed by the script. Send a test message.
 
@@ -81,6 +100,50 @@ az containerapp logs show --name ca-openclaw --resource-group rg-openclaw --tail
 ```
 
 You should see a valid FQDN, an active revision, and gateway startup logs without crash loops.
+
+---
+
+## Deploy (Azure Kubernetes Service)
+
+Provision AKS and deploy OpenClaw with **Ollama running as a separate pod** in the same namespace. Reuses the ACR and NFS Azure Files share from the ACA Bicep deployment — you can run this alongside or after the ACA deployment, or use [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) to migrate an existing ACA instance.
+
+```powershell
+# 1. Ensure ACA infrastructure exists (provides ACR + NFS storage for AKS to reuse)
+az deployment group create --resource-group rg-openclaw `
+  --template-file bicep/main.bicep --parameters bicep/main.bicepparam
+
+# 2. Provision AKS, deploy Ollama + OpenClaw, pre-pull models (~15 min)
+.\deploy-openclaw-aks.ps1                                   # source-build variant
+# .\deploy-openclaw-aks.ps1 -Npm                            # npm variant
+# .\deploy-openclaw-aks.ps1 -OllamaModels "llama3.1:8b,qwen2.5:7b"
+
+# 3. Authenticate GitHub Copilot
+kubectl -n openclaw exec -it deploy/openclaw -c openclaw -- bash
+#   node openclaw.mjs models auth login-github-copilot      # (source variant)
+#   openclaw models auth login-github-copilot               # (npm variant)
+```
+
+The script prints the external `LoadBalancer` IP plus a Control UI URL with the embedded token.
+
+### AKS update
+
+```powershell
+.\update-openclaw-aks.ps1                                   # rebuild image, rollout openclaw
+.\update-openclaw-aks.ps1 -Npm                              # npm variant
+.\update-openclaw-aks.ps1 -Tag v2026.3.2                    # pin source build to a tag
+.\update-openclaw-aks.ps1 -OllamaImage ollama/ollama:0.4.0  # bump Ollama pod too
+```
+
+The update pins the rolled-out Deployment to the freshly built image **digest** (not the `:latest` tag) so every rollout is deterministic, and sweeps old `base-*` tags in ACR down to `-KeepBaseImages` (default 3).
+
+### AKS useful commands
+
+```powershell
+kubectl -n openclaw get pods -o wide
+kubectl -n openclaw logs -f deploy/openclaw -c openclaw
+kubectl -n openclaw exec deploy/ollama -- ollama list
+kubectl -n openclaw get svc openclaw            # external IP
+```
 
 ---
 
@@ -269,30 +332,32 @@ Globally unique names (ACR, storage) are auto-generated using `uniqueString()`.
 
 ### Deploy script variants
 
-Four deploy scripts are provided — two for Azure, two for local WSL Docker:
+Six deploy scripts are provided — two per target (ACA, AKS, WSL). Source-build is the default; pass `-Npm` for the npm variant on every script.
 
-| | `deploy-openclaw.ps1` | `deploy-openclawnpm.ps1` | `deploy-openclaw-wsl.ps1` | `deploy-openclaw-wsl.ps1 -Npm` |
-|---|---|---|---|---|
-| **Target** | Azure Container Apps | Azure Container Apps | WSL Docker (local) | WSL Docker (local) |
-| **Build method** | Source clone + repo Dockerfile | Inline Dockerfile + `npm i -g openclaw` | Source clone + local `docker build` | Inline Dockerfile + `npm i -g openclaw` |
-| **Bicep template** | `main.bicep` | `mainnpm.bicep` | — | — |
-| **Containers** | OpenClaw gateway only | OpenClaw + Redis + Ollama | OpenClaw + Redis | OpenClaw + Redis |
-| **Default resources** | 2 vCPU / 4 GiB | 4 vCPU / 8 GiB + sidecars | Host resources (configurable) | Host resources (configurable) |
-| **Home directory** | `/home/node` | `/home/openclaw` | `/home/node` | `/home/openclaw` |
-| **Storage** | NFS (Azure private endpoint) | NFS (Azure private endpoint) | Bind mount (host filesystem) | Bind mount (host filesystem) |
-| **Use case** | Lightweight cloud deploy | Full-featured cloud + local models | Local dev / no Azure needed | Local dev / npm variant |
+| | `deploy-openclaw-ACA.ps1` | `deploy-openclaw-aks.ps1` | `deploy-openclaw-wsl.ps1` |
+|---|---|---|---|
+| **Target** | Azure Container Apps | Azure Kubernetes Service | WSL Docker (local) |
+| **Variants** | `-Npm` switch | `-Npm` switch | `-Npm` switch |
+| **Infra source** | `bicep/main[.npm].bicep` | Reuses ACA ACR + NFS; provisions AKS | — |
+| **Build method** | `az acr build` (remote) | `az acr build` (remote) | `docker build` inside WSL |
+| **Containers / pods** | OpenClaw + Redis sidecar | OpenClaw (+ Redis sidecar) pod, Ollama pod | OpenClaw + Redis (+ optional Ollama sidecar) |
+| **Ollama** | Separate Container App (`deploy-ollama.ps1`) | **Separate pod + `ollama` Service** | Sidecar with `-Ollama`, or external via `-OllamaHost` |
+| **Ingress** | Managed HTTPS FQDN | `LoadBalancer` public IP (or Ingress) | `localhost:18789` |
+| **Storage** | NFS via private endpoint | Same NFS share via static `PersistentVolume` | Host bind mount |
+| **Update script** | `update-openclaw-ACA.ps1` | `update-openclaw-aks.ps1` | `update-openclaw-wsl.ps1` |
 
-The Azure scripts auto-discover resource names from Bicep deployment outputs, then:
+All scripts:
 
-1. Build the container image remotely via `az acr build`
-2. Generate a 256-bit gateway token
-3. Update the Container App with the OpenClaw image, NFS volume mount, and startup command
-4. Run non-interactive onboard and set the model to `github-copilot/claude-opus-4.6`
-5. Output the Control UI URL with embedded token
+1. Auto-discover resources (ACR, storage) from Bicep outputs — no hardcoded names.
+2. Build the image remotely (ACA/AKS) or locally (WSL), never requiring Docker Desktop for cloud paths.
+3. Generate a 256-bit gateway token (or preserve the existing one on update).
+4. Run non-interactive onboard + `models set github-copilot/claude-opus-4.6`.
+5. Print the Control UI URL with the embedded token.
 
-> **Note:** The `update-openclaw.ps1` script is currently tied to the source-build variant (deployment name `main`). To update an npm-based deployment, pass `-DeploymentName mainnpm` (or modify the script).
+### Migration guides
 
-The WSL scripts (`deploy-openclaw-wsl.ps1`, `update-openclaw-wsl.ps1`) handle both variants via the `-Npm` switch. The update script preserves the existing gateway token and configuration by reading them from the running container.
+- [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) — move a running ACA instance (state, skills, memory, sessions, gateway token) to AKS with Ollama as a separate pod.
+- [`ACA2WSLMigration.md`](./ACA2WSLMigration.md) — move a running ACA instance to a local WSL Docker deployment.
 
 ---
 
@@ -528,7 +593,11 @@ Tracked in [#13989](https://github.com/openclaw/openclaw/issues/13989) and [#202
 ## Cleanup
 
 ```powershell
+# ACA deployment
 az group delete --name rg-openclaw --yes --no-wait
+
+# AKS deployment (only the cluster — keeps ACR + NFS share in rg-openclaw)
+az group delete --name rg-openclaw-aks --yes --no-wait
 ```
 
 ## Repository structure
@@ -541,12 +610,16 @@ az group delete --name rg-openclaw --yes --no-wait
 ├── images/                        # Extended tool-layer Dockerfiles
 │   ├── Dockerfile.tools           # Go, gh, Gemini CLI, GoG CLI, etc.
 │   └── Dockerfile.npmtools        # Adds Bun, QMD on top of npm base
-├── deploy-openclawfull.ps1        # Azure deploy (full variant)
-├── update-openclawfull.ps1        # Azure update (full variant)
+├── deploy-openclaw-ACA.ps1        # Azure Container Apps deploy
+├── update-openclaw-ACA.ps1        # Azure Container Apps update
+├── deploy-openclaw-aks.ps1        # Azure Kubernetes Service deploy (Ollama as separate pod)
+├── update-openclaw-aks.ps1        # Azure Kubernetes Service update
 ├── deploy-openclaw-wsl.ps1        # WSL Docker deploy (local)
 ├── update-openclaw-wsl.ps1        # WSL Docker update (local)
-├── deploy-ollama.ps1              # Azure Ollama sidecar deploy
-├── update-ollama.ps1              # Azure Ollama sidecar update
+├── deploy-ollama.ps1              # Azure standalone Ollama Container App deploy
+├── update-ollama.ps1              # Azure standalone Ollama Container App update
+├── ACA2AKSMigration.md            # Migration guide: ACA → AKS
+├── ACA2WSLMigration.md            # Migration guide: ACA → WSL
 └── openclaw-repo/                 # Cloned OpenClaw source (gitignored)
 ```
 

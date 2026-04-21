@@ -10,7 +10,7 @@ body:
       options:
         - Source-build (deploy-openclaw.ps1 / main.bicep)
         - npm (deploy-openclawnpm.ps1 / mainnpm.bicep)
-        - Combined (deploy-openclawfull.ps1)
+        - Combined (deploy-openclaw-ACA.ps1)
     validations:
       required: true
 

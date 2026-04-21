@@ -1,18 +1,26 @@
 # ---------------------------------------------------------------------------
-# update-openclawfull.ps1 — Update the OpenClaw image without regenerating tokens or config
+# deploy-openclaw-ACA.ps1 — Build and deploy OpenClaw to an existing ACA environment
 #
-# Combines update-openclaw.ps1 (source build) and update-openclawnpm.ps1 (npm)
+# Combines deploy-openclaw.ps1 (source build) and deploy-openclawnpm.ps1 (npm)
 # into a single script controlled by the -Npm switch.
 #
 # Without -Npm: source-build variant (rg-openclaw, main.bicep, ca-openclaw, acropenclaw)
-# With    -Npm: npm-install variant  (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
+#   - Builds from the OpenClaw Git repo Dockerfile
+#   - Two containers: OpenClaw gateway + Redis
+#   - Home directory: /home/node
 #
-# Prerequisites: OpenClaw already deployed via the corresponding deploy script.
+# With -Npm: npm-install variant (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
+#   - Builds a custom Dockerfile (node:22-slim + npm i -g openclaw)
+#   - Two containers: OpenClaw gateway + Redis
+#   - Home directory: /home/openclaw
+#   - Includes Bun, Playwright/Chromium, QMD
+#
+# Prerequisites: infrastructure deployed via the corresponding Bicep template
 #
 # Usage:
-#   .\update-openclawfull.ps1                                  # source build
-#   .\update-openclawfull.ps1 -Tag v2026.3.2                  # source build, pinned tag
-#   .\update-openclawfull.ps1 -Npm                             # npm install
+#   .\deploy-openclaw-ACA.ps1                                  # source build
+#   .\deploy-openclaw-ACA.ps1 -Tag v2026.2.15                  # source build, pinned tag
+#   .\deploy-openclaw-ACA.ps1 -Npm                             # npm install
 # ---------------------------------------------------------------------------
 
 param(
@@ -22,36 +30,15 @@ param(
     [string] $AppName = "",
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
-    [int]    $KeepBaseImages = 3   # retain N newest openclaw:base-* tags; older ones are deleted
+    [string] $Cpu = "",
+    [string] $Memory = "",
+    [string] $GroqApiKey = ""  # Groq API key — passed as a secret, never hardcoded
 )
 
 $ErrorActionPreference = "Stop"
 
-# --- Helper: prune old base-* image tags to stay under ACR Basic (10 GiB) quota ---
-function Invoke-AcrBaseImageSweep {
-    param(
-        [Parameter(Mandatory)][string] $Registry,
-        [Parameter(Mandatory)][string] $Repository,
-        [Parameter(Mandatory)][string] $KeepTagPrefix,
-        [int] $Keep = 3
-    )
-    Write-Host "  Sweeping old '$KeepTagPrefix*' tags in $Registry/$Repository (keeping newest $Keep)..." -ForegroundColor Gray
-    $tagsJson = az acr repository show-tags `
-        --name $Registry `
-        --repository $Repository `
-        --orderby time_desc `
-        --detail `
-        --query "[?starts_with(name, '$KeepTagPrefix')].{name:name,created:createdTime}" `
-        -o json 2>$null
-    if (-not $tagsJson) { return }
-    try { $tags = $tagsJson | ConvertFrom-Json } catch { return }
-    if (-not $tags -or $tags.Count -le $Keep) { return }
-    $toDelete = $tags | Select-Object -Skip $Keep
-    foreach ($t in $toDelete) {
-        Write-Host "    Deleting ${Repository}:$($t.name)" -ForegroundColor DarkGray
-        az acr repository delete --name $Registry --image "${Repository}:$($t.name)" --yes 2>$null | Out-Null
-    }
-}
+# Azure Container Apps rejects secrets with empty values — use a placeholder
+if (-not $GroqApiKey) { $GroqApiKey = "REPLACE_ME" }
 
 # --- Set variant-specific defaults ---
 if ($Npm) {
@@ -74,6 +61,17 @@ if ($HomeDir -match '\s' -or $HomeDir -match '["''`:#]') {
     throw "HomeDir '$HomeDir' contains whitespace or YAML-special characters; refuse to interpolate."
 }
 
+# --- Resource defaults (both variants use Consumption: 4 CPU / 8Gi max) ---
+if (-not $Cpu)    { $Cpu    = "3.75" }
+if (-not $Memory) { $Memory = "7.5Gi" }
+# Sidecar: Redis (0.25 CPU / 0.5Gi) — validate total <= 4 CPU / 8Gi
+$redisCpu = 0.25; $redisMem = 0.5
+$totalCpu = [double]$Cpu + $redisCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem
+if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) sidecar."
+}
+
 # --- Discover resource names from Bicep deployment outputs ---
 Write-Host "`n=== Discovering resources from Bicep deployment ===" -ForegroundColor Cyan
 $AcrName = az deployment group show --resource-group $ResourceGroup --name $DeploymentName `
@@ -94,16 +92,13 @@ $AcrServer = "$AcrName.azurecr.io"
 # --- Build image ---
 if ($Npm) {
     # ===== NPM variant: create inline Dockerfile and build =====
-    Write-Host "`n=== Step 1/3: Creating Dockerfile (node:22-slim incl. npm) ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/6: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
     $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-npm-build"
     if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
     New-Item -ItemType Directory -Path $buildDir | Out-Null
 
     $npmTag = if ($Tag) { $Tag } else { "latest" }
-    $npmTagSafe = ($npmTag -replace '[^A-Za-z0-9_.-]', '-').ToLower()
-    $baseImageTag = "openclaw:base-npm-$npmTagSafe"
-    $baseTagName = "base-npm-$npmTagSafe"
 
     $dockerfile = @"
 FROM node:22-slim
@@ -147,61 +142,38 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
     Write-Host "  Dockerfile created at $buildDir" -ForegroundColor Green
 
-    Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
     Write-Host "This uploads the Dockerfile to Azure and builds remotely..."
 
     $env:PYTHONIOENCODING = "utf-8"
-    $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    $baseTagExists = az acr repository show-tags `
-      --name $AcrName `
-      --repository openclaw `
-      --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
-    $reuseBase = ($Tag -and $baseTagExists -eq "1")
-
-    if ($reuseBase) {
-      $step2aMode = "cache-hit (reused base image)"
-      Write-Host "  Step 2a: Reusing existing base image $AcrServer/$baseImageTag" -ForegroundColor Gray
-    } else {
-      $step2aMode = "rebuilt base image"
-      Write-Host "  Step 2a: Building base OpenClaw image as $baseImageTag..." -ForegroundColor Gray
-      az acr build `
+    Write-Host "  Step 2a: Building base OpenClaw image..." -ForegroundColor Gray
+    az acr build `
         --registry $AcrName `
-        --image $baseImageTag `
+        --image openclaw:base `
         --file "$buildDir/Dockerfile" `
         $buildDir
 
-      if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
-      Write-Host "  Base image pushed to $AcrServer/$baseImageTag" -ForegroundColor Green
-    }
-    $step2aStopwatch.Stop()
-    Write-Host ("  Step 2a result: {0} in {1:N1}s" -f $step2aMode, $step2aStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+    if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+    Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-    $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     az acr build `
         --registry $AcrName `
         --image openclaw:latest `
-      --build-arg "BASE_IMAGE=$AcrServer/$baseImageTag" `
+        --build-arg "BASE_IMAGE=$AcrServer/openclaw:base" `
         --file $ToolsDockerfile `
         images
 
     if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
-    $step2bStopwatch.Stop()
-    $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
-    Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
-    Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
-
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-npm-' -Keep $KeepBaseImages
 
     # Clean up temp build dir
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
 
 } else {
     # ===== Source-build variant: pull/checkout source and build =====
-    Write-Host "`n=== Step 1/3: Updating OpenClaw source ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
 
     if (-not (Test-Path $SourcePath)) {
         Write-Host "  Source not found — cloning..."
@@ -228,38 +200,20 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Pop-Location
     }
 
-    $sourceCommit = git -C $SourcePath rev-parse --short=12 HEAD 2>$null
-    if (-not $sourceCommit) { throw "Failed to read source commit from $SourcePath" }
-
-    $baseImageTag = "openclaw:base-$sourceCommit"
-    $baseTagName = "base-$sourceCommit"
-
-    $ref = if ($Tag) { "$Tag ($sourceCommit)" } else { "latest (main @ $sourceCommit)" }
+    $ref = if ($Tag) { $Tag } else { "latest (main)" }
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
-    Write-Host "`n=== Step 2/3: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
-    Write-Host "This uploads source to Azure and builds remotely (~15 min)..."
+    Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
+    Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
 
     $env:PYTHONIOENCODING = "utf-8"
-    $step2Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $step2aStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    $baseTagExists = az acr repository show-tags `
-      --name $AcrName `
-      --repository openclaw `
-      --query "[?@=='$baseTagName'] | length(@)" -o tsv 2>$null
+    # Export tracked files only into a clean temp context to avoid uploading untracked/modified files.
+    $BuildContextDir = Join-Path ([System.IO.Path]::GetTempPath()) ("openclaw-acr-context-" + [System.IO.Path]::GetRandomFileName())
+    $ArchivePath = "$BuildContextDir.zip"
+    New-Item -ItemType Directory -Path $BuildContextDir | Out-Null
 
-    if ($baseTagExists -eq "1") {
-      $step2aMode = "cache-hit (reused base image)"
-      Write-Host "  Step 2a: Reusing existing base image $AcrServer/$baseImageTag" -ForegroundColor Gray
-    } else {
-      $step2aMode = "rebuilt base image"
-      # Export tracked files only into a clean temp context to avoid slow local tar scanning.
-      $BuildContextDir = Join-Path ([System.IO.Path]::GetTempPath()) ("openclaw-acr-context-" + [System.IO.Path]::GetRandomFileName())
-      $ArchivePath = "$BuildContextDir.zip"
-      New-Item -ItemType Directory -Path $BuildContextDir | Out-Null
-
-      try {
+    try {
         git -C $SourcePath archive --format=zip --output $ArchivePath HEAD
         if ($LASTEXITCODE -ne 0) { throw "Failed to export source archive for ACR build context" }
 
@@ -267,110 +221,82 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Remove-Item $ArchivePath -Force -ErrorAction SilentlyContinue
         Write-Host "  Prepared clean ACR build context from tracked source files" -ForegroundColor Gray
 
-        # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives.
+        # Patch Dockerfile for ACR Tasks compatibility: strip BuildKit --mount directives
+        # and suppress pnpm self-update checks that can stall headless builds.
         $AcrDockerfile = Join-Path $BuildContextDir "Dockerfile.acr"
         (Get-Content (Join-Path $BuildContextDir "Dockerfile") -Raw) `
-          -replace '--mount=type=cache,\S+\s*', '' `
-          -replace 'pnpm install --frozen-lockfile', 'PNPM_DISABLE_SELF_UPDATE_CHECK=1 pnpm install --frozen-lockfile' `
-          -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
-          -replace '(?m)^\s+\\\r?\n', '' |
-          Set-Content $AcrDockerfile -Encoding utf8
+            -replace '--mount=type=cache,\S+\s*', '' `
+            -replace 'pnpm install --frozen-lockfile', 'PNPM_DISABLE_SELF_UPDATE_CHECK=1 pnpm install --frozen-lockfile' `
+            -replace 'CI=true\s+pnpm prune --prod', 'CI=true PNPM_DISABLE_SELF_UPDATE_CHECK=1 PNPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod' `
+            -replace '(?m)^\s+\\\r?\n', '' |
+            Set-Content $AcrDockerfile -Encoding utf8
         Write-Host "  Patched Dockerfile for ACR compatibility" -ForegroundColor Gray
 
-        Write-Host "  Step 2a: Building base OpenClaw image as $baseImageTag (~15 min)..." -ForegroundColor Gray
+        Write-Host "  Step 2a: Building base OpenClaw image (~6 min)..." -ForegroundColor Gray
         az acr build `
-          --registry $AcrName `
-          --image $baseImageTag `
-          --file $AcrDockerfile `
-          $BuildContextDir
+            --registry $AcrName `
+            --image openclaw:base `
+            --file $AcrDockerfile `
+            $BuildContextDir
 
-        $buildExitCode = $LASTEXITCODE
-        if ($buildExitCode -ne 0) { throw "Base image build failed" }
-        Write-Host "  Base image pushed to $AcrServer/$baseImageTag" -ForegroundColor Green
-      }
-      finally {
+        if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+        Write-Host "  Base image pushed to $AcrServer/openclaw:base" -ForegroundColor Green
+    }
+    finally {
         Remove-Item $ArchivePath -Force -ErrorAction SilentlyContinue
         Remove-Item $BuildContextDir -Recurse -Force -ErrorAction SilentlyContinue
-      }
     }
-    $step2aStopwatch.Stop()
-    Write-Host ("  Step 2a result: {0} in {1:N1}s" -f $step2aMode, $step2aStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
-    $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     az acr build `
         --registry $AcrName `
         --image openclaw:latest `
-      --build-arg "BASE_IMAGE=$AcrServer/$baseImageTag" `
+        --build-arg "BASE_IMAGE=$AcrServer/openclaw:base" `
         --file $ToolsDockerfile `
         images
 
     if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
-    $step2bStopwatch.Stop()
-    $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
-    Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
-    Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
-
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages
 }
 
-# --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
-Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
+# --- Step 3/6: Generate gateway token ---
+Write-Host "`n=== Step 3/6: Generating gateway token ===" -ForegroundColor Cyan
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
+Write-Host "Token generated (save this for Control UI access):"
+Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
-# Discover existing environment, resources, and secrets from the running app
-# Run 4 independent az CLI calls in parallel (saves ~10-15s vs sequential).
-# Secrets are fetched with a single `secret list` call instead of one
-# `secret show` per name \u2014 halves the secret round-trips.
-# Start-ThreadJob runs in-process thread runspaces (~10x faster startup than
-# Start-Job, which forks a new PowerShell.exe per job). Module ThreadJob is
-# bundled with PowerShell 7+; fall back to Start-Job on Windows PowerShell 5.1.
-Write-Host "  Running discovery queries in parallel..." -ForegroundColor Gray
-$useThreadJob = $null -ne (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
-$startJob = if ($useThreadJob) { Get-Command Start-ThreadJob } else { Get-Command Start-Job }
+# --- Step 4/6: Update Container App with OpenClaw ---
+Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw ===" -ForegroundColor Cyan
 
-$jAppInfo  = & $startJob -ScriptBlock { param($a,$r) az containerapp show --name $a --resource-group $r --query "{envId:properties.managedEnvironmentId}" -o json 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jAcr      = & $startJob -ScriptBlock { param($n) az acr credential show --name $n 2>$null } -ArgumentList $AcrName
-# NOTE: `az containerapp secret list` returns names only (no values). To read the
-# actual secret value you MUST use `secret show --secret-name X --query value`.
-$jGwToken  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name gateway-token --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jGroqKey  = & $startJob -ScriptBlock { param($a,$r) az containerapp secret show --name $a --resource-group $r --secret-name groq-api-key  --query "value" -o tsv 2>$null } -ArgumentList $AppName,$ResourceGroup
-$jOllama   = & $startJob -ScriptBlock { param($r) az containerapp show --name ca-ollama --resource-group $r --query "properties.configuration.ingress.fqdn" -o tsv 2>$null } -ArgumentList $ResourceGroup
-
-Wait-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama | Out-Null
-
-# Surface job failures rather than silently swallowing them (Receive-Job would
-# otherwise just return $null and downstream parsing would mask the cause).
-$allJobs = @($jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama)
-$failed  = $allJobs | Where-Object { $_.State -ne 'Completed' }
-if ($failed) {
-    $details = foreach ($j in $failed) {
-        $reason = if ($j.ChildJobs -and $j.ChildJobs[0].JobStateInfo.Reason) { $j.ChildJobs[0].JobStateInfo.Reason.Message } else { $j.State }
-        "    [$($j.Name)] $reason"
-    }
-    throw "Parallel discovery jobs failed:`n$($details -join "`n")"
-}
-
-$appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
-$acrCredsJson = (Receive-Job $jAcr) -join "`n"
-$GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
-$GroqApiKey   = ((Receive-Job $jGroqKey) -join "").Trim()
-$OllamaFqdn   = ((Receive-Job $jOllama) -join "").Trim()
-Remove-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama -Force
-
-$appInfo = $appInfoJson | ConvertFrom-Json
-if (-not $appInfo -or -not $appInfo.envId) { throw "Failed to query Container App '$AppName'" }
-$envId = $appInfo.envId
-$envName = $envId.Split("/")[-1]
-
-$AcrCreds = $acrCredsJson | ConvertFrom-Json
+$AcrCreds = az acr credential show --name $AcrName 2>$null | ConvertFrom-Json
 if (-not $AcrCreds) { throw "Failed to get ACR credentials for $AcrName" }
 $AcrUsername = $AcrCreds.username
 $AcrPassword = $AcrCreds.passwords[0].value
 
-if (-not $GatewayToken) { throw "Could not read existing gateway-token secret" }
-if (-not $GroqApiKey) { Write-Host "  Warning: groq-api-key secret not found — will be empty" -ForegroundColor Yellow; $GroqApiKey = "" }
+# Get environment name and storage name from the Container App
+$envId = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "properties.managedEnvironmentId" -o tsv 2>$null
+if (-not $envId) { throw "Failed to get environment ID for $AppName" }
+$envName = $envId.Split("/")[-1]
 
+# Both variants use the built-in Consumption workload profile
+$profileName = "Consumption"
+Write-Host "Using built-in Consumption workload profile on environment $envName" -ForegroundColor Gray
+
+# Pin to the OpenClaw storage link by name — the environment may also have
+# an 'ollamastorage' link (added by ollama.bicep) and [0] is non-deterministic.
+$StorageName = az containerapp env storage list `
+    --name $envName --resource-group $ResourceGroup `
+    --query "[?name=='openclawstorage'].name | [0]" -o tsv 2>$null
+if (-not $StorageName) { throw "openclawstorage link not found on environment $envName. Was $BicepFile deployed?" }
+
+$volumeName = "openclaw-state"
+
+# Discover Ollama internal URL from the ca-ollama Container App in the same environment
+$OllamaFqdn = az containerapp show --name ca-ollama --resource-group $ResourceGroup `
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 if ($OllamaFqdn) {
     $OllamaHost = "http://${OllamaFqdn}"
     Write-Host "  Ollama URL: $OllamaHost" -ForegroundColor Green
@@ -379,31 +305,11 @@ if ($OllamaFqdn) {
     $OllamaHost = ""
 }
 
-# Both variants use the built-in Consumption workload profile
-$profileName = "Consumption"
-Write-Host "  Workload profile: Consumption on $envName" -ForegroundColor Gray
-
-# Both variants use Consumption: 4 CPU / 8Gi max, sidecar = Redis (0.25/0.5)
-$maxCpu = 4.0; $maxMem = 8.0
-$sidecarCpu = 0.25; $sidecarMem = 0.5
-$currentCpu = $maxCpu - $sidecarCpu
-$currentMem = "$($maxMem - $sidecarMem)Gi"
-
-# Storage depends on envName — runs after parallel block
-# Pin to the OpenClaw storage link by name — the environment may also have
-# an 'ollamastorage' link (added by ollama.bicep) and [0] is non-deterministic.
-$StorageName = az containerapp env storage list `
-    --name $envName --resource-group $ResourceGroup `
-    --query "[?name=='openclawstorage'].name | [0]" -o tsv 2>$null
-if (-not $StorageName) { throw "openclawstorage link not found on environment $envName" }
-
-$volumeName = "openclaw-state"
-
 $yamlPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 
 if ($Npm) {
     # --- NPM variant YAML (with Redis sidecar) ---
-    $updateYaml = @"
+    $updatedYaml = @"
 properties:
   workloadProfileName: $profileName
   managedEnvironmentId: $envId
@@ -444,8 +350,8 @@ properties:
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
-        cpu: $currentCpu
-        memory: $currentMem
+        cpu: $Cpu
+        memory: $Memory
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
@@ -508,7 +414,7 @@ properties:
 "@
 } else {
     # --- Source-build variant YAML (with Redis sidecar) ---
-    $updateYaml = @"
+    $updatedYaml = @"
 properties:
   workloadProfileName: $profileName
   managedEnvironmentId: $envId
@@ -546,8 +452,8 @@ properties:
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
-        cpu: $currentCpu
-        memory: $currentMem
+        cpu: $Cpu
+        memory: $Memory
       env:
       - name: OPENCLAW_GATEWAY_TOKEN
         secretRef: gateway-token
@@ -610,7 +516,7 @@ properties:
 "@
 }
 
-$updateYaml | Set-Content $yamlPath -Encoding utf8
+$updatedYaml | Set-Content $yamlPath -Encoding utf8
 
 try {
     az containerapp update --name $AppName --resource-group $ResourceGroup --yaml $yamlPath
@@ -619,19 +525,16 @@ try {
     Remove-Item $yamlPath -ErrorAction SilentlyContinue
 }
 
-Write-Host "Container App updated via YAML" -ForegroundColor Green
-
-# Wait for the container to become ready (single az call per iteration)
+# Wait for the container to become ready
 Write-Host "`nWaiting for container to become ready..."
 $maxAttempts = 30
 $attempt = 0
 while ($attempt -lt $maxAttempts) {
     $attempt++
-    $revTsv = az containerapp revision list --name $AppName --resource-group $ResourceGroup `
-        --query "reverse(sort_by(@, &properties.createdTime))[0].[name,properties.runningState]" -o tsv 2>$null
-    $parts = $revTsv -split "`t"
-    $latestRev = $parts[0]
-    $running = $parts[1]
+    $status = az containerapp show --name $AppName --resource-group $ResourceGroup `
+        --query "properties.latestRevisionName" -o tsv 2>$null
+    $running = az containerapp revision show --revision $status --resource-group $ResourceGroup --name $AppName `
+        --query "properties.runningState" -o tsv 2>$null
     if ($running -in "Running", "RunningAtMaxScale") {
         Write-Host "  Container is running (attempt $attempt/$maxAttempts)" -ForegroundColor Green
         break
@@ -643,27 +546,66 @@ if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
 }
 
-$rev = $latestRev
-# Single call for both image and FQDN
-$postTsv = az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "[properties.template.containers[0].image, properties.configuration.ingress.fqdn]" -o tsv 2>$null
-$postParts = $postTsv -split "`t"
-$img = $postParts[0]
-$fqdn = $postParts[1]
+# --- Step 5/6: Configure OpenClaw (non-interactive) ---
+Write-Host "`n=== Step 5/6: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
 
-# --- Post-update: Show recent container logs ---
-Write-Host "`n=== Recent container logs ===" -ForegroundColor Cyan
-Write-Host "  Current revision: $rev (image: $img)" -ForegroundColor Green
-az containerapp logs show --name $AppName --resource-group $ResourceGroup --tail 60 2>$null
+# Retry helper — ACA exec can fail with ClusterExecFailure while the gateway
+# process is still initialising inside the container.
+function Invoke-ContainerExec {
+    param(
+        [string] $Label,
+        [string] $Command,
+        [int]    $MaxRetries = 3,
+        [int]    $DelaySec   = 15
+    )
+    for ($i = 1; $i -le $MaxRetries; $i++) {
+        Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
+        az containerapp exec --name $AppName --resource-group $ResourceGroup --command $Command
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($i -lt $MaxRetries) {
+            Write-Host "  [$Label] exec failed — retrying in ${DelaySec}s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySec
+        }
+    }
+    Write-Warning "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
+}
 
-Write-Host "`n=== Update complete ===" -ForegroundColor Green
+if ($Npm) {
+    # NPM variant uses bare 'openclaw' command
+    Invoke-ContainerExec -Label "Onboard" `
+        -Command "bash -c 'openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
 
-az containerapp revision list --name $AppName --resource-group $ResourceGroup -o table
+    Invoke-ContainerExec -Label "Model set" `
+        -Command "openclaw models set github-copilot/claude-opus-4.6"
+
+    Invoke-ContainerExec -Label "Security audit" `
+        -Command "openclaw security audit"
+
+    az containerapp exec --name $AppName --resource-group $ResourceGroup `
+        --command "openclaw models auth login-github-copilot"
+    if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
+} else {
+    # Source-build variant uses 'node openclaw.mjs'
+    Invoke-ContainerExec -Label "Onboard" `
+        -Command "bash -c 'node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health'"
+
+    Invoke-ContainerExec -Label "Model set" `
+        -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
+
+    Invoke-ContainerExec -Label "Security audit" `
+        -Command "node openclaw.mjs security audit"
+
+    az containerapp exec --name $AppName --resource-group $ResourceGroup `
+        --command "node openclaw.mjs models auth login-github-copilot"
+    if ($LASTEXITCODE -ne 0) { Write-Warning "GitHub Copilot auth failed (exit $LASTEXITCODE) — complete manually via 'az containerapp exec'" }
+}
+
+# --- Step 6/6: Done ---
+Write-Host "`n=== Step 6/6: Gateway configured ===" -ForegroundColor Green
+$fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
 
 $variantLabel = if ($Npm) { "npm" } else { "source" }
-$refLabel = if (-not $Npm -and $ref) { " to: $ref" } else { "" }
-Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $img" -ForegroundColor Green
-Write-Host "  App restarted with new image, FQDN: $fqdn"
 Write-Host ""
 $tokenPadded = $GatewayToken.PadRight(61)
 Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
@@ -671,6 +613,19 @@ Write-Host "  │  GATEWAY TOKEN:                                               
 Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
 Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken"
+Write-Host "OpenClaw ($variantLabel) URL: https://$fqdn"
+Write-Host "Control UI:   https://$fqdn/#token=$GatewayToken"
 Write-Host ""
-Write-Host "Your gateway token, config, and data are unchanged." -ForegroundColor Green
+Write-Host "=== One manual step remaining: GitHub Copilot auth ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "1. Connect to container:" -ForegroundColor Yellow
+Write-Host "   az containerapp exec --name $AppName --resource-group $ResourceGroup"
+Write-Host ""
+Write-Host "2. Inside the container:" -ForegroundColor Yellow
+$authCmd = if ($Npm) { "openclaw models auth login-github-copilot" } else { "node openclaw.mjs models auth login-github-copilot" }
+Write-Host "   $authCmd" -ForegroundColor White
+Write-Host "   (open browser, enter code, authorize, then type: exit)"
+Write-Host ""
+Write-Host "3. Open Control UI:" -ForegroundColor Yellow
+Write-Host "   https://$fqdn/#token=$GatewayToken"
+

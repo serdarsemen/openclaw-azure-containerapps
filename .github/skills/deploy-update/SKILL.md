@@ -12,7 +12,7 @@ Guide deployment and update workflows for OpenClaw on Azure Container Apps.
 
 ## Deployment Variants
 
-| | Source-build (`deploy-openclaw.ps1`) | npm (`deploy-openclawnpm.ps1`) | Combined (`deploy-openclawfull.ps1`) |
+| | Source-build (`deploy-openclaw.ps1`) | npm (`deploy-openclawnpm.ps1`) | Combined (`deploy-openclaw-ACA.ps1`) |
 |---|---|---|---|
 | Bicep template | `main.bicep` (deployment: `main`) | `mainnpm.bicep` (deployment: `mainnpm`) | Both (use `-Npm` switch) |
 | Build method | Clone repo + Dockerfile | Inline Dockerfile + `npm i -g openclaw` | Both |

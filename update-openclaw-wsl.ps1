@@ -48,6 +48,52 @@ function Test-WslDocker {
     }
 }
 
+function New-WslTransferArchive {
+    param(
+        [string] $SourcePath,
+        [string] $ArchiveName
+    )
+
+    $archiveRoot = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-wsl-transfer"
+    if (-not (Test-Path $archiveRoot)) {
+        New-Item -ItemType Directory -Path $archiveRoot | Out-Null
+    }
+
+    $windowsArchivePath = Join-Path $archiveRoot "$ArchiveName.tar"
+    if (Test-Path $windowsArchivePath) {
+        Remove-Item $windowsArchivePath -Force
+    }
+
+    $wslWindowsArchivePath = (Invoke-Wsl "wslpath -u '$($windowsArchivePath -replace '\\','/')'") -join ""
+    $wslWindowsArchivePath = $wslWindowsArchivePath.Trim()
+
+    Invoke-Wsl "set -e; rm -f '$wslWindowsArchivePath'; cd '$SourcePath' && tar --exclude=.git -cf '$wslWindowsArchivePath' ."
+
+    return [pscustomobject]@{
+        WindowsArchivePath = $windowsArchivePath
+        WslWindowsArchivePath = $wslWindowsArchivePath
+    }
+}
+
+function Expand-WslTransferArchive {
+    param(
+        [string] $ArchivePath,
+        [string] $ContextName
+    )
+
+    $wslTransferRoot = "/tmp/openclaw-transfer"
+    $wslContextRoot = "/tmp/openclaw-docker-context"
+    $wslArchivePath = "$wslTransferRoot/$ContextName.tar"
+    $wslContextPath = "$wslContextRoot/$ContextName"
+
+    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot' '$wslContextRoot'; rm -f '$wslArchivePath'; rm -rf '$wslContextPath'; cp '$ArchivePath' '$wslArchivePath'; mkdir -p '$wslContextPath'; tar -xf '$wslArchivePath' -C '$wslContextPath'"
+
+    return [pscustomobject]@{
+        WslArchivePath = $wslArchivePath
+        WslContextPath = $wslContextPath
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
@@ -268,16 +314,29 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         }
         $WslSourcePath = $WslSourcePath.Trim()
 
-        Write-Host "  Step 1a: Rebuilding base image from source..." -ForegroundColor Gray
-        Invoke-Wsl "docker build --no-cache -t ${ImageName}:base -f '$WslSourcePath/Dockerfile' '$WslSourcePath'"
+        Write-Host "  Step 1a: Creating source archive..." -ForegroundColor Gray
+        $SourceArchive = New-WslTransferArchive -SourcePath $WslSourcePath -ArchiveName "$ImageName-source"
+        Write-Host "  Source archive created: $($SourceArchive.WindowsArchivePath)" -ForegroundColor Green
+
+        Write-Host "  Step 1b: Transferring source archive to WSL..." -ForegroundColor Gray
+        $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslWindowsArchivePath -ContextName "$ImageName-source"
+        Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
+
+        Write-Host "  Step 1c: Rebuilding base image from source..." -ForegroundColor Gray
+        Invoke-Wsl "docker build --no-cache -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
         Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
-        Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
+        Write-Host "  Step 1d: Rebuilding tools layer..." -ForegroundColor Gray
         Invoke-Wsl "docker build --no-cache -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
+
+        Remove-Item $SourceArchive.WindowsArchivePath -Force -ErrorAction SilentlyContinue
+        try {
+            Invoke-Wsl "rm -f '$($WslBuildContext.WslArchivePath)'"
+        } catch {}
     }
 
     # Prune old dangling images to save disk space
