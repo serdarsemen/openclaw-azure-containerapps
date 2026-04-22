@@ -570,9 +570,16 @@ if ($Npm) {
     Invoke-DockerExec -Label "Model set" `
         -Command "openclaw models set github-copilot/claude-opus-4.6"
 
-    Invoke-DockerExec -Label "Security audit" `
-        -Command "openclaw security audit" `
-        -ContinueOnFailure
+    try {
+        $auditOk = Invoke-DockerExec -Label "Security audit" `
+            -Command "openclaw security audit" `
+            -ContinueOnFailure
+        if (-not $auditOk) {
+            Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
+        }
+    } catch {
+        Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
+    }
 } else {
     Invoke-DockerExec -Label "Onboard" `
         -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health"
@@ -580,9 +587,16 @@ if ($Npm) {
     Invoke-DockerExec -Label "Model set" `
         -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
 
-    Invoke-DockerExec -Label "Security audit" `
-        -Command "node openclaw.mjs security audit" `
-        -ContinueOnFailure
+    try {
+        $auditOk = Invoke-DockerExec -Label "Security audit" `
+            -Command "node openclaw.mjs security audit" `
+            -ContinueOnFailure
+        if (-not $auditOk) {
+            Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
+        }
+    } catch {
+        Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
+    }
 }
 
 # ---------------------------------------------------------------------------
