@@ -667,13 +667,6 @@ if ($ollamaEnabled) {
 Write-Host "`n=== Deployment complete ===" -ForegroundColor Green
 
 $variantLabel = if ($Npm) { "npm" } else { "source" }
-Write-Host ""
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-Write-Host ""
 Write-Host "  OpenClaw ($variantLabel) running in Docker via WSL" -ForegroundColor Green
 Write-Host "  Gateway:    http://localhost:${GatewayPort}" -ForegroundColor White
 Write-Host "  Control UI: http://localhost:${GatewayPort}/#token=$GatewayToken" -ForegroundColor White
@@ -714,3 +707,11 @@ Write-Host "   (open browser, enter code, authorize, then type: exit)"
 Write-Host ""
 Write-Host "3. Open Control UI:" -ForegroundColor Yellow
 Write-Host "   http://localhost:${GatewayPort}/#token=$GatewayToken" -ForegroundColor White
+Write-Host ""
+Write-Host "=== Last step: save gateway token ===" -ForegroundColor Cyan
+Write-Host ""
+$tokenPadded = $GatewayToken.PadRight(61)
+Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
+Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow

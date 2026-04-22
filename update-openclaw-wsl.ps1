@@ -424,13 +424,6 @@ Write-Host "`n=== Update complete ===" -ForegroundColor Green
 $variantLabel = if ($Npm) { "npm" } else { "source" }
 $refLabel = if (-not $Npm -and $ref) { " to: $ref" } else { "" }
 Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $containerImage" -ForegroundColor Green
-Write-Host ""
-$tokenPadded = $existingToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-Write-Host ""
 Write-Host "  Gateway:    http://localhost:${GatewayPort}" -ForegroundColor White
 Write-Host "  Control UI: http://localhost:${GatewayPort}/#token=$existingToken" -ForegroundColor White
 if ($ollamaContainerExists) {
@@ -454,3 +447,11 @@ Write-Host "  View logs:       wsl docker logs -f $ContainerName" -ForegroundCol
 Write-Host "  Shell into:      wsl docker exec -it $ContainerName bash" -ForegroundColor Gray
 Write-Host "  Stop:            wsl docker compose -f docker-compose-wsl.yaml down" -ForegroundColor Gray
 Write-Host "  Restart:         wsl docker compose -f docker-compose-wsl.yaml restart" -ForegroundColor Gray
+Write-Host ""
+Write-Host "=== Last step: save gateway token ===" -ForegroundColor Cyan
+Write-Host ""
+$tokenPadded = $existingToken.PadRight(61)
+Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
+Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow

@@ -467,4 +467,14 @@ Write-Host ""
 Write-Host "Ollama pod:" -ForegroundColor Cyan
 Write-Host "   kubectl -n $Namespace get pods -l app=ollama"
 Write-Host "   kubectl -n $Namespace exec deploy/ollama -- ollama list"
+Write-Host ""
+Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
+Write-Host ""
+$tokenPaddedLast = $GatewayToken.PadRight(61)
+Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
+Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Control UI: http://${GatewayIp}:18789/#token=$GatewayToken" -ForegroundColor White
 

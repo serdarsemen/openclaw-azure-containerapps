@@ -216,4 +216,20 @@ if ($GatewayIp) { Write-Host "OpenClaw:    http://${GatewayIp}:18789" }
 if ($GatewayToken) { Write-Host "Control UI:  http://${GatewayIp}:18789/#token=$GatewayToken" }
 Write-Host ""
 Write-Host "Tail logs:   kubectl -n $Namespace logs -f deploy/openclaw -c openclaw"
+Write-Host ""
+Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
+if ($GatewayToken) {
+    Write-Host ""
+    $tokenPaddedLast = $GatewayToken.PadRight(61)
+    Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+    Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+    Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
+    Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+    if ($GatewayIp) {
+        Write-Host ""
+        Write-Host "  Control UI: http://${GatewayIp}:18789/#token=$GatewayToken" -ForegroundColor White
+    }
+} else {
+    Write-Warning "Gateway token not found in secret 'openclaw-secrets'"
+}
 

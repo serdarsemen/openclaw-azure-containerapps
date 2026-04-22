@@ -674,4 +674,14 @@ Write-Host ""
 Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken"
 Write-Host ""
 Write-Host "Your gateway token, config, and data are unchanged." -ForegroundColor Green
+Write-Host ""
+Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
+Write-Host ""
+$tokenPaddedLast = $GatewayToken.PadRight(61)
+Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
+Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
+Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
+Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken" -ForegroundColor White
 
