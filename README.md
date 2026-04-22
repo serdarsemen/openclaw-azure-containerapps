@@ -236,6 +236,31 @@ wsl docker logs -f openclaw-ollama                      # Ollama logs
 
 Model data persists in the `ollama-data` Docker volume across restarts and updates.
 
+### Accessing OpenClaw (WSL)
+
+Once deployed, OpenClaw is accessible from your Windows browser at:
+
+| Endpoint | URL |
+|----------|-----|
+| Gateway | `http://localhost:18789` |
+| Control UI | `http://localhost:18789/#token=<your-gateway-token>` |
+
+The gateway token is printed in a yellow box at the end of the deploy script output. If you lost it, retrieve it from the running container:
+
+```powershell
+wsl docker exec openclaw printenv OPENCLAW_GATEWAY_TOKEN
+```
+
+**GitHub Copilot auth** (one-time manual step):
+
+```powershell
+wsl docker exec -it openclaw bash
+# inside the container:
+node openclaw.mjs models auth login-github-copilot   # source variant
+# openclaw models auth login-github-copilot           # npm variant
+# Follow the device flow in your browser, then type: exit
+```
+
 ### WSL update
 
 ```powershell

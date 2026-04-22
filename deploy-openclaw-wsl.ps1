@@ -370,9 +370,9 @@ if ($Npm) {
         "npm config set prefix '~/.openclaw/npm-global'",
         "mkdir -p $HomeDir/.openclaw/workspace/memory",
         "mkdir -p $HomeDir/.cache/qmd/models",
-        "mkdir -p `"`$GOPATH/bin`"",
-        "export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache",
-        "mkdir -p `$HOME/.openclaw/compile-cache",
+        "mkdir -p `"`$`$GOPATH/bin`"",
+        "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
+        "mkdir -p `$`$HOME/.openclaw/compile-cache",
         "export OPENCLAW_NO_RESPAWN=1",
         "openclaw gateway --allow-unconfigured --bind lan --port 18789"
     ) -join " && "
@@ -381,8 +381,8 @@ if ($Npm) {
     $startupCmd = @(
         "chmod -R 755 /app/extensions",
         "mkdir -p $HomeDir/.openclaw/workspace/memory",
-        "export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache",
-        "mkdir -p `$HOME/.openclaw/compile-cache",
+        "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
+        "mkdir -p `$`$HOME/.openclaw/compile-cache",
         "export OPENCLAW_NO_RESPAWN=1",
         "(node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true)",
         "(node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true)",
@@ -520,14 +520,30 @@ if (-not $healthy) {
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 5/${totalSteps}: Configuring OpenClaw ===" -ForegroundColor Cyan
 
+function Wait-ContainerRunning {
+    param([int] $TimeoutSec = 60)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $state = (Invoke-WslData "docker inspect -f '{{.State.Status}}' $ContainerName 2>/dev/null").Trim()
+        if ($state -eq 'running') { return $true }
+        Write-Host "  Container state: $state — waiting..." -ForegroundColor Gray
+        Start-Sleep -Seconds 5
+    }
+    return $false
+}
+
 function Invoke-DockerExec {
     param(
         [string] $Label,
         [string] $Command,
-        [int]    $MaxRetries = 3,
+        [int]    $MaxRetries = 5,
         [int]    $DelaySec   = 10
     )
     for ($i = 1; $i -le $MaxRetries; $i++) {
+        if (-not (Wait-ContainerRunning -TimeoutSec 60)) {
+            Write-Warning "[$Label] container did not reach running state — check logs with: wsl docker logs $ContainerName"
+            return
+        }
         Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
         $output = Invoke-Wsl "docker exec $ContainerName bash -c '$Command' 2>&1"
         if ($LASTEXITCODE -eq 0) {
