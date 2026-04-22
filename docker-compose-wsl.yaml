@@ -1,0 +1,56 @@
+services:
+  openclaw:
+    image: openclaw-source:latest
+    container_name: openclaw
+    environment:
+      - OPENCLAW_GATEWAY_TOKEN=3098a26889373eae3a91559bf7eb70c0ad7f2cbb76a24edaba3f107126121225
+      - NODE_ENV=production
+      - HOME=/home/node
+      - TERM=xterm-256color
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/extensions
+    volumes:
+      - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+    ports:
+      - "18789:18789"
+      - "18790:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      - bash
+      - -c
+      - >-
+        chmod -R 755 /app/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$HOME/.openclaw/compile-cache && mkdir -p $HOME/.openclaw/compile-cache && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    container_name: openclaw-redis
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
