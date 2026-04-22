@@ -20,7 +20,7 @@
 # Performance: all tool installs are merged into a single RUN to minimise
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
 
-ARG BASE_IMAGE
+ARG BASE_IMAGE=openclaw-npm:base
 ARG PYTHON_VERSION=3.14
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-runtime
 

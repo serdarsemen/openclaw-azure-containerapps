@@ -537,25 +537,30 @@ function Invoke-DockerExec {
         [string] $Label,
         [string] $Command,
         [int]    $MaxRetries = 5,
-        [int]    $DelaySec   = 10
+        [int]    $DelaySec   = 10,
+        [switch] $ContinueOnFailure
     )
     for ($i = 1; $i -le $MaxRetries; $i++) {
         if (-not (Wait-ContainerRunning -TimeoutSec 60)) {
             Write-Warning "[$Label] container did not reach running state — check logs with: wsl docker logs $ContainerName"
-            return
+            if ($ContinueOnFailure) { return $false }
+            throw "[$Label] container not running"
         }
         Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
-        $output = Invoke-Wsl "docker exec $ContainerName bash -c '$Command' 2>&1"
+        $output = wsl bash -c "docker exec $ContainerName bash -c '$Command'" 2>&1
         if ($LASTEXITCODE -eq 0) {
             if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
-            return
+            return $true
         }
+        if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
         if ($i -lt $MaxRetries) {
             Write-Host "  [$Label] exec failed — retrying in ${DelaySec}s..." -ForegroundColor Yellow
             Start-Sleep -Seconds $DelaySec
         }
     }
     Write-Warning "[$Label] failed after $MaxRetries attempts"
+    if ($ContinueOnFailure) { return $false }
+    throw "[$Label] failed after $MaxRetries attempts"
 }
 
 if ($Npm) {
@@ -566,7 +571,8 @@ if ($Npm) {
         -Command "openclaw models set github-copilot/claude-opus-4.6"
 
     Invoke-DockerExec -Label "Security audit" `
-        -Command "openclaw security audit"
+        -Command "openclaw security audit" `
+        -ContinueOnFailure
 } else {
     Invoke-DockerExec -Label "Onboard" `
         -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health"
@@ -575,7 +581,8 @@ if ($Npm) {
         -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
 
     Invoke-DockerExec -Label "Security audit" `
-        -Command "node openclaw.mjs security audit"
+        -Command "node openclaw.mjs security audit" `
+        -ContinueOnFailure
 }
 
 # ---------------------------------------------------------------------------
