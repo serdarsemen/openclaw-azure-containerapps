@@ -23,8 +23,7 @@ param(
     [switch] $PullOnly,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
-    [string] $Tag           = "",
-
+    [string] $Tag           = ""
 )
 
 $ErrorActionPreference = "Stop"
