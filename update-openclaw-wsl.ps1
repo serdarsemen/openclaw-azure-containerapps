@@ -272,18 +272,20 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslBuildDir = (Invoke-WslData "wslpath -u '$($buildDir -replace '\\','/')'")
         $WslBuildDir = $WslBuildDir.Trim()
 
-        Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
-        Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
-        Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
+        try {
+            Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
+            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+            Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
-        $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
-        $WslToolsContext    = "$WslScriptRoot/images"
+            $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
+            $WslToolsContext    = "$WslScriptRoot/images"
 
-        Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
-        Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-        Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
-
-        Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
+            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
+        } finally {
+            Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
     } else {
         # ===== Source-build variant: pull/checkout and rebuild =====

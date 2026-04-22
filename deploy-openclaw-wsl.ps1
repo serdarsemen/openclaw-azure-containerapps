@@ -40,8 +40,6 @@ param(
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
-    [string] $Cpu           = "4",
-    [string] $Memory        = "8g",
     [int]    $GatewayPort   = 18789,
     [int]    $BridgePort    = 18790,
     [string] $DataDir       = "",
@@ -249,20 +247,21 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
-    Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
-    Invoke-Wsl "docker build -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
-    Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
+    try {
+        Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
+        Invoke-Wsl "docker build -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+        Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
-    # Copy tools Dockerfile to WSL-accessible path
-    $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
-    $WslToolsContext    = "$WslScriptRoot/images"
+        # Copy tools Dockerfile to WSL-accessible path
+        $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
+        $WslToolsContext    = "$WslScriptRoot/images"
 
-    Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-    Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-    Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
-
-    # Clean up temp build dir
-    Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
+        Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
+    } finally {
+        Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
 } else {
     # ===== Source-build variant: pull/checkout source and build locally =====
