@@ -67,7 +67,7 @@ function New-WslTransferArchive {
     $wslTransferRoot = "/tmp/openclaw-transfer"
     $wslArchivePath = "$wslTransferRoot/$ArchiveName.tar"
 
-    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; cd '$SourcePath' && tar --exclude=.git -cf '$wslArchivePath' ."
+    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; git -C '$SourcePath' archive --format=tar --output '$wslArchivePath' HEAD"
 
     return [pscustomobject]@{
         WslArchivePath = $wslArchivePath
