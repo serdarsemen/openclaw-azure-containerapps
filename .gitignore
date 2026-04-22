@@ -1,4 +1,5 @@
 .env
 openclaw-repo/
+openclaw-data/
 upstream/
 SMOKE-TEST.md
