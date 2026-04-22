@@ -118,7 +118,7 @@ function Expand-WslTransferArchive {
 Write-Host "`n=== Pre-flight checks ===" -ForegroundColor Cyan
 
 # Check WSL is available
-$wslStatus = wsl --status 2>&1
+wsl --status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "WSL is not available. Install WSL 2: wsl --install"
 }

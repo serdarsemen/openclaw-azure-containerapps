@@ -162,10 +162,8 @@ foreach ($line in $existingEnvLines) {
     }
 }
 
-$GroqApiKey  = $existingEnv['GROQ_API_KEY']
 $OllamaHost  = $existingEnv['OLLAMA_HOST']
 $GatewayPort = 18789
-$BridgePort  = 18790
 
 # Check if Ollama sidecar is part of this deployment
 $ollamaContainerExists = $false
@@ -210,12 +208,10 @@ if ($composeUpdated -ne $composeRaw) {
 # Set variant-specific defaults
 # ---------------------------------------------------------------------------
 if ($Npm) {
-    $HomeDir         = "/home/openclaw"
     $ToolsDockerfile = "images/Dockerfile.npmtools"
     $ImageName       = "openclaw-npm"
     Write-Host "`n*** NPM variant selected ***" -ForegroundColor Magenta
 } else {
-    $HomeDir         = "/home/node"
     $ToolsDockerfile = "images/Dockerfile.tools"
     $ImageName       = "openclaw-source"
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
