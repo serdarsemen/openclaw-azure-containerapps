@@ -376,7 +376,7 @@ if ($Npm) {
         "export OPENCLAW_NO_RESPAWN=1",
         "openclaw gateway --allow-unconfigured --bind lan --port 18789"
     ) -join " && "
-    $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/usr/local/lib/node_modules/openclaw/extensions"
+    $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/usr/local/lib/node_modules/openclaw/dist/extensions"
 } else {
     $startupCmd = @(
         "chmod -R 755 /app/extensions",
@@ -388,7 +388,7 @@ if ($Npm) {
         "(node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true)",
         "node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
     ) -join " && "
-    $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/app/extensions"
+    $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions"
 }
 
 # Build the environment block for docker-compose
