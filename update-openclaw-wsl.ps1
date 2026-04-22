@@ -195,6 +195,17 @@ if (-not (Test-Path $composePath)) {
 }
 Write-Host "  Compose file: found" -ForegroundColor Green
 
+# Normalize bundled plugin paths in existing compose files so updates also
+# pick up deploy-time plugin runtime fixes.
+$composeRaw = Get-Content $composePath -Raw
+$composeUpdated = $composeRaw `
+    -replace '/app/extensions', '/app/dist/extensions' `
+    -replace '/usr/local/lib/node_modules/openclaw/extensions', '/usr/local/lib/node_modules/openclaw/dist/extensions'
+if ($composeUpdated -ne $composeRaw) {
+    $composeUpdated | Set-Content $composePath -Encoding utf8
+    Write-Host "  Compose file: patched bundled plugin runtime paths" -ForegroundColor Green
+}
+
 # ---------------------------------------------------------------------------
 # Set variant-specific defaults
 # ---------------------------------------------------------------------------
