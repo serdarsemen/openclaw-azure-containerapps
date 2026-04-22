@@ -3,14 +3,14 @@ services:
     image: openclaw-source:latest
     container_name: openclaw
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=a3c7537bd1ae67bfd1bf261c327d5978b5ed15caf7bcc623ef73720e596cafd4
+      - OPENCLAW_GATEWAY_TOKEN=40fd9305564d367c0312bcbf65728419b4058349f5cdfabb73ab4ff06962e53b
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - OLLAMA_HOST=http://host.docker.internal:11434
-      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/extensions
+      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
       - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
     ports:

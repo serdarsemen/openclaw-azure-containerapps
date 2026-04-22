@@ -399,13 +399,28 @@ while ($attempt -lt $maxAttempts) {
             break
         }
     } catch {}
+
+    # Fallback: trust container health status when host-side checks are blocked/delayed.
+    try {
+        $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim()
+        if ($dockerHealth -in @('healthy', 'none')) {
+            Write-Host "  Gateway is healthy via Docker status (attempt $attempt/$maxAttempts, health=$dockerHealth)" -ForegroundColor Green
+            $healthy = $true
+            break
+        }
+    } catch {}
+
     if ($attempt -lt $maxAttempts) {
         Write-Host "  Not ready yet — retrying in 5s ($attempt/$maxAttempts)..." -ForegroundColor Gray
         Start-Sleep -Seconds 5
     }
 }
 if (-not $healthy) {
-    Write-Warning "Gateway did not become healthy after $maxAttempts attempts — check logs: wsl docker logs $ContainerName"
+    $dockerState = "unknown"
+    $dockerHealth = "unknown"
+    try { $dockerState = (Invoke-WslData "docker inspect -f '{{.State.Status}}' $ContainerName 2>/dev/null").Trim() } catch {}
+    try { $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim() } catch {}
+    Write-Warning "Gateway did not become healthy after $maxAttempts attempts (container state: $dockerState, health: $dockerHealth) — check logs: wsl docker logs $ContainerName"
 }
 
 # ---------------------------------------------------------------------------
