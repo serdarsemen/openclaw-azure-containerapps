@@ -293,15 +293,15 @@ Write-Host "`n=== Step 6/8: Deploying OpenClaw ===" -ForegroundColor Cyan
 if ($Npm) {
     $OpenClawCommand = @(
         "bash", "-c",
-        "(openclaw config set gateway.controlUi.allowInsecureAuth true || true) && (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (openclaw config set browser.executablePath /usr/bin/chromium || true) && npm config set prefix '~/.openclaw/npm-global' && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && openclaw gateway --allow-unconfigured --bind lan --port 18789"
+        "(openclaw config set gateway.controlUi.allowInsecureAuth true || true) && (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (openclaw config set gateway.auth.rateLimit.maxAttempts 10 || true) && (openclaw config set gateway.auth.rateLimit.windowMs 60000 || true) && (openclaw config set gateway.auth.rateLimit.lockoutMs 300000 || true) && (openclaw config set browser.executablePath /usr/bin/chromium || true) && npm config set prefix '~/.openclaw/npm-global' && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && (chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true) && openclaw gateway --allow-unconfigured --bind lan --port 18789"
     )
-    $PluginsDir = "/usr/local/lib/node_modules/openclaw/extensions"
+    $PluginsDir = "/usr/local/lib/node_modules/openclaw/dist/extensions"
 } else {
     $OpenClawCommand = @(
         "sh", "-c",
-        "chmod -R 755 /app/extensions && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
+        "chmod -R 755 /app/dist/extensions && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && (chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true) && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
     )
-    $PluginsDir = "/app/extensions"
+    $PluginsDir = "/app/dist/extensions"
 }
 
 $cmdYaml = ($OpenClawCommand | ForEach-Object { "            - " + ($_ | ConvertTo-Json -Compress) }) -join "`n"
