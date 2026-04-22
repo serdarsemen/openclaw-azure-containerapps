@@ -24,7 +24,7 @@ param(
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
-    [int]    $KeepImages    = 3    # retain N newest dangling images after rebuild
+
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +37,15 @@ function Invoke-Wsl {
     $result = wsl bash -c $Command 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "WSL command failed (exit $LASTEXITCODE): $Command`n$result"
+    }
+    return $result
+}
+
+function Invoke-WslData {
+    param([string] $Command)
+    $result = wsl bash -c $Command 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "WSL command failed (exit $LASTEXITCODE): $Command"
     }
     return $result
 }
@@ -120,7 +129,7 @@ Or start Docker manually before running this script:
 }
 
 # Verify the container exists (was previously deployed)
-$containerExists = Invoke-Wsl "docker ps -a --filter name=^${ContainerName}$ --format '{{.Names}}' 2>/dev/null"
+$containerExists = Invoke-WslData "docker ps -a --filter name=^${ContainerName}$ --format '{{.Names}}'"
 if (-not ($containerExists -match $ContainerName)) {
     throw "Container '$ContainerName' not found. Run deploy-openclaw-wsl.ps1 first."
 }
@@ -132,7 +141,7 @@ Write-Host "  Container '$ContainerName': found" -ForegroundColor Green
 Write-Host "`n=== Discovering existing configuration ===" -ForegroundColor Cyan
 
 # Read existing gateway token from the container environment
-$existingToken = (Invoke-Wsl "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $ContainerName 2>/dev/null" |
+$existingToken = (Invoke-WslData "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $ContainerName" |
     Where-Object { $_ -match '^OPENCLAW_GATEWAY_TOKEN=' }) -replace 'OPENCLAW_GATEWAY_TOKEN=', ''
 $existingToken = ($existingToken -join "").Trim()
 
@@ -145,7 +154,7 @@ if (-not $existingToken) {
 Write-Host "  Gateway token: preserved" -ForegroundColor Green
 
 # Read existing environment variables to preserve
-$existingEnvLines = Invoke-Wsl "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $ContainerName 2>/dev/null"
+$existingEnvLines = Invoke-WslData "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $ContainerName"
 $existingEnv = @{}
 foreach ($line in $existingEnvLines) {
     $trimmed = "$line".Trim()
@@ -162,7 +171,7 @@ $BridgePort  = 18790
 # Check if Ollama sidecar is part of this deployment
 $ollamaContainerExists = $false
 try {
-    $ollamaCheck = Invoke-Wsl "docker ps -a --filter name=^${ContainerName}-ollama$ --format '{{.Names}}' 2>/dev/null"
+    $ollamaCheck = Invoke-WslData "docker ps -a --filter name=^${ContainerName}-ollama$ --format '{{.Names}}'"
     if ($ollamaCheck -match "${ContainerName}-ollama") {
         $ollamaContainerExists = $true
         Write-Host "  Ollama sidecar: found" -ForegroundColor Green
@@ -170,14 +179,14 @@ try {
 } catch {}
 
 # Discover the port mapping from the running container
-$portMapping = (Invoke-Wsl "docker port $ContainerName 18789/tcp 2>/dev/null") -join ""
+$portMapping = (Invoke-WslData "docker port $ContainerName 18789/tcp") -join ""
 if ($portMapping -match ':(\d+)$') {
     $GatewayPort = [int]$Matches[1]
 }
 Write-Host "  Gateway port: $GatewayPort" -ForegroundColor Green
 
 # Discover compose file path
-$WslScriptRoot = (Invoke-Wsl "wslpath -u '$($PSScriptRoot -replace '\\','/')'") -join ""
+$WslScriptRoot = (Invoke-WslData "wslpath -u '$($PSScriptRoot -replace '\\','/')'")
 $WslScriptRoot = $WslScriptRoot.Trim()
 $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 $composePath = Join-Path $PSScriptRoot "docker-compose-wsl.yaml"
@@ -261,7 +270,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         $dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
 
-        $WslBuildDir = (Invoke-Wsl "wslpath -u '$($buildDir -replace '\\','/')'") -join ""
+        $WslBuildDir = (Invoke-WslData "wslpath -u '$($buildDir -replace '\\','/')'")
         $WslBuildDir = $WslBuildDir.Trim()
 
         Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
@@ -309,7 +318,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $ref = if ($Tag) { $Tag } else { "latest (main)" }
         Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
-        $WslSourcePath = (Invoke-Wsl "wslpath -u '$($SourcePath -replace '\\','/')'") -join ""
+        $WslSourcePath = (Invoke-WslData "wslpath -u '$($SourcePath -replace '\\','/')'")
         if ($WslSourcePath -notmatch '^/') {
             $WslSourcePath = "$WslScriptRoot/$SourcePath"
         }
@@ -323,20 +332,20 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
         Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
-        Write-Host "  Step 1c: Rebuilding base image from source..." -ForegroundColor Gray
-        Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
-        Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
-
-        $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
-        $WslToolsContext    = "$WslScriptRoot/images"
-
-        Write-Host "  Step 1d: Rebuilding tools layer..." -ForegroundColor Gray
-        Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-        Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
-
         try {
-            Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'"
-        } catch {}
+            Write-Host "  Step 1c: Rebuilding base image from source..." -ForegroundColor Gray
+            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+            Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
+
+            $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
+            $WslToolsContext    = "$WslScriptRoot/images"
+
+            Write-Host "  Step 1d: Rebuilding tools layer..." -ForegroundColor Gray
+            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
+        } finally {
+            try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
+        }
     }
 
     # Prune old dangling images to save disk space
@@ -396,7 +405,7 @@ if (-not $healthy) {
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 3/3: Post-update status ===" -ForegroundColor Cyan
 
-$containerImage = (Invoke-Wsl "docker inspect --format '{{.Config.Image}}' $ContainerName 2>/dev/null") -join ""
+$containerImage = (Invoke-WslData "docker inspect --format '{{.Config.Image}}' $ContainerName") -join ""
 $containerImage = $containerImage.Trim()
 
 Write-Host "`n=== Recent container logs ===" -ForegroundColor Cyan

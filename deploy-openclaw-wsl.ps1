@@ -64,6 +64,15 @@ function Invoke-Wsl {
     return $result
 }
 
+function Invoke-WslData {
+    param([string] $Command)
+    $result = wsl bash -c $Command 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "WSL command failed (exit $LASTEXITCODE): $Command"
+    }
+    return $result
+}
+
 function Test-WslDocker {
     try {
         $null = Invoke-Wsl "docker info > /dev/null 2>&1"
@@ -173,12 +182,12 @@ if (-not (Test-Path $DataDir)) {
     New-Item -ItemType Directory -Path $DataDir | Out-Null
     Write-Host "  Created data directory: $DataDir" -ForegroundColor Gray
 }
-$WslDataDir = Invoke-Wsl "wslpath -u '$($DataDir -replace '\\','/')'"
+$WslDataDir = Invoke-WslData "wslpath -u '$($DataDir -replace '\\','/')'"
 $WslDataDir = ($WslDataDir -join "").Trim()
 Write-Host "  Data dir (WSL): $WslDataDir" -ForegroundColor Green
 
 # Convert script root and source path to WSL paths
-$WslScriptRoot = (Invoke-Wsl "wslpath -u '$($PSScriptRoot -replace '\\','/')'") -join ""
+$WslScriptRoot = (Invoke-WslData "wslpath -u '$($PSScriptRoot -replace '\\','/')'")
 $WslScriptRoot = $WslScriptRoot.Trim()
 
 # ---------------------------------------------------------------------------
@@ -234,7 +243,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
     Write-Host "  Dockerfile created at $buildDir" -ForegroundColor Green
 
-    $WslBuildDir = (Invoke-Wsl "wslpath -u '$($buildDir -replace '\\','/')'") -join ""
+    $WslBuildDir = (Invoke-WslData "wslpath -u '$($buildDir -replace '\\','/')'")
     $WslBuildDir = $WslBuildDir.Trim()
 
     Write-Host "`n=== Step 2/5: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
@@ -288,7 +297,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "`n=== Step 2/5: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
-    $WslSourcePath = (Invoke-Wsl "wslpath -u '$($SourcePath -replace '\\','/')'") -join ""
+    $WslSourcePath = (Invoke-WslData "wslpath -u '$($SourcePath -replace '\\','/')'")
     # Handle relative paths — prepend script root if not already absolute
     if ($WslSourcePath -notmatch '^/') {
         $WslSourcePath = "$WslScriptRoot/$SourcePath"
@@ -303,26 +312,27 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
     Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
-    Write-Host "  Step 2c: Building base OpenClaw image from source..." -ForegroundColor Gray
-    Invoke-Wsl "docker build -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
-    Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
-
-    $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
-    $WslToolsContext    = "$WslScriptRoot/images"
-
-    Write-Host "  Step 2d: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
-    Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-    Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
-
     try {
-        Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'"
-    } catch {}
+        Write-Host "  Step 2c: Building base OpenClaw image from source..." -ForegroundColor Gray
+        Invoke-Wsl "docker build -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+        Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
+
+        $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
+        $WslToolsContext    = "$WslScriptRoot/images"
+
+        Write-Host "  Step 2d: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
+        Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
+    } finally {
+        try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Step 3/5: Generate gateway token
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Step 3/5: Generating gateway token ===" -ForegroundColor Cyan
+$totalSteps = if ($Ollama -and (-not $OllamaHost)) { 6 } else { 5 }
+Write-Host "`n=== Step 3/${totalSteps}: Generating gateway token ===" -ForegroundColor Cyan
 $bytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
 $GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
@@ -332,7 +342,7 @@ Write-Host "  $GatewayToken" -ForegroundColor Yellow
 # ---------------------------------------------------------------------------
 # Step 4/5: Create docker-compose and start containers
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Step 4/5: Starting containers via docker-compose ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 4/${totalSteps}: Starting containers via docker-compose ===" -ForegroundColor Cyan
 
 # Build environment variables for the container
 $envVars = @(
@@ -348,6 +358,8 @@ if ($GroqApiKey) {
 }
 if ($OllamaHost) {
     $envVars += "OLLAMA_HOST=$OllamaHost"
+} elseif ($Ollama) {
+    $envVars += "OLLAMA_HOST=http://ollama:11434"
 }
 
 # Build the startup command
@@ -460,8 +472,7 @@ if ($ollamaEnabled) {
 volumes:
   ollama-data:
 "@
-    # Update env to point at the local Ollama service
-    $composeYaml = $composeYaml -replace "(environment:`n(?:.*`n)*?)(    depends_on:)", "`$1      - OLLAMA_HOST=http://ollama:11434`n    depends_on:"
+
 } elseif (-not $Ollama) {
     Write-Host "  Ollama: not enabled (use -Ollama to add sidecar)" -ForegroundColor Gray
 }
@@ -508,7 +519,7 @@ if (-not $healthy) {
 # ---------------------------------------------------------------------------
 # Step 5/5: Configure OpenClaw (non-interactive)
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Step 5/5: Configuring OpenClaw ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 5/${totalSteps}: Configuring OpenClaw ===" -ForegroundColor Cyan
 
 function Invoke-DockerExec {
     param(
@@ -556,7 +567,7 @@ if ($Npm) {
 # Step 6/6: Pull Ollama models (if Ollama sidecar is running)
 # ---------------------------------------------------------------------------
 if ($ollamaEnabled) {
-    Write-Host "`n=== Step 6/6: Pulling Ollama models ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 6/${totalSteps}: Pulling Ollama models ===" -ForegroundColor Cyan
 
     # Wait for Ollama to become ready
     Write-Host "  Waiting for Ollama to become ready..."
@@ -613,7 +624,7 @@ if ($ollamaEnabled) {
         Write-Host "  wsl docker exec ${ContainerName}-ollama ollama pull deepseek-r1:8b" -ForegroundColor Gray
     }
 } else {
-    Write-Host "`n=== Step 6/6: Skipping Ollama model pull (no local Ollama) ===" -ForegroundColor Yellow
+
 }
 
 # ---------------------------------------------------------------------------
