@@ -193,9 +193,10 @@ $WslScriptRoot = $WslScriptRoot.Trim()
 # ---------------------------------------------------------------------------
 # Step 1: Build image
 # ---------------------------------------------------------------------------
+$totalSteps = if ($Ollama -and (-not $OllamaHost)) { 6 } else { 5 }
 if ($Npm) {
     # ===== NPM variant: create inline Dockerfile and build locally =====
-    Write-Host "`n=== Step 1/5: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/${totalSteps}: Creating Dockerfile (Debian Slim + npm) ===" -ForegroundColor Cyan
 
     $buildDir = Join-Path ([System.IO.Path]::GetTempPath()) "openclaw-wsl-npm-build"
     if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
@@ -246,7 +247,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $WslBuildDir = (Invoke-WslData "wslpath -u '$($buildDir -replace '\\','/')'")
     $WslBuildDir = $WslBuildDir.Trim()
 
-    Write-Host "`n=== Step 2/5: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
     Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
     Invoke-Wsl "docker build -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
@@ -265,7 +266,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
 } else {
     # ===== Source-build variant: pull/checkout source and build locally =====
-    Write-Host "`n=== Step 1/5: Cloning/updating OpenClaw source ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/${totalSteps}: Cloning/updating OpenClaw source ===" -ForegroundColor Cyan
 
     if (-not (Test-Path $SourcePath)) {
         Write-Host "  Source not found — cloning..."
@@ -295,7 +296,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $ref = if ($Tag) { $Tag } else { "latest (main)" }
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
-    Write-Host "`n=== Step 2/5: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
     $WslSourcePath = (Invoke-WslData "wslpath -u '$($SourcePath -replace '\\','/')'")
     # Handle relative paths — prepend script root if not already absolute
@@ -329,9 +330,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 }
 
 # ---------------------------------------------------------------------------
-# Step 3/5: Generate gateway token
+# Step 3: Generate gateway token
 # ---------------------------------------------------------------------------
-$totalSteps = if ($Ollama -and (-not $OllamaHost)) { 6 } else { 5 }
 Write-Host "`n=== Step 3/${totalSteps}: Generating gateway token ===" -ForegroundColor Cyan
 $bytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
@@ -623,8 +623,6 @@ if ($ollamaEnabled) {
         Write-Warning "Ollama did not become ready — pull models manually after it starts"
         Write-Host "  wsl docker exec ${ContainerName}-ollama ollama pull deepseek-r1:8b" -ForegroundColor Gray
     }
-} else {
-
 }
 
 # ---------------------------------------------------------------------------
