@@ -3,7 +3,7 @@ services:
     image: openclaw-source:latest
     container_name: openclaw
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=40fd9305564d367c0312bcbf65728419b4058349f5cdfabb73ab4ff06962e53b
+      - OPENCLAW_GATEWAY_TOKEN=f727585b6b4b21da357e41db7a1cbf21e950e6c376553a56cd9b64a8c6f785b7
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -22,7 +22,7 @@ services:
       - bash
       - -c
       - >-
-        chmod -R 755 /app/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
     healthcheck:
       test:
         [
