@@ -588,7 +588,7 @@ function Invoke-DockerExec {
 
 if ($Npm) {
     Invoke-DockerExec -Label "Onboard" `
-        -Command "openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health"
+        -Command "openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health"
 
     Invoke-DockerExec -Label "Model set" `
         -Command "openclaw models set github-copilot/claude-opus-4.6"
@@ -605,7 +605,7 @@ if ($Npm) {
     }
 } else {
     Invoke-DockerExec -Label "Onboard" `
-        -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token \$OPENCLAW_GATEWAY_TOKEN --skip-channels --skip-skills --skip-daemon --skip-health"
+        -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health"
 
     Invoke-DockerExec -Label "Model set" `
         -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
