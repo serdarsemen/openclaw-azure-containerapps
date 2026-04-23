@@ -3,7 +3,7 @@ services:
     image: openclaw-source:latest
     container_name: openclaw
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=f727585b6b4b21da357e41db7a1cbf21e950e6c376553a56cd9b64a8c6f785b7
+      - OPENCLAW_GATEWAY_TOKEN=3498e520302cdc535be5992c4a2a2880b7ca377b13c370ee10b407c82c4727b4
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
