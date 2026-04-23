@@ -643,6 +643,31 @@ if ($running -notin "Running", "RunningAtMaxScale") {
     Write-Warning "Container did not reach Running state after $maxAttempts attempts — proceeding anyway"
 }
 
+# --- Health check: verify OpenClaw gateway is responding ---
+Write-Host "`nChecking OpenClaw health..." -ForegroundColor Cyan
+$healthFqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
+$healthUrl = "https://$healthFqdn"
+$healthOk = $false
+$healthMaxAttempts = 12
+for ($h = 1; $h -le $healthMaxAttempts; $h++) {
+    try {
+        $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400) {
+            Write-Host "  OpenClaw is healthy (HTTP $($resp.StatusCode)) — $healthUrl" -ForegroundColor Green
+            $healthOk = $true
+            break
+        }
+        Write-Host "  Unexpected status $($resp.StatusCode) — retrying in 10s ($h/$healthMaxAttempts)..." -ForegroundColor Yellow
+    } catch {
+        Write-Host "  Not responding yet — retrying in 10s ($h/$healthMaxAttempts)..." -ForegroundColor Yellow
+    }
+    Start-Sleep -Seconds 10
+}
+if (-not $healthOk) {
+    Write-Warning "OpenClaw health check failed after $healthMaxAttempts attempts — proceeding anyway"
+}
+
 $rev = $latestRev
 # Single call for both image and FQDN
 $postTsv = az containerapp show --name $AppName --resource-group $ResourceGroup `
