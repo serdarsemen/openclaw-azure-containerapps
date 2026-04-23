@@ -3,7 +3,7 @@ services:
     image: openclaw-source:latest
     container_name: openclaw
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=521a9cd4b880ed45cf2ed33bd43b0393f8dec07eb99a71fd030b884a58288082
+      - OPENCLAW_GATEWAY_TOKEN=2a755722d1fdcef54915ed4d3fdf0e47713bcdeb9e1cd1e9ca34d8474d5e6935
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -13,8 +13,6 @@ services:
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
       - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "18789:18789"
       - "18790:18790"

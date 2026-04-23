@@ -499,44 +499,8 @@ Write-Host "  Starting containers..." -ForegroundColor Gray
 Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
 
-# Wait for the gateway to become healthy
-Write-Host "`n  Waiting for gateway to become healthy..."
-$maxAttempts = 30
-$attempt = 0
-$healthy = $false
-while ($attempt -lt $maxAttempts) {
-    $attempt++
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:${GatewayPort}/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            Write-Host "  Gateway is healthy (attempt $attempt/$maxAttempts)" -ForegroundColor Green
-            $healthy = $true
-            break
-        }
-    } catch {}
-
-    # Fallback: trust container health status when host-side checks are blocked/delayed.
-    try {
-        $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim()
-        if ($dockerHealth -in @('healthy', 'none')) {
-            Write-Host "  Gateway is healthy via Docker status (attempt $attempt/$maxAttempts, health=$dockerHealth)" -ForegroundColor Green
-            $healthy = $true
-            break
-        }
-    } catch {}
-
-    if ($attempt -lt $maxAttempts) {
-        Write-Host "  Not ready yet — retrying in 5s ($attempt/$maxAttempts)..." -ForegroundColor Gray
-        Start-Sleep -Seconds 5
-    }
-}
-if (-not $healthy) {
-    $dockerState = "unknown"
-    $dockerHealth = "unknown"
-    try { $dockerState = (Invoke-WslData "docker inspect -f '{{.State.Status}}' $ContainerName 2>/dev/null").Trim() } catch {}
-    try { $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim() } catch {}
-    Write-Warning "Gateway did not become healthy after $maxAttempts attempts (container state: $dockerState, health: $dockerHealth) — check logs with: wsl docker logs $ContainerName"
-}
+# Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.
+Write-Host "  Containers are starting — Docker healthcheck will verify readiness." -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # Step 5/5: Configure OpenClaw (non-interactive)
