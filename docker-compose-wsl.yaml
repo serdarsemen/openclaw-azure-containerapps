@@ -15,20 +15,20 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-change-me-to-a-256-bit-token}
+      - OPENCLAW_GATEWAY_TOKEN=c6f3366854dd2a2b74a8dda9dda731755753ccec908151cf9901770b9fd4fc13
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
-      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
+      - OLLAMA_HOST=http://host.docker.internal:11434
       - OPENCLAW_DISABLE_BONJOUR=true
+      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
-      - ./openclaw-data:/home/node/.openclaw
+      - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
     ports:
-      - "${GATEWAY_PORT:-18789}:18789"
-      - "${BRIDGE_PORT:-18790}:18790"
+      - "18789:18789"
+      - "18790:18790"
     init: true
     restart: unless-stopped
     deploy:
