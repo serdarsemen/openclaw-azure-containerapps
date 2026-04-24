@@ -485,7 +485,8 @@ $envBlock
       interval: 10s
       timeout: 3s
       retries: 3
-      start_period: 5s"@
+            start_period: 5s
+"@
 
 # Add Ollama sidecar only when -Ollama is specified (and no external host)
 $ollamaEnabled = $Ollama -and (-not $OllamaHost)
@@ -500,7 +501,7 @@ if ($ollamaEnabled) {
     networks:
       - openclaw-net
     volumes:
-      - ollama-data:/root/.ollama
+            - ./ollama-data:/root/.ollama
     ports:
       - "11434:11434"
     restart: unless-stopped
@@ -518,18 +519,6 @@ if ($ollamaEnabled) {
       timeout: 5s
       retries: 5
       start_period: 10s
-
-volumes:
-  ollama-data:
-    driver: local
-"@
-
-} else {
-    # Ensure volumes section exists even without Ollama
-    $composeYaml += @"
-
-volumes:
-  redis-data: {}
 "@
 }
 
