@@ -465,6 +465,8 @@ properties:
         value: /usr/local/lib/node_modules/openclaw/extensions
       - name: OLLAMA_HOST
         value: "$OllamaHost"
+      - name: OPENCLAW_DISABLE_BONJOUR
+        value: "true"
       volumeMounts:
       - volumeName: $volumeName
         mountPath: $HomeDir/.openclaw
@@ -567,6 +569,8 @@ properties:
         value: /app/extensions
       - name: OLLAMA_HOST
         value: "$OllamaHost"
+      - name: OPENCLAW_DISABLE_BONJOUR
+        value: "true"
       volumeMounts:
       - volumeName: $volumeName
         mountPath: $HomeDir/.openclaw

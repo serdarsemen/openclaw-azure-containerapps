@@ -360,6 +360,7 @@ if ($OllamaHost) {
 } elseif ($Ollama) {
     $envVars += "OLLAMA_HOST=http://ollama:11434"
 }
+$envVars += "OPENCLAW_DISABLE_BONJOUR=true"
 
 # Build the startup command
 if ($Npm) {
