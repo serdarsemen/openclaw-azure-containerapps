@@ -395,10 +395,8 @@ properties:
       - ""
       - --appendonly
       - "no"
-      resources:
-        cpu: 0.25
-        memory: 0.5Gi
-      probes:
+      - --appendonly
+      - "yes"
       - type: liveness
         tcpSocket:
           port: 6379
@@ -503,10 +501,8 @@ properties:
       - ""
       - --appendonly
       - "no"
-      resources:
-        cpu: 0.25
-        memory: 0.5Gi
-      probes:
+      - --appendonly
+      - "yes"
       - type: liveness
         tcpSocket:
           port: 6379

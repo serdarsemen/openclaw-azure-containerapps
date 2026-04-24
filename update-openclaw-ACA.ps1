@@ -589,10 +589,8 @@ properties:
       image: redis:7-alpine
       command:
       - redis-server
-      - --save
-      - ""
       - --appendonly
-      - "no"
+      - "yes"
       resources:
         cpu: 0.25
         memory: 0.5Gi

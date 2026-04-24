@@ -349,6 +349,8 @@ $cmdYaml
               value: $PluginsDir
             - name: OLLAMA_HOST
               value: "http://ollama:11434"
+                      - name: OPENCLAW_DISABLE_BONJOUR
+                        value: "true"
           resources:
             requests: { cpu: "2",            memory: "4Gi" }
             limits:   { cpu: "$OpenClawCpu", memory: "$OpenClawMemory" }
