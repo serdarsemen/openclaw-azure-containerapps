@@ -544,38 +544,6 @@ Write-Host "  Containers started" -ForegroundColor Green
 # Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.
 Write-Host "  Containers are starting — Docker healthcheck will verify readiness." -ForegroundColor Gray
 
-# --- Health check: verify OpenClaw gateway is responding ---
-Write-Host "`nChecking OpenClaw health..." -ForegroundColor Cyan
-$healthUrl = "http://localhost:${GatewayPort}/healthz"
-$healthOk = $false
-$healthMaxAttempts = 20
-for ($h = 1; $h -le $healthMaxAttempts; $h++) {
-    try {
-        $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400) {
-            Write-Host "  OpenClaw is healthy (HTTP $($resp.StatusCode)) — $healthUrl" -ForegroundColor Green
-            $healthOk = $true
-            break
-        }
-        Write-Host "  Unexpected status $($resp.StatusCode) — retrying in 5s ($h/$healthMaxAttempts)..." -ForegroundColor Yellow
-    } catch {
-        # Fallback: trust Docker container health status when host-side checks are blocked/delayed
-        try {
-            $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim()
-            if ($dockerHealth -in @('healthy', 'none')) {
-                Write-Host "  OpenClaw is healthy via Docker status (attempt $h/$healthMaxAttempts, health=$dockerHealth)" -ForegroundColor Green
-                $healthOk = $true
-                break
-            }
-        } catch {}
-        Write-Host "  Not responding yet — retrying in 5s ($h/$healthMaxAttempts)..." -ForegroundColor Gray
-    }
-    Start-Sleep -Seconds 5
-}
-if (-not $healthOk) {
-    Write-Warning "OpenClaw health check failed after $healthMaxAttempts attempts — proceeding anyway. Check logs: wsl docker logs $ContainerName"
-}
-
 # ---------------------------------------------------------------------------
 # Step 5/5: Configure OpenClaw (non-interactive)
 # ---------------------------------------------------------------------------
