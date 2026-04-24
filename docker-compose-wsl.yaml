@@ -1,23 +1,44 @@
+version: '3.9'
+
+networks:
+  openclaw-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+
 services:
   openclaw:
     image: openclaw-source:latest
     container_name: openclaw
+    networks:
+      - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=38853fec05d634013760d6dde331d7021b811fca8c14cd26161279549f5b8ba8
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-change-me-to-a-256-bit-token}
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
+      - OPENCLAW_DISABLE_BONJOUR=true
     volumes:
-      - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+      - ./openclaw-data:/home/node/.openclaw
     ports:
-      - "18789:18789"
-      - "18790:18790"
+      - "${GATEWAY_PORT:-18789}:18789"
+      - "${BRIDGE_PORT:-18790}:18790"
     init: true
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+        reservations:
+          cpus: '2'
+          memory: 4G
     command:
       - bash
       - -c
@@ -37,20 +58,33 @@ services:
       start_period: 20s
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
     container_name: openclaw-redis
+    networks:
+      - openclaw-net
+    volumes:
+      - redis-data:/data
     command:
       - redis-server
-      - --save
-      - ""
       - --appendonly
-      - "no"
+      - "yes"
+      - --dir
+      - /data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 5s
+      interval: 10s
+      timeout: 3s
       retries: 3
+      start_period: 5s

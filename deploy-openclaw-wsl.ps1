@@ -404,10 +404,22 @@ if ($Npm) {
 $envBlock = ($envVars | ForEach-Object { "      - $_" }) -join "`n"
 
 $composeYaml = @"
+version: '3.9'
+
+networks:
+  openclaw-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+
 services:
   openclaw:
     image: ${ImageName}:latest
     container_name: $ContainerName
+    networks:
+      - openclaw-net
     environment:
 $envBlock
     volumes:
@@ -417,6 +429,14 @@ $envBlock
       - "${BridgePort}:18790"
     init: true
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+        reservations:
+          cpus: '2'
+          memory: 4G
     command:
       - bash
       - -c
@@ -436,24 +456,36 @@ $envBlock
       start_period: 20s
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
     container_name: ${ContainerName}-redis
+    networks:
+      - openclaw-net
+    volumes:
+      - redis-data:/data
     command:
       - redis-server
-      - --save
-      - ""
       - --appendonly
-      - "no"
+      - "yes"
+      - --dir
+      - /data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 5s
+      interval: 10s
+      timeout: 3s
       retries: 3
-"@
+      start_period: 5s"@
 
 # Add Ollama sidecar only when -Ollama is specified (and no external host)
 $ollamaEnabled = $Ollama -and (-not $OllamaHost)
@@ -465,11 +497,21 @@ if ($ollamaEnabled) {
   ollama:
     image: ollama/ollama:latest
     container_name: ${ContainerName}-ollama
+    networks:
+      - openclaw-net
     volumes:
       - ollama-data:/root/.ollama
     ports:
       - "11434:11434"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
       interval: 30s
@@ -479,9 +521,19 @@ if ($ollamaEnabled) {
 
 volumes:
   ollama-data:
+    driver: local
 "@
 
-} elseif (-not $Ollama) {
+} else {
+    # Ensure volumes section exists even without Ollama
+    $composeYaml += @"
+
+volumes:
+  redis-data: {}
+"@
+}
+
+if (-not $Ollama) {
     Write-Host "  Ollama: not enabled (use -Ollama to add sidecar)" -ForegroundColor Gray
 }
 
