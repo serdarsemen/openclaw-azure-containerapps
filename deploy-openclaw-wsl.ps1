@@ -485,7 +485,7 @@ $envBlock
       interval: 10s
       timeout: 3s
       retries: 3
-            start_period: 5s
+      start_period: 5s
 "@
 
 # Add Ollama sidecar only when -Ollama is specified (and no external host)
@@ -501,7 +501,7 @@ if ($ollamaEnabled) {
     networks:
       - openclaw-net
     volumes:
-            - ./ollama-data:/root/.ollama
+      - ./ollama-data:/root/.ollama
     ports:
       - "11434:11434"
     restart: unless-stopped
@@ -776,3 +776,4 @@ Write-Host "  ┌─────────────────────
 Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
 Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
 Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+
