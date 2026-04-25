@@ -157,6 +157,36 @@ Or start Docker manually before running this script:
     Write-Host "  Docker (WSL): OK" -ForegroundColor Green
 }
 
+# Check DNS resolution inside WSL — WSL2's NAT DNS forwarder is notoriously flaky
+Write-Host "  Checking DNS resolution..." -ForegroundColor Gray
+$dnsOk = $false
+try {
+    $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
+    if ($dnsResult -match "DNS_OK") { $dnsOk = $true }
+} catch {}
+
+if (-not $dnsOk) {
+    Write-Host "  WSL DNS is broken — reconfiguring to use public resolvers (8.8.8.8, 1.1.1.1)..." -ForegroundColor Yellow
+    # Overwrite resolv.conf with Google + Cloudflare public DNS
+    wsl bash -c "sudo sh -c 'rm -f /etc/resolv.conf; printf ""nameserver 8.8.8.8\nnameserver 1.1.1.1\n"" > /etc/resolv.conf'" 2>$null
+    # Prevent WSL from overwriting resolv.conf on next restart
+    wsl bash -c "sudo sh -c 'grep -q generateResolvConf /etc/wsl.conf 2>/dev/null || printf ""\n[network]\ngenerateResolvConf = false\n"" >> /etc/wsl.conf'" 2>$null
+    # Verify the fix
+    try {
+        $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
+        if ($dnsResult -match "DNS_OK") {
+            Write-Host "  DNS fixed (using 8.8.8.8 / 1.1.1.1)" -ForegroundColor Green
+        } else {
+            Write-Host "  WARNING: DNS still broken after reconfiguration — build may fail" -ForegroundColor Yellow
+            Write-Host "  Try: wsl --shutdown, then re-run this script" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  WARNING: Could not verify DNS fix" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  DNS: OK" -ForegroundColor Green
+}
+
 # ---------------------------------------------------------------------------
 # Set variant-specific defaults
 # ---------------------------------------------------------------------------
