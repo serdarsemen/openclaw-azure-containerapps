@@ -249,7 +249,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
-        Invoke-Wsl "docker build -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+        Invoke-Wsl "docker build --network=host -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         # Copy tools Dockerfile to WSL-accessible path
@@ -257,7 +257,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-        Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -322,14 +322,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2d: Building base OpenClaw image from source..." -ForegroundColor Gray
-        Invoke-Wsl "docker build -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+        Invoke-Wsl "docker build --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
-        Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
         try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
