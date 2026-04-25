@@ -15,7 +15,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=6195bbe42c66b65f45af3ed8c816702c40705eff952ff91436d03d9c7113368a
+      - OPENCLAW_GATEWAY_TOKEN=eea37c3b54a17cc3bdd687d9874babb89fe6e153de68e7eb1a26f185ad6ba47f
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
