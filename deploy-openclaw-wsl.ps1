@@ -312,15 +312,23 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
     Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
+    # Patch Dockerfile for local Docker compatibility:
+    # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
+    # - Strip --mount=type=cache directives (not supported by classic Docker builder)
+    Write-Host "  Step 2c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
+    Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+    Invoke-Wsl "sed -i 's|--mount=type=cache,[^ ]* ||g' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+    Write-Host "  Stripped syntax directive and --mount=type=cache" -ForegroundColor Green
+
     try {
-        Write-Host "  Step 2c: Building base OpenClaw image from source..." -ForegroundColor Gray
+        Write-Host "  Step 2d: Building base OpenClaw image from source..." -ForegroundColor Gray
         Invoke-Wsl "docker build -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
-        Write-Host "  Step 2d: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
+        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
         Invoke-Wsl "docker build -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
