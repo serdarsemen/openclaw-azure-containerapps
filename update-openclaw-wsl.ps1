@@ -95,6 +95,13 @@ function Expand-WslTransferArchive {
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Pre-flight checks ===" -ForegroundColor Cyan
 
+# Check WSL is available
+wsl --status 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "WSL is not available. Install WSL 2: wsl --install"
+}
+Write-Host "  WSL: OK" -ForegroundColor Green
+
 if (-not (Test-WslDocker)) {
     Write-Host "  Docker not running — attempting to start..." -ForegroundColor Yellow
     # Use timeout to avoid hanging on sudo password prompt
@@ -125,6 +132,36 @@ Or start Docker manually before running this script:
     Write-Host "  Docker (WSL): started" -ForegroundColor Green
 } else {
     Write-Host "  Docker (WSL): OK" -ForegroundColor Green
+}
+
+# Check DNS resolution inside WSL — WSL2's NAT DNS forwarder is notoriously flaky
+Write-Host "  Checking DNS resolution..." -ForegroundColor Gray
+$dnsOk = $false
+try {
+    $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
+    if ($dnsResult -match "DNS_OK") { $dnsOk = $true }
+} catch {}
+
+if (-not $dnsOk) {
+    Write-Host "  WSL DNS is broken — reconfiguring to use public resolvers (8.8.8.8, 1.1.1.1)..." -ForegroundColor Yellow
+    # Overwrite resolv.conf with Google + Cloudflare public DNS
+    wsl bash -c "sudo sh -c 'rm -f /etc/resolv.conf; printf ""nameserver 8.8.8.8\nnameserver 1.1.1.1\n"" > /etc/resolv.conf'" 2>$null
+    # Prevent WSL from overwriting resolv.conf on next restart
+    wsl bash -c "sudo sh -c 'grep -q generateResolvConf /etc/wsl.conf 2>/dev/null || printf ""\n[network]\ngenerateResolvConf = false\n"" >> /etc/wsl.conf'" 2>$null
+    # Verify the fix
+    try {
+        $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
+        if ($dnsResult -match "DNS_OK") {
+            Write-Host "  DNS fixed (using 8.8.8.8 / 1.1.1.1)" -ForegroundColor Green
+        } else {
+            Write-Host "  WARNING: DNS still broken after reconfiguration — build may fail" -ForegroundColor Yellow
+            Write-Host "  Try: wsl --shutdown, then re-run this script" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  WARNING: Could not verify DNS fix" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  DNS: OK" -ForegroundColor Green
 }
 
 # Verify the container exists (was previously deployed)
@@ -281,14 +318,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         try {
             Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
             Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
         } finally {
             Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -340,16 +377,24 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
         Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
+        # Patch Dockerfile for local Docker compatibility:
+        # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
+        # - Strip --mount=type=cache directives (not supported by classic Docker builder)
+        Write-Host "  Step 1c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
+        Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+        Invoke-Wsl "sed -i 's|--mount=type=cache,[^ ]* ||g' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+        Write-Host "  Stripped syntax directive and --mount=type=cache" -ForegroundColor Green
+
         try {
-            Write-Host "  Step 1c: Rebuilding base image from source..." -ForegroundColor Gray
-            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+            Write-Host "  Step 1d: Rebuilding base image from source..." -ForegroundColor Gray
+            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
-            Write-Host "  Step 1d: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-Wsl "docker build ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Write-Host "  Step 1e: Rebuilding tools layer..." -ForegroundColor Gray
+            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
         } finally {
             try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
