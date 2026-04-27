@@ -605,6 +605,7 @@ function Invoke-DockerExec {
         [string] $Command,
         [int]    $MaxRetries = 5,
         [int]    $DelaySec   = 10,
+        [int]    $ExecTimeoutSec = 120,
         [switch] $ContinueOnFailure
     )
     for ($i = 1; $i -le $MaxRetries; $i++) {
@@ -614,10 +615,13 @@ function Invoke-DockerExec {
             throw "[$Label] container not running"
         }
         Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
-        $output = wsl bash -c "docker exec $ContainerName bash -c '$Command'" 2>&1
+        $output = wsl bash -c "docker exec $ContainerName bash -c 'timeout $ExecTimeoutSec $Command'" 2>&1
         if ($LASTEXITCODE -eq 0) {
             if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
             return $true
+        }
+        if ($LASTEXITCODE -eq 124) {
+            Write-Warning "[$Label] timed out after ${ExecTimeoutSec}s"
         }
         if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
         if ($i -lt $MaxRetries) {
