@@ -1,5 +1,3 @@
-version: '3.9'
-
 networks:
   openclaw-net:
     driver: bridge
@@ -15,7 +13,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=5c7df9f941401701051823840540fbce161ad439161aeba9dbfecf07737d0923
+      - OPENCLAW_GATEWAY_TOKEN=c17f24e0529290857dee0dbc0cbbf2cb25ce164567050d12024e228af1593415
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -55,7 +53,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 3m
     depends_on:
       redis:
         condition: service_healthy
