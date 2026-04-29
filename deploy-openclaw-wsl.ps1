@@ -585,7 +585,8 @@ try { Invoke-Wsl "docker compose -f '$WslComposePath' down 2>/dev/null" } catch 
 # Clean up stale plugin-runtime-deps locks from previous failed deployments
 Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
 try {
-    Invoke-Wsl "rm -rf '$WslDataDir/plugin-runtime-deps'/*/.openclaw-runtime-deps.lock 2>/dev/null || true"
+    # The lock is a directory; remove any version-named lock dirs entirely
+    Invoke-Wsl "find '$WslDataDir/plugin-runtime-deps' -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true"
 } catch {}
 
 Write-Host "  Starting containers..." -ForegroundColor Gray
@@ -609,6 +610,33 @@ function Wait-ContainerRunning {
         Write-Host "  Container state: $state — waiting..." -ForegroundColor Gray
         Start-Sleep -Seconds 5
     }
+    return $false
+}
+
+function Wait-OpenClawReady {
+    # Wait until the OpenClaw gateway port (18789) is open inside the container.
+    # On first run, the container installs bundled runtime deps before serving,
+    # which can take several minutes. Any docker exec before this completes will
+    # fail with a runtime-deps lock timeout.
+    param([int] $TimeoutSec = 600)
+    Write-Host "  Waiting for OpenClaw gateway to become ready (first-run deps may take a few minutes)..." -ForegroundColor Gray
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $lastMsg   = ""
+    while ((Get-Date) -lt $deadline) {
+        $check = wsl bash -c "docker exec $ContainerName bash -c 'timeout 3 bash -c ""</dev/tcp/localhost/18789"" 2>/dev/null && echo READY || echo NOT_READY'" 2>$null
+        if ($check -match "READY") {
+            Write-Host "  OpenClaw gateway: ready" -ForegroundColor Green
+            return $true
+        }
+        # Surface latest log line so user can see progress
+        $logLine = (wsl bash -c "docker logs --tail 1 $ContainerName 2>&1") -join ""
+        if ($logLine -and $logLine -ne $lastMsg) {
+            Write-Host "  [container] $logLine" -ForegroundColor DarkGray
+            $lastMsg = $logLine
+        }
+        Start-Sleep -Seconds 5
+    }
+    Write-Warning "OpenClaw gateway did not become ready within ${TimeoutSec}s — check logs: wsl docker logs $ContainerName"
     return $false
 }
 
@@ -647,10 +675,14 @@ function Invoke-DockerExec {
     throw "[$Label] failed after $MaxRetries attempts"
 }
 
+if (-not (Wait-OpenClawReady -TimeoutSec 600)) {
+    throw "OpenClaw did not become ready — check logs: wsl docker logs $ContainerName"
+}
+
 if ($Npm) {
     Invoke-DockerExec -Label "Onboard" `
         -Command "openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health" `
-        -ExecTimeoutSec 300
+        -ExecTimeoutSec 120
 
     Invoke-DockerExec -Label "Model set" `
         -Command "openclaw models set github-copilot/claude-opus-4.6"
@@ -669,7 +701,7 @@ if ($Npm) {
 } else {
     Invoke-DockerExec -Label "Onboard" `
         -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health" `
-        -ExecTimeoutSec 300
+        -ExecTimeoutSec 120
 
     Invoke-DockerExec -Label "Model set" `
         -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"

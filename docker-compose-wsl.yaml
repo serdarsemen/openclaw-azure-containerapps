@@ -1,5 +1,3 @@
-version: '3.9'
-
 networks:
   openclaw-net:
     driver: bridge
@@ -19,7 +17,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=78b4b80395d939c14922f241539fd264e278e02ab7473388c126436fad95e44e
+      - OPENCLAW_GATEWAY_TOKEN=6b6250f64042d8fd361165beaac7037c1b404028f9c198bf9cbe636d4531ba47
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
