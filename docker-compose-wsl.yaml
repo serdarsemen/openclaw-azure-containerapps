@@ -51,7 +51,7 @@ services:
       - bash
       - -c
       - >-
-        find /home/node/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true && chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        find /home/node/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true && chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
     healthcheck:
       test:
         [

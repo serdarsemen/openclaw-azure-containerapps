@@ -400,17 +400,15 @@ if ($OllamaHost) {
     $envVars += "OLLAMA_HOST=http://ollama:11434"
 }
 $envVars += "OPENCLAW_DISABLE_BONJOUR=true"
+# Workaround for pnpm ERR_PNPM_MISSING_TIME (e.g. punycode.js metadata missing
+# the "time" field) seen during installBundledRuntimeDeps on container start.
+$envVars += "NPM_CONFIG_RESOLUTION_MODE=highest"
+$envVars += "npm_config_resolution_mode=highest"
 
 # Build the startup command
 if ($Npm) {
     $startupCmd = @(
-        "find $HomeDir/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
-        "(openclaw config set gateway.controlUi.allowInsecureAuth true || true)",
-        "(openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true)",
-        "(openclaw config set gateway.auth.rateLimit.maxAttempts 10 || true)",
-        "(openclaw config set gateway.auth.rateLimit.windowMs 60000 || true)",
-        "(openclaw config set gateway.auth.rateLimit.lockoutMs 300000 || true)",
-        "(openclaw config set browser.executablePath /usr/bin/chromium || true)",
+        "find $HomeDir/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
         "npm config set prefix '~/.openclaw/npm-global'",
         "mkdir -p $HomeDir/.openclaw/workspace/memory",
         "mkdir -p $HomeDir/.cache/qmd/models",
@@ -424,16 +422,11 @@ if ($Npm) {
     $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/usr/local/lib/node_modules/openclaw/dist/extensions"
 } else {
     $startupCmd = @(
-        "find $HomeDir/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
+        "find $HomeDir/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
         "chmod -R 755 /app/dist/extensions",
         "mkdir -p $HomeDir/.openclaw/workspace/memory",
         "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
         "mkdir -p `$`$HOME/.openclaw/compile-cache",
-        "(node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true)",
-        "(node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true)",
-        "(node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true)",
-        "(node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true)",
-        "(node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true)",
         "chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true",
         "export OPENCLAW_NO_RESPAWN=1",
         "node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
