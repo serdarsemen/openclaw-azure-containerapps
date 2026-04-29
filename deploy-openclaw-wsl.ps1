@@ -445,8 +445,6 @@ if ($Npm) {
 $envBlock = ($envVars | ForEach-Object { "      - $_" }) -join "`n"
 
 $composeYaml = @"
-version: '3.9'
-
 networks:
   openclaw-net:
     driver: bridge
