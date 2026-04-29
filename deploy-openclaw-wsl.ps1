@@ -358,7 +358,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
-        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, freqtrade, torch)..." -ForegroundColor Gray
+        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
         Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
@@ -796,4 +796,3 @@ Write-Host "  ┌─────────────────────
 Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
 Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
 Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-
