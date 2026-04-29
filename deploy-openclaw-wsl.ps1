@@ -656,7 +656,7 @@ function Invoke-DockerExec {
             throw "[$Label] container not running"
         }
         Write-Host "  [$Label] attempt $i/$MaxRetries" -ForegroundColor Gray
-        $output = wsl bash -c "docker exec $ContainerName bash -c 'timeout $ExecTimeoutSec $Command'" 2>&1
+        $output = wsl bash -c "docker exec $ContainerName bash -c 'timeout $ExecTimeoutSec $Command </dev/null'" 2>&1
         if ($LASTEXITCODE -eq 0) {
             if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
             return $true
@@ -679,44 +679,48 @@ if (-not (Wait-OpenClawReady -TimeoutSec 600)) {
     throw "OpenClaw did not become ready — check logs: wsl docker logs $ContainerName"
 }
 
-if ($Npm) {
-    Invoke-DockerExec -Label "Onboard" `
-        -Command "openclaw onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health" `
-        -ExecTimeoutSec 120
+# Instead of the monolithic 'onboard' (which can hang trying to acquire runtime
+# locks or bootstrap plugins that are already loaded by the running gateway),
+# write the config directly and use targeted config commands.
+$cli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
 
-    Invoke-DockerExec -Label "Model set" `
-        -Command "openclaw models set github-copilot/claude-opus-4.6"
+# Step 5a: Write gateway config directly — avoids onboard's plugin bootstrap
+Invoke-DockerExec -Label "Config: gateway auth" `
+    -Command "$cli config set gateway.auth.token $GatewayToken" `
+    -ExecTimeoutSec 30
 
-    try {
-        $auditOk = Invoke-DockerExec -Label "Security audit" `
-            -Command "openclaw security audit" `
-            -MaxRetries 1 -ExecTimeoutSec 45 `
-            -ContinueOnFailure
-        if (-not $auditOk) {
-            Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
-        }
-    } catch {
-        Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
+Invoke-DockerExec -Label "Config: gateway port" `
+    -Command "$cli config set gateway.port 18789" `
+    -ExecTimeoutSec 30
+
+Invoke-DockerExec -Label "Config: gateway bind" `
+    -Command "$cli config set gateway.bind 0.0.0.0" `
+    -ExecTimeoutSec 30
+
+Invoke-DockerExec -Label "Config: insecure auth UI" `
+    -Command "$cli config set gateway.controlUi.allowInsecureAuth true" `
+    -ExecTimeoutSec 30
+
+Invoke-DockerExec -Label "Config: host header fallback" `
+    -Command "$cli config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true" `
+    -ExecTimeoutSec 30
+
+# Step 5b: Set model
+Invoke-DockerExec -Label "Model set" `
+    -Command "$cli models set github-copilot/claude-opus-4.6" `
+    -ExecTimeoutSec 30
+
+# Step 5c: Security audit (non-fatal)
+try {
+    $auditOk = Invoke-DockerExec -Label "Security audit" `
+        -Command "$cli security audit" `
+        -MaxRetries 1 -ExecTimeoutSec 45 `
+        -ContinueOnFailure
+    if (-not $auditOk) {
+        Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
     }
-} else {
-    Invoke-DockerExec -Label "Onboard" `
-        -Command "node openclaw.mjs onboard --non-interactive --accept-risk --mode local --flow manual --auth-choice skip --gateway-port 18789 --gateway-bind lan --gateway-auth token --gateway-token $GatewayToken --skip-channels --skip-skills --skip-daemon --skip-health" `
-        -ExecTimeoutSec 120
-
-    Invoke-DockerExec -Label "Model set" `
-        -Command "node openclaw.mjs models set github-copilot/claude-opus-4.6"
-
-    try {
-        $auditOk = Invoke-DockerExec -Label "Security audit" `
-            -Command "node openclaw.mjs security audit" `
-            -MaxRetries 1 -ExecTimeoutSec 45 `
-            -ContinueOnFailure
-        if (-not $auditOk) {
-            Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
-        }
-    } catch {
-        Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
-    }
+} catch {
+    Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
 }
 
 # ---------------------------------------------------------------------------
