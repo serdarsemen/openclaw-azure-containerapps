@@ -1,9 +1,15 @@
+version: '3.9'
+
 networks:
   openclaw-net:
     driver: bridge
 
 volumes:
   redis-data:
+    driver: local
+  openclaw-runtime-deps:
+    driver: local
+  openclaw-compile-cache:
     driver: local
 
 services:
@@ -13,7 +19,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=c17f24e0529290857dee0dbc0cbbf2cb25ce164567050d12024e228af1593415
+      - OPENCLAW_GATEWAY_TOKEN=1e8fc1ed719b307c0a3982316c5a68200fac0edeba041bc6acecc7b127f77dd5
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -23,7 +29,9 @@ services:
       - OPENCLAW_DISABLE_BONJOUR=true
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
-      - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+      - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+      - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
+      - openclaw-compile-cache:/home/node/.openclaw/compile-cache
     ports:
       - "18789:18789"
       - "18790:18790"
@@ -41,7 +49,7 @@ services:
       - bash
       - -c
       - >-
-        chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        find /home/node/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true && chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
     healthcheck:
       test:
         [
@@ -53,7 +61,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 3m
+      start_period: 300s
     depends_on:
       redis:
         condition: service_healthy

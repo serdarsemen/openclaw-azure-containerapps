@@ -279,7 +279,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
-        Invoke-Wsl "docker build --network=host -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+        Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         # Copy tools Dockerfile to WSL-accessible path
@@ -287,7 +287,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-        Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -344,22 +344,22 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     # Patch Dockerfile for local Docker compatibility:
     # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
-    # - Strip --mount=type=cache directives (not supported by classic Docker builder)
+    # - Keep --mount=type=cache directives — BuildKit is the default builder in Docker 23.0+ (WSL)
+    #   and cache mounts dramatically speed up rebuilds (pnpm store, apt cache).
     Write-Host "  Step 2c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
     Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
-    Invoke-Wsl "sed -i 's|--mount=type=cache,[^ ]* ||g' '$($WslBuildContext.WslContextPath)/Dockerfile'"
-    Write-Host "  Stripped syntax directive and --mount=type=cache" -ForegroundColor Green
+    Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
 
     try {
         Write-Host "  Step 2d: Building base OpenClaw image from source..." -ForegroundColor Gray
-        Invoke-Wsl "docker build --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+        Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
-        Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
         try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
@@ -403,6 +403,7 @@ $envVars += "OPENCLAW_DISABLE_BONJOUR=true"
 # Build the startup command
 if ($Npm) {
     $startupCmd = @(
+        "find $HomeDir/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
         "(openclaw config set gateway.controlUi.allowInsecureAuth true || true)",
         "(openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true)",
         "(openclaw config set gateway.auth.rateLimit.maxAttempts 10 || true)",
@@ -422,6 +423,7 @@ if ($Npm) {
     $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/usr/local/lib/node_modules/openclaw/dist/extensions"
 } else {
     $startupCmd = @(
+        "find $HomeDir/.openclaw/plugin-runtime-deps -name '.openclaw-runtime-mirror.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
         "chmod -R 755 /app/dist/extensions",
         "mkdir -p $HomeDir/.openclaw/workspace/memory",
         "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
@@ -451,6 +453,10 @@ networks:
 volumes:
   redis-data:
     driver: local
+  openclaw-runtime-deps:
+    driver: local
+  openclaw-compile-cache:
+    driver: local
 
 services:
   openclaw:
@@ -462,6 +468,8 @@ services:
 $envBlock
     volumes:
       - ${WslDataDir}:${HomeDir}/.openclaw
+      - openclaw-runtime-deps:${HomeDir}/.openclaw/plugin-runtime-deps
+      - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
     ports:
       - "${GatewayPort}:18789"
       - "${BridgePort}:18790"
@@ -491,7 +499,7 @@ $envBlock
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 300s
     depends_on:
       redis:
         condition: service_healthy
@@ -644,6 +652,7 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "openclaw security audit" `
+            -MaxRetries 2 -ExecTimeoutSec 30 `
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
@@ -661,6 +670,7 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "node openclaw.mjs security audit" `
+            -MaxRetries 2 -ExecTimeoutSec 30 `
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
