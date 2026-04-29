@@ -348,6 +348,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     #   and cache mounts dramatically speed up rebuilds (pnpm store, apt cache).
     Write-Host "  Step 2c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
     Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+    Invoke-Wsl "if grep -q 'COPY scripts/lib/package-dist-imports.mjs ./scripts/lib/package-dist-imports.mjs' '$($WslBuildContext.WslContextPath)/Dockerfile' && ! grep -q 'bundled-runtime-deps-install.mjs' '$($WslBuildContext.WslContextPath)/Dockerfile'; then sed -i 's|COPY scripts/lib/package-dist-imports.mjs ./scripts/lib/package-dist-imports.mjs|COPY scripts/lib/package-dist-imports.mjs scripts/lib/bundled-runtime-deps-install.mjs ./scripts/lib/|' '$($WslBuildContext.WslContextPath)/Dockerfile'; fi"
     Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
 
     try {
