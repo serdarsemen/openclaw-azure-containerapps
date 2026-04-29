@@ -358,8 +358,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
+<<<<<<< HEAD
         Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
         Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+=======
+        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, freqtrade, torch)..." -ForegroundColor Gray
+        Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
         try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
@@ -652,7 +657,12 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "openclaw security audit" `
+<<<<<<< HEAD
             -MaxRetries 2 -ExecTimeoutSec 30 `
+=======
+            -MaxRetries 1 `
+            -ExecTimeoutSec 45 `
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
@@ -670,7 +680,12 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "node openclaw.mjs security audit" `
+<<<<<<< HEAD
             -MaxRetries 2 -ExecTimeoutSec 30 `
+=======
+            -MaxRetries 1 `
+            -ExecTimeoutSec 45 `
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"

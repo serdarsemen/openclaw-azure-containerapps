@@ -19,7 +19,11 @@ services:
     networks:
       - openclaw-net
     environment:
+<<<<<<< HEAD
       - OPENCLAW_GATEWAY_TOKEN=1e8fc1ed719b307c0a3982316c5a68200fac0edeba041bc6acecc7b127f77dd5
+=======
+      - OPENCLAW_GATEWAY_TOKEN=30bd3be9e38d35b256c931ea838e77393a354a68ffccc3a5f205f3d2efa4c2bf
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -30,8 +34,11 @@ services:
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
       - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+<<<<<<< HEAD
       - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:/home/node/.openclaw/compile-cache
+=======
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
     ports:
       - "18789:18789"
       - "18790:18790"
@@ -61,7 +68,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+<<<<<<< HEAD
       start_period: 300s
+=======
+      start_period: 20s
+>>>>>>> 94a1671c6707f21ab16b071fc23b8d6f3072ae38
     depends_on:
       redis:
         condition: service_healthy
