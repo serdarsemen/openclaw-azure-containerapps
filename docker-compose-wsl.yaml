@@ -1,3 +1,5 @@
+version: '3.9'
+
 networks:
   openclaw-net:
     driver: bridge
@@ -13,7 +15,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=c17f24e0529290857dee0dbc0cbbf2cb25ce164567050d12024e228af1593415
+      - OPENCLAW_GATEWAY_TOKEN=30bd3be9e38d35b256c931ea838e77393a354a68ffccc3a5f205f3d2efa4c2bf
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -23,7 +25,7 @@ services:
       - OPENCLAW_DISABLE_BONJOUR=true
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
-      - /mnt/c/Users/serdsem/OneDrive/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+      - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
     ports:
       - "18789:18789"
       - "18790:18790"
@@ -53,7 +55,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 3m
+      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy

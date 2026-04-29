@@ -20,8 +20,8 @@
 #   - huggingface_hub  → HF model downloads     (installed via pip)
 #   - yfinance         → Yahoo Finance data      (installed via pip)
 #
-# Performance: all tool installs are merged into a single RUN to minimise
-# intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
+# Performance: installs are grouped into stable layers so iterative rebuilds
+# can reuse cache when only later steps change.
 
 ARG BASE_IMAGE=openclaw-source:base
 ARG PYTHON_VERSION=3.14
@@ -43,39 +43,44 @@ ENV GOROOT=/usr/local/go \
     PATH="/usr/local/go/bin:${PATH}"
 
 RUN set -eux \
-    && ldconfig \
-    # Go 1.24.1
-    && curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz \
-       | tar -xz -C /usr/local \
-    # GitHub CLI v2.72.0 — strip debug symbols to halve binary size
-    && curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
-       | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh \
-    && strip /usr/local/bin/gh 2>/dev/null || true \
-    # Gemini CLI + sqlite-vec (npm) — sqlite-vec provides the native .so for QMD vector ops
-    && npm install -g @google/gemini-cli@latest sqlite-vec \
-    # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
-    && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
-    && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
-    # Python validation + pip packages
-    && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade \
-       einops safetensors huggingface_hub yfinance \
-    # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI for Python 3.14+ compat
-    && ( python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-         || python3 -m pip install --no-cache-dir torch ) \
-    && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK')" \
-    # Freqtrade strategies — community strategy repository
-    && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
-    # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
-    && mkdir -p /opt/freqtrade/user_data/strategies \
-    && cp /opt/freqtrade-strategies/user_data/strategies/berlinguyinca/*.py /opt/freqtrade/user_data/strategies/ 2>/dev/null || true \
-    && printf '{\n  "max_open_trades": 3,\n  "stake_currency": "USDT",\n  "stake_amount": "unlimited",\n  "tradable_balance_ratio": 0.99,\n  "fiat_display_currency": "USD",\n  "dry_run": true,\n  "dry_run_wallet": 1000,\n  "trading_mode": "spot",\n  "cancel_open_orders_on_exit": false,\n  "unfilledtimeout": { "entry": 10, "exit": 10, "unit": "minutes" },\n  "entry_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exit_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exchange": {\n    "name": "binance",\n    "key": "",\n    "secret": "",\n    "pair_whitelist": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"],\n    "pair_blacklist": []\n  },\n  "pairlists": [{ "method": "StaticPairList" }],\n  "bot_name": "freqtrade-openclaw",\n  "initial_state": "running",\n  "internals": { "process_throttle_secs": 5 },\n  "strategy": "SampleStrategy",\n  "strategy_path": "/opt/freqtrade/user_data/strategies"\n}\n' > /opt/freqtrade/config.json \
-    # Comprehensive cleanup: Go caches, npm caches, pip caches, Python bytecache, test dirs
-    && cd / && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
-    && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
-    && find /usr/local/lib/python${PYTHON_VERSION} -type d -name "test*" -prune -exec rm -rf {} + 2>/dev/null || true \
-    && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
-    && npm cache clean --force
+     && ldconfig \
+     # Go 1.24.1
+     && curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz \
+         | tar -xz -C /usr/local \
+     # GitHub CLI v2.72.0 — strip debug symbols to halve binary size
+     && curl -fsSL https://github.com/cli/cli/releases/download/v2.72.0/gh_2.72.0_linux_amd64.tar.gz \
+         | tar -xz --strip-components=2 -C /usr/local/bin gh_2.72.0_linux_amd64/bin/gh \
+     && strip /usr/local/bin/gh 2>/dev/null || true \
+     # Gemini CLI + sqlite-vec (npm) — sqlite-vec provides the native .so for QMD vector ops
+     && npm install -g @google/gemini-cli@latest sqlite-vec \
+     # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
+     && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
+     && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
+     && cd / && rm -rf /tmp/gogcli
+
+RUN set -eux \
+     # Python validation + pip packages
+     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
+     && python3 -m pip install --no-cache-dir redis freqtrade \
+         einops safetensors huggingface_hub yfinance
+
+RUN set -eux \
+     # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI for Python 3.14+ compat
+     && ( python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+            || python3 -m pip install --no-cache-dir torch ) \
+     && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK')" \
+     # Freqtrade strategies — community strategy repository
+     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
+     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
+     && mkdir -p /opt/freqtrade/user_data/strategies \
+     && cp /opt/freqtrade-strategies/user_data/strategies/berlinguyinca/*.py /opt/freqtrade/user_data/strategies/ 2>/dev/null || true \
+     && printf '{\n  "max_open_trades": 3,\n  "stake_currency": "USDT",\n  "stake_amount": "unlimited",\n  "tradable_balance_ratio": 0.99,\n  "fiat_display_currency": "USD",\n  "dry_run": true,\n  "dry_run_wallet": 1000,\n  "trading_mode": "spot",\n  "cancel_open_orders_on_exit": false,\n  "unfilledtimeout": { "entry": 10, "exit": 10, "unit": "minutes" },\n  "entry_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exit_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exchange": {\n    "name": "binance",\n    "key": "",\n    "secret": "",\n    "pair_whitelist": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"],\n    "pair_blacklist": []\n  },\n  "pairlists": [{ "method": "StaticPairList" }],\n  "bot_name": "freqtrade-openclaw",\n  "initial_state": "running",\n  "internals": { "process_throttle_secs": 5 },\n  "strategy": "SampleStrategy",\n  "strategy_path": "/opt/freqtrade/user_data/strategies"\n}\n' > /opt/freqtrade/config.json \
+     # Comprehensive cleanup: Go caches, npm caches, pip caches, Python bytecache, test dirs
+     && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
+     && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
+     && find /usr/local/lib/python${PYTHON_VERSION} -type d -name "test*" -prune -exec rm -rf {} + 2>/dev/null || true \
+     && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
+     && npm cache clean --force
 
 ENV GOPATH=/home/node/.openclaw/gopath \
     PATH="/home/node/.openclaw/gopath/bin:${PATH}"

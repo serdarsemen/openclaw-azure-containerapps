@@ -358,7 +358,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
-        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
+        Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, freqtrade, torch)..." -ForegroundColor Gray
         Invoke-Wsl "docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
     } finally {
@@ -644,6 +644,8 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "openclaw security audit" `
+            -MaxRetries 1 `
+            -ExecTimeoutSec 45 `
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
@@ -661,6 +663,8 @@ if ($Npm) {
     try {
         $auditOk = Invoke-DockerExec -Label "Security audit" `
             -Command "node openclaw.mjs security audit" `
+            -MaxRetries 1 `
+            -ExecTimeoutSec 45 `
             -ContinueOnFailure
         if (-not $auditOk) {
             Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
