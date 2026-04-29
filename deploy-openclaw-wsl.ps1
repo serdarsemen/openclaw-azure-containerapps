@@ -589,6 +589,46 @@ try {
     Invoke-Wsl "find '$WslDataDir/plugin-runtime-deps' -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true"
 } catch {}
 
+# Write config directly to openclaw.json BEFORE starting containers.
+# This ensures the gateway reads correct auth/model settings on boot.
+# Writing via docker exec is impossible because the running gateway holds the
+# runtime-deps lock exclusively, causing any CLI command to deadlock.
+$configPath = Join-Path $DataDir "openclaw.json"
+
+if (Test-Path $configPath) {
+    $config = Get-Content $configPath -Raw | ConvertFrom-Json
+} else {
+    $config = [pscustomobject]@{}
+}
+
+# Ensure nested structure exists
+if (-not $config.gateway) { $config | Add-Member -NotePropertyName gateway -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.gateway.auth) { $config.gateway | Add-Member -NotePropertyName auth -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.gateway.controlUi) { $config.gateway | Add-Member -NotePropertyName controlUi -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.gateway.auth.rateLimit) { $config.gateway.auth | Add-Member -NotePropertyName rateLimit -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.agents) { $config | Add-Member -NotePropertyName agents -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.agents.defaults) { $config.agents | Add-Member -NotePropertyName defaults -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -NotePropertyName model -NotePropertyValue ([pscustomobject]@{}) }
+
+# Gateway settings
+$config.gateway.auth.mode  = "token"
+$config.gateway.auth.token = $GatewayToken
+$config.gateway.auth.rateLimit.maxAttempts = 10
+$config.gateway.auth.rateLimit.windowMs    = 60000
+$config.gateway.auth.rateLimit.lockoutMs   = 300000
+$config.gateway.port = 18789
+$config.gateway.bind = "lan"
+$config.gateway.mode = "local"
+$config.gateway.controlUi.allowInsecureAuth = $true
+$config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = $true
+
+# Model
+$config.agents.defaults.model.primary = "github-copilot/claude-opus-4.6"
+
+# Write back
+$config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
+Write-Host "  Config written to openclaw.json (token + model + gateway settings)" -ForegroundColor Green
+
 Write-Host "  Starting containers..." -ForegroundColor Gray
 Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
@@ -679,49 +719,7 @@ if (-not (Wait-OpenClawReady -TimeoutSec 600)) {
     throw "OpenClaw did not become ready — check logs: wsl docker logs $ContainerName"
 }
 
-# Instead of the monolithic 'onboard' (which can hang trying to acquire runtime
-# locks or bootstrap plugins that are already loaded by the running gateway),
-# write the config directly and use targeted config commands.
-$cli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
-
-# Step 5a: Write gateway config directly — avoids onboard's plugin bootstrap
-Invoke-DockerExec -Label "Config: gateway auth" `
-    -Command "$cli config set gateway.auth.token $GatewayToken" `
-    -ExecTimeoutSec 30
-
-Invoke-DockerExec -Label "Config: gateway port" `
-    -Command "$cli config set gateway.port 18789" `
-    -ExecTimeoutSec 30
-
-Invoke-DockerExec -Label "Config: gateway bind" `
-    -Command "$cli config set gateway.bind 0.0.0.0" `
-    -ExecTimeoutSec 30
-
-Invoke-DockerExec -Label "Config: insecure auth UI" `
-    -Command "$cli config set gateway.controlUi.allowInsecureAuth true" `
-    -ExecTimeoutSec 30
-
-Invoke-DockerExec -Label "Config: host header fallback" `
-    -Command "$cli config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true" `
-    -ExecTimeoutSec 30
-
-# Step 5b: Set model
-Invoke-DockerExec -Label "Model set" `
-    -Command "$cli models set github-copilot/claude-opus-4.6" `
-    -ExecTimeoutSec 30
-
-# Step 5c: Security audit (non-fatal)
-try {
-    $auditOk = Invoke-DockerExec -Label "Security audit" `
-        -Command "$cli security audit" `
-        -MaxRetries 1 -ExecTimeoutSec 45 `
-        -ContinueOnFailure
-    if (-not $auditOk) {
-        Write-Warning "[Security audit] skipped due to runtime/plugin issue; deployment continues"
-    }
-} catch {
-    Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
-}
+Write-Host "  Configuration: applied from openclaw.json (written before container start)" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # Step 6/6: Pull Ollama models (if Ollama sidecar is running)
