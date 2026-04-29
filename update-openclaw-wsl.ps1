@@ -90,6 +90,28 @@ function Expand-WslTransferArchive {
     }
 }
 
+function Invoke-NonFatalSecurityAudit {
+    param(
+        [string] $Command,
+        [int]    $ExecTimeoutSec = 45
+    )
+
+    Write-Host "  [Security audit] attempt 1/1" -ForegroundColor Gray
+    $output = wsl bash -c "docker exec $ContainerName bash -c 'timeout $ExecTimeoutSec $Command'" 2>&1
+
+    if ($LASTEXITCODE -eq 0) {
+        if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
+        return $true
+    }
+
+    if ($LASTEXITCODE -eq 124) {
+        Write-Warning "[Security audit] timed out after ${ExecTimeoutSec}s"
+    }
+    if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
+    Write-Warning "[Security audit] skipped due to runtime/plugin issue; update continues"
+    return $false
+}
+
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
@@ -466,6 +488,18 @@ if (-not $healthy) {
     try { $dockerState = (Invoke-WslData "docker inspect -f '{{.State.Status}}' $ContainerName 2>/dev/null").Trim() } catch {}
     try { $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim() } catch {}
     Write-Warning "Gateway did not become healthy after $maxAttempts attempts (container state: $dockerState, health: $dockerHealth) — check logs: wsl docker logs $ContainerName"
+}
+
+# Run a non-fatal security audit with a short timeout to avoid update stalls.
+if ($healthy) {
+    try {
+        $auditCommand = if ($Npm) { "openclaw security audit" } else { "node openclaw.mjs security audit" }
+        $null = Invoke-NonFatalSecurityAudit -Command $auditCommand -ExecTimeoutSec 45
+    } catch {
+        Write-Warning "[Security audit] non-fatal error: $($_.Exception.Message)"
+    }
+} else {
+    Write-Warning "[Security audit] skipped because gateway is not healthy yet"
 }
 
 # ---------------------------------------------------------------------------
