@@ -582,6 +582,12 @@ $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 Write-Host "  Stopping any existing containers..." -ForegroundColor Gray
 try { Invoke-Wsl "docker compose -f '$WslComposePath' down 2>/dev/null" } catch {}
 
+# Clean up stale plugin-runtime-deps locks from previous failed deployments
+Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
+try {
+    Invoke-Wsl "rm -rf '$WslDataDir/plugin-runtime-deps'/*/.openclaw-runtime-deps.lock 2>/dev/null || true"
+} catch {}
+
 Write-Host "  Starting containers..." -ForegroundColor Gray
 Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
