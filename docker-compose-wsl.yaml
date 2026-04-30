@@ -17,7 +17,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=54f9ecd6d616e0d04f1f48db65614b9e2b729e7938ad62df628bec632e80849c
+      - OPENCLAW_GATEWAY_TOKEN=b593e224bdd861723e7ed289b2406f05a288a4164adff2306a6705c8591486c2
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -25,11 +25,9 @@ services:
       - REDIS_PORT=6379
       - OLLAMA_HOST=http://host.docker.internal:11434
       - OPENCLAW_DISABLE_BONJOUR=true
-      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
-      # Workaround for pnpm ERR_PNPM_MISSING_TIME (e.g. punycode.js metadata missing
-      # the "time" field) seen during installBundledRuntimeDeps on container start.
       - NPM_CONFIG_RESOLUTION_MODE=highest
       - npm_config_resolution_mode=highest
+      - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
       - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
       - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
