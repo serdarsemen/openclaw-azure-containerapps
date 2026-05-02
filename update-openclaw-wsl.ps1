@@ -349,6 +349,11 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
             Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
+
+            # Remove intermediate base image — only the final :latest image should remain
+            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
+            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
+            Write-Host "  Intermediate image removed" -ForegroundColor Green
         } finally {
             Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -418,6 +423,11 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             Write-Host "  Step 1e: Rebuilding tools layer..." -ForegroundColor Gray
             Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
+
+            # Remove intermediate base image — only the final :latest image should remain
+            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
+            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
+            Write-Host "  Intermediate image removed" -ForegroundColor Green
         } finally {
             try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
         }
