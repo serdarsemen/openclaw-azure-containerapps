@@ -204,6 +204,19 @@ $existingToken = (Invoke-WslData "docker inspect --format '{{range .Config.Env}}
 $existingToken = ($existingToken -join "").Trim()
 
 if (-not $existingToken) {
+    # Try reading from openclaw.json before generating a new one
+    $configPath = Join-Path $PSScriptRoot "openclaw-data" "openclaw.json"
+    if (Test-Path $configPath) {
+        try {
+            $existingConfig = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($existingConfig.gateway.auth.token) {
+                $existingToken = $existingConfig.gateway.auth.token
+                Write-Host "  Gateway token: recovered from openclaw.json" -ForegroundColor Green
+            }
+        } catch {}
+    }
+}
+if (-not $existingToken) {
     Write-Warning "Could not read existing gateway token — generating a new one"
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
