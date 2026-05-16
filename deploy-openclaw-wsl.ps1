@@ -377,13 +377,28 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 }
 
 # ---------------------------------------------------------------------------
-# Step 3: Generate gateway token
+# Step 3: Resolve gateway token (reuse existing or generate new)
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Step 3/${totalSteps}: Generating gateway token ===" -ForegroundColor Cyan
-$bytes = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
-Write-Host "  Token generated (save this for Control UI access):" -ForegroundColor Gray
+Write-Host "`n=== Step 3/${totalSteps}: Resolving gateway token ===" -ForegroundColor Cyan
+$GatewayToken = $null
+$existingConfigPath = Join-Path $DataDir "openclaw.json"
+if (Test-Path $existingConfigPath) {
+    try {
+        $existingConfig = Get-Content $existingConfigPath -Raw | ConvertFrom-Json
+        if ($existingConfig.gateway.auth.token) {
+            $GatewayToken = $existingConfig.gateway.auth.token
+            Write-Host "  Reusing existing gateway token from openclaw.json" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  Could not read existing token, generating new one" -ForegroundColor Gray
+    }
+}
+if (-not $GatewayToken) {
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
+    Write-Host "  New token generated (save this for Control UI access):" -ForegroundColor Gray
+}
 Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
 # ---------------------------------------------------------------------------

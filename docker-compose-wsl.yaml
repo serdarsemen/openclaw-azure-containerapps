@@ -19,7 +19,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=43c251a712c1dd2824ae1d91ac514b2795070b2d89a7b6c9960bcecc2b4d67c7
+      - OPENCLAW_GATEWAY_TOKEN=7d7e3ec1422a7b0593842868113fed448b8d268715aa218d83dda37d97bf87ea
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
