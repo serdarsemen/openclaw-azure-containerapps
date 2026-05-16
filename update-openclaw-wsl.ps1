@@ -266,8 +266,8 @@ if ($composeUpdated -notmatch 'host\.docker\.internal:host-gateway') {
     $composeUpdated = $composeUpdated -replace "(\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    extra_hosts:`r`n      - \"host.docker.internal:host-gateway\"`r`n"
 }
 
-# Expose Redis only on localhost for safe host access (no LAN exposure).
-if ($composeUpdated -notmatch '127\.0\.0\.1:6379:6379') {
+# Expose Redis only on localhost for safe host access (no LAN exposure).# First repair malformed indentation (ports nested under networks list item).
+$composeUpdated = $composeUpdated -replace "(?ms)(\r?\n  redis:\r?\n(?:.*?\r?\n)*?\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)\s{8}ports:\r?\n\s{12}-\s""127\.0\.0\.1:6379:6379""\r?\n", "`$1    ports:`r`n      - ""127.0.0.1:6379:6379""`r`n"if ($composeUpdated -notmatch '127\.0\.0\.1:6379:6379') {
     $composeUpdated = $composeUpdated -replace "(?ms)(\r?\n  redis:\r?\n(?:.*?\r?\n)*?\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    ports:`r`n      - \"127.0.0.1:6379:6379\"`r`n"
 }
 

@@ -465,8 +465,8 @@ services:
     container_name: $ContainerName
     networks:
       - openclaw-net
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
 $envBlock
     volumes:
@@ -512,8 +512,8 @@ $envBlock
     container_name: ${ContainerName}-redis
     networks:
       - openclaw-net
-        ports:
-            - "127.0.0.1:6379:6379"
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     command:
