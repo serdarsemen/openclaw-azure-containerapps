@@ -17,7 +17,7 @@ services:
     networks:
       - openclaw-net
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=c00632bc3670c0fce338fcccbbcabf5ce9e20392aec426b556838d4c28ad1bf2
+      - OPENCLAW_GATEWAY_TOKEN=5b52b092521ebf336090c34398f9330677b356aaa5b41bdfd661f9c9a92c52ff
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
@@ -71,6 +71,8 @@ services:
     container_name: openclaw-redis
     networks:
       - openclaw-net
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     command:

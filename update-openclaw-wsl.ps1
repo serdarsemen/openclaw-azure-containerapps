@@ -258,9 +258,22 @@ $composeRaw = Get-Content $composePath -Raw
 $composeUpdated = $composeRaw `
     -replace '/app/extensions', '/app/dist/extensions' `
     -replace '/usr/local/lib/node_modules/openclaw/extensions', '/usr/local/lib/node_modules/openclaw/dist/extensions'
+
+# Ensure host.docker.internal resolves inside the OpenClaw container.
+# Also repair malformed indentation from older compose outputs.
+$composeUpdated = $composeUpdated -replace "(?ms)(\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)\s{8}extra_hosts:\r?\n\s{12}-\s\"host\.docker\.internal:host-gateway\"\r?\n", "`$1    extra_hosts:`r`n      - \"host.docker.internal:host-gateway\"`r`n"
+if ($composeUpdated -notmatch 'host\.docker\.internal:host-gateway') {
+    $composeUpdated = $composeUpdated -replace "(\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    extra_hosts:`r`n      - \"host.docker.internal:host-gateway\"`r`n"
+}
+
+# Expose Redis only on localhost for safe host access (no LAN exposure).
+if ($composeUpdated -notmatch '127\.0\.0\.1:6379:6379') {
+    $composeUpdated = $composeUpdated -replace "(?ms)(\r?\n  redis:\r?\n(?:.*?\r?\n)*?\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    ports:`r`n      - \"127.0.0.1:6379:6379\"`r`n"
+}
+
 if ($composeUpdated -ne $composeRaw) {
     $composeUpdated | Set-Content $composePath -Encoding utf8
-    Write-Host "  Compose file: patched bundled plugin runtime paths" -ForegroundColor Green
+    Write-Host "  Compose file: patched plugin runtime paths, host-gateway mapping, and Redis localhost port" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
