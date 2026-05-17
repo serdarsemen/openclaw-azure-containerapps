@@ -9,18 +9,33 @@
 #
 # Prerequisites: OpenClaw already deployed via deploy-openclaw-wsl.ps1
 #
+# Ollama mode switches (optional — override preserved Ollama config):
+#   -OllamaWindows: switch to Ollama running natively on the Windows host
+#   -OllamaWsl:     switch to Ollama running natively in WSL
+#   -OllamaHost <url>: switch to an external Ollama instance at a custom URL
+#
+# Important: For -OllamaWindows, Ollama on Windows must listen on 0.0.0.0
+#   (not 127.0.0.1). Set OLLAMA_HOST=0.0.0.0:11434 in Windows environment
+#   variables and restart the Ollama service.
+#
 # Usage:
 #   .\update-openclaw-wsl.ps1                                  # source build
 #   .\update-openclaw-wsl.ps1 -Tag v2026.3.2                  # source build, pinned tag
 #   .\update-openclaw-wsl.ps1 -Npm                             # npm install
 #   .\update-openclaw-wsl.ps1 -NoCache                         # rebuild without Docker cache
 #   .\update-openclaw-wsl.ps1 -PullOnly                        # skip rebuild, just restart
+#   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
+#   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
+#   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
 # ---------------------------------------------------------------------------
 
 param(
     [switch] $Npm,
     [switch] $NoCache,
     [switch] $PullOnly,
+    [switch] $OllamaWindows,
+    [switch] $OllamaWsl,
+    [string] $OllamaHost    = "",
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = ""
@@ -28,67 +43,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-function Invoke-Wsl {
-    param([string] $Command)
-    $result = wsl bash -c $Command 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "WSL command failed (exit $LASTEXITCODE): $Command`n$result"
-    }
-    return $result
+# Validate Ollama mode — only one allowed at a time
+$ollamaModeCount = @($OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
+if ($ollamaModeCount -gt 1) {
+    throw "Only one Ollama mode allowed at a time: -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
 }
+$ollamaModeOverride = $ollamaModeCount -gt 0
 
-function Invoke-WslData {
-    param([string] $Command)
-    $result = wsl bash -c $Command 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw "WSL command failed (exit $LASTEXITCODE): $Command"
-    }
-    return $result
-}
-
-function Test-WslDocker {
-    try {
-        $null = Invoke-Wsl "docker info > /dev/null 2>&1"
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function New-WslTransferArchive {
-    param(
-        [string] $SourcePath,
-        [string] $ArchiveName
-    )
-
-    $wslTransferRoot = "/tmp/openclaw-transfer"
-    $wslArchivePath = "$wslTransferRoot/$ArchiveName.tar"
-
-    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; git -C '$SourcePath' archive --format=tar --output '$wslArchivePath' HEAD"
-
-    return [pscustomobject]@{
-        WslArchivePath = $wslArchivePath
-    }
-}
-
-function Expand-WslTransferArchive {
-    param(
-        [string] $ArchivePath,
-        [string] $ContextName
-    )
-
-    $wslContextRoot = "/tmp/openclaw-docker-context"
-    $wslContextPath = "$wslContextRoot/$ContextName"
-
-    Invoke-Wsl "set -e; mkdir -p '$wslContextRoot'; rm -rf '$wslContextPath'; mkdir -p '$wslContextPath'; tar -xf '$ArchivePath' -C '$wslContextPath'"
-
-    return [pscustomobject]@{
-        WslContextPath = $wslContextPath
-    }
-}
+# Load shared WSL helpers (Invoke-Wsl, Invoke-WslData, Test-WslDocker,
+# Start-WslDocker, Repair-WslDns, New/Expand-WslTransferArchive,
+# Resolve-OllamaHost, New-OpenClawComposeYaml).
+. "$PSScriptRoot/wsl-helpers.ps1"
 
 function Invoke-NonFatalSecurityAudit {
     param(
@@ -125,23 +90,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "  WSL: OK" -ForegroundColor Green
 
 if (-not (Test-WslDocker)) {
-    Write-Host "  Docker not running — attempting to start..." -ForegroundColor Yellow
-    # Use timeout to avoid hanging on sudo password prompt
-    $startJob = Start-Job { wsl bash -c "sudo -n service docker start 2>/dev/null || service docker start 2>/dev/null" }
-    $null = $startJob | Wait-Job -Timeout 10
-    if ($startJob.State -eq 'Running') { $startJob | Stop-Job }
-    $startJob | Remove-Job -Force
-    $dockerReady = $false
-    for ($attempt = 1; $attempt -le 6; $attempt++) {
-        if (Test-WslDocker) {
-            $dockerReady = $true
-            break
-        }
-        if ($attempt -lt 6) {
-            Start-Sleep -Seconds 1
-        }
-    }
-    if (-not $dockerReady) {
+    if (-not (Start-WslDocker)) {
         $wslUser = (wsl whoami 2>$null).Trim()
         throw @"
 Docker is not running inside WSL and could not be auto-started.
@@ -158,33 +107,7 @@ Or start Docker manually before running this script:
 
 # Check DNS resolution inside WSL — WSL2's NAT DNS forwarder is notoriously flaky
 Write-Host "  Checking DNS resolution..." -ForegroundColor Gray
-$dnsOk = $false
-try {
-    $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
-    if ($dnsResult -match "DNS_OK") { $dnsOk = $true }
-} catch {}
-
-if (-not $dnsOk) {
-    Write-Host "  WSL DNS is broken — reconfiguring to use public resolvers (8.8.8.8, 1.1.1.1)..." -ForegroundColor Yellow
-    # Overwrite resolv.conf with Google + Cloudflare public DNS
-    wsl bash -c "sudo sh -c 'rm -f /etc/resolv.conf; printf ""nameserver 8.8.8.8\nnameserver 1.1.1.1\n"" > /etc/resolv.conf'" 2>$null
-    # Prevent WSL from overwriting resolv.conf on next restart
-    wsl bash -c "sudo sh -c 'grep -q generateResolvConf /etc/wsl.conf 2>/dev/null || printf ""\n[network]\ngenerateResolvConf = false\n"" >> /etc/wsl.conf'" 2>$null
-    # Verify the fix
-    try {
-        $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
-        if ($dnsResult -match "DNS_OK") {
-            Write-Host "  DNS fixed (using 8.8.8.8 / 1.1.1.1)" -ForegroundColor Green
-        } else {
-            Write-Host "  WARNING: DNS still broken after reconfiguration — build may fail" -ForegroundColor Yellow
-            Write-Host "  Try: wsl --shutdown, then re-run this script" -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "  WARNING: Could not verify DNS fix" -ForegroundColor Yellow
-    }
-} else {
-    Write-Host "  DNS: OK" -ForegroundColor Green
-}
+$null = Repair-WslDns
 
 # Verify the container exists (was previously deployed)
 $containerExists = Invoke-WslData "docker ps -a --filter name=^${ContainerName}$ --format '{{.Names}}'"
@@ -234,7 +157,9 @@ foreach ($line in $existingEnvLines) {
     }
 }
 
-$OllamaHost  = $existingEnv['OLLAMA_HOST']
+if (-not $ollamaModeOverride) {
+    $OllamaHost = $existingEnv['OLLAMA_HOST']
+}
 $GatewayPort = 18789
 
 # Check if Ollama sidecar is part of this deployment
@@ -265,32 +190,16 @@ if (-not (Test-Path $composePath)) {
 }
 Write-Host "  Compose file: found" -ForegroundColor Green
 
-# Normalize bundled plugin paths in existing compose files so updates also
-# pick up deploy-time plugin runtime fixes.
-$composeRaw = Get-Content $composePath -Raw
-$composeUpdated = $composeRaw `
-    -replace '/app/extensions', '/app/dist/extensions' `
-    -replace '/usr/local/lib/node_modules/openclaw/extensions', '/usr/local/lib/node_modules/openclaw/dist/extensions'
-
-# Ensure host.docker.internal resolves inside the OpenClaw container.
-# Also repair malformed indentation from older compose outputs.
-$composeUpdated = $composeUpdated -replace "(?ms)(\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)\s{8}extra_hosts:\r?\n\s{12}-\s\"host\.docker\.internal:host-gateway\"\r?\n", "`$1    extra_hosts:`r`n      - \"host.docker.internal:host-gateway\"`r`n"
-if ($composeUpdated -notmatch 'host\.docker\.internal:host-gateway') {
-    $composeUpdated = $composeUpdated -replace "(\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    extra_hosts:`r`n      - \"host.docker.internal:host-gateway\"`r`n"
-}
-
-# Expose Redis only on localhost for safe host access (no LAN exposure).# First repair malformed indentation (ports nested under networks list item).
-$composeUpdated = $composeUpdated -replace "(?ms)(\r?\n  redis:\r?\n(?:.*?\r?\n)*?\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)\s{8}ports:\r?\n\s{12}-\s""127\.0\.0\.1:6379:6379""\r?\n", "`$1    ports:`r`n      - ""127.0.0.1:6379:6379""`r`n"if ($composeUpdated -notmatch '127\.0\.0\.1:6379:6379') {
-    $composeUpdated = $composeUpdated -replace "(?ms)(\r?\n  redis:\r?\n(?:.*?\r?\n)*?\s{4}networks:\r?\n\s{6}-\sopenclaw-net\r?\n)", "`$1    ports:`r`n      - \"127.0.0.1:6379:6379\"`r`n"
-}
-
-if ($composeUpdated -ne $composeRaw) {
-    $composeUpdated | Set-Content $composePath -Encoding utf8
-    Write-Host "  Compose file: patched plugin runtime paths, host-gateway mapping, and Redis localhost port" -ForegroundColor Green
+# ---------------------------------------------------------------------------
+# Resolve -OllamaWindows / -OllamaWsl / -OllamaHost to a concrete OLLAMA_HOST URL
+# ---------------------------------------------------------------------------
+if ($OllamaWindows -or $OllamaWsl) {
+    $resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
+    $OllamaHost = $resolved.OllamaHost
 }
 
 # ---------------------------------------------------------------------------
-# Set variant-specific defaults
+# Set variant-specific defaults (image name needed for compose regeneration)
 # ---------------------------------------------------------------------------
 if ($Npm) {
     $ToolsDockerfile = "images/Dockerfile.npmtools"
@@ -301,6 +210,67 @@ if ($Npm) {
     $ImageName       = "openclaw-source"
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
+
+# ---------------------------------------------------------------------------
+# Discover remaining state needed for compose regeneration
+# ---------------------------------------------------------------------------
+$HomeDir = if ($Npm) { "/home/openclaw" } else { "/home/node" }
+$GroqApiKey = if ($existingEnv['GROQ_API_KEY']) { $existingEnv['GROQ_API_KEY'] } else { "" }
+
+# Bridge port (18790)
+$BridgePort = 18790
+try {
+    $bp = (Invoke-WslData "docker port $ContainerName 18790/tcp 2>/dev/null") -join ""
+    if ($bp -match ':(\d+)$') { $BridgePort = [int]$Matches[1] }
+} catch {}
+
+# Discover WslDataDir from the existing mount; fall back to ./openclaw-data
+$WslDataDir = ""
+try {
+    $inspectFmt = '{{range .Mounts}}{{if eq .Destination "' + "$HomeDir/.openclaw" + '"}}{{.Source}}{{end}}{{end}}'
+    $mount = (Invoke-WslData "docker inspect --format '$inspectFmt' $ContainerName") -join ""
+    $WslDataDir = $mount.Trim()
+} catch {}
+if (-not $WslDataDir) {
+    $defaultDataDir = Join-Path $PSScriptRoot "openclaw-data"
+    if (-not (Test-Path $defaultDataDir)) { New-Item -ItemType Directory -Path $defaultDataDir -Force | Out-Null }
+    $WslDataDir = (Invoke-WslData "wslpath -u '$($defaultDataDir -replace '\\','/')'").Trim()
+}
+Write-Host "  Data dir (WSL): $WslDataDir" -ForegroundColor Gray
+Write-Host "  Bridge port:    $BridgePort" -ForegroundColor Gray
+Write-Host "  HomeDir:        $HomeDir" -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+# Sidecar teardown: if user switched to a non-sidecar Ollama mode, remove the
+# orphaned sidecar container so it doesn't keep running with stale config.
+# ---------------------------------------------------------------------------
+$newOllamaSidecar = $ollamaContainerExists -and -not $ollamaModeOverride
+if ($ollamaContainerExists -and $ollamaModeOverride) {
+    Write-Host "  Removing orphan Ollama sidecar (mode switched away from -Ollama)..." -ForegroundColor Yellow
+    try { Invoke-Wsl "docker rm -f ${ContainerName}-ollama 2>/dev/null" } catch {}
+    $ollamaContainerExists = $false
+}
+
+# ---------------------------------------------------------------------------
+# Regenerate docker-compose-wsl.yaml from the shared template.
+# Single source of truth — replaces the previous in-place regex patching.
+# ---------------------------------------------------------------------------
+Write-Host "  Regenerating docker-compose-wsl.yaml from template..." -ForegroundColor Gray
+$composeYaml = New-OpenClawComposeYaml `
+    -ContainerName $ContainerName `
+    -ImageName $ImageName `
+    -HomeDir $HomeDir `
+    -WslDataDir $WslDataDir `
+    -GatewayPort $GatewayPort `
+    -BridgePort $BridgePort `
+    -GatewayToken $existingToken `
+    -OllamaHost $OllamaHost `
+    -OllamaSidecar:$newOllamaSidecar `
+    -GroqApiKey $GroqApiKey `
+    -Npm:$Npm
+
+$composeYaml | Set-Content $composePath -Encoding utf8
+Write-Host "  Compose file regenerated" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # Step 1/3: Rebuild image (unless -PullOnly)
@@ -557,9 +527,10 @@ Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $containerIma
 Write-Host "  Gateway:    http://localhost:${GatewayPort}" -ForegroundColor White
 Write-Host "  Control UI: http://localhost:${GatewayPort}/#token=$existingToken" -ForegroundColor White
 if ($ollamaContainerExists) {
-    Write-Host "  Ollama:     http://localhost:11434" -ForegroundColor White
+    Write-Host "  Ollama:     http://localhost:11434 (Docker sidecar)" -ForegroundColor White
 } elseif ($OllamaHost) {
-    Write-Host "  Ollama:     $OllamaHost (external)" -ForegroundColor White
+    $ollamaLabel = if ($OllamaWindows) { "Windows host" } elseif ($OllamaWsl) { "WSL native" } else { "external" }
+    Write-Host "  Ollama:     $OllamaHost ($ollamaLabel)" -ForegroundColor White
 }
 Write-Host ""
 if ($ollamaContainerExists) {
