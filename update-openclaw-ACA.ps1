@@ -19,7 +19,7 @@ param(
     [switch] $Npm,
     [string] $ResourceGroup = "rg-openclaw",
     [string] $DeploymentName = "main",
-    [string] $AppName = "ca-openclaw",
+  [string] $AppName = "",
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
     [int]    $KeepBaseImages = 3   # retain N newest openclaw:base-* tags; older ones are deleted

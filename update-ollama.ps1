@@ -164,7 +164,7 @@ Write-Host "  Models: $($models.name -join ', ')"
 $defaultModel = "deepseek-r1:8b"
 Write-Host "`n  Loading $defaultModel as default model..." -ForegroundColor Cyan
 az containerapp exec --name $AppName --resource-group $ResourceGroup `
-    --command "ollama run $defaultModel --keepalive 24h ''"
+    --command "ollama run $defaultModel --keepalive 1h ''"
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "  Failed to pre-load $defaultModel — load manually via: az containerapp exec --name $AppName -g $ResourceGroup --command 'ollama run $defaultModel'"
 } else {

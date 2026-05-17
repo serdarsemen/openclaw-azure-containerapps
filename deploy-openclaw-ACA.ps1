@@ -395,8 +395,7 @@ properties:
       - ""
       - --appendonly
       - "no"
-      - --appendonly
-      - "yes"
+        probes:
       - type: liveness
         tcpSocket:
           port: 6379
@@ -497,12 +496,9 @@ properties:
       image: redis:7-alpine
       command:
       - redis-server
-      - --save
-      - ""
-      - --appendonly
-      - "no"
       - --appendonly
       - "yes"
+        probes:
       - type: liveness
         tcpSocket:
           port: 6379
@@ -596,7 +592,7 @@ function Invoke-ContainerExec {
             Start-Sleep -Seconds $DelaySec
         }
     }
-    Write-Warning "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
+      throw "[$Label] failed after $MaxRetries attempts (exit $LASTEXITCODE)"
 }
 
 if ($Npm) {
