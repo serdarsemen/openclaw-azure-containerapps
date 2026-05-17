@@ -11,19 +11,54 @@ volumes:
     driver: local
 
 services:
-  openclaw:
-    image: openclaw-source:latest
-    container_name: openclaw
+  redis:
+    image: redis:7-alpine
+    container_name: openclaw-redis
     networks:
       - openclaw-net
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    ports:
+      - "18789:18789"
+      - "18790:18790"
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  openclaw:
+    image: openclaw-source:latest
+    container_name: openclaw
+    network_mode: "service:redis"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - OPENCLAW_GATEWAY_TOKEN=7d7e3ec1422a7b0593842868113fed448b8d268715aa218d83dda37d97bf87ea
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
-      - REDIS_HOST=redis
+      - REDIS_HOST=localhost
       - REDIS_PORT=6379
       - OLLAMA_HOST=http://nameserver 8.8.8.8:11434
       - OPENCLAW_DISABLE_BONJOUR=true
@@ -34,9 +69,6 @@ services:
       - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
       - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:/home/node/.openclaw/compile-cache
-    ports:
-      - "18789:18789"
-      - "18790:18790"
     init: true
     restart: unless-stopped
     deploy:
@@ -64,37 +96,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 300s
-    depends_on:
-      redis:
-        condition: service_healthy
-
-  redis:
-    image: redis:7-alpine
-    container_name: openclaw-redis
-    networks:
-      - openclaw-net
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
-    command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --dir
-      - /data
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 5s

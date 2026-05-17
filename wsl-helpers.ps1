@@ -225,7 +225,7 @@ function New-OpenClawComposeYaml {
         "NODE_ENV=production",
         "HOME=$HomeDir",
         "TERM=xterm-256color",
-        "REDIS_HOST=redis",
+        "REDIS_HOST=localhost",
         "REDIS_PORT=6379"
     )
     if ($GroqApiKey) { $envVars += "GROQ_API_KEY=$GroqApiKey" }
@@ -282,22 +282,54 @@ volumes:
     driver: local
 
 services:
-  openclaw:
-    image: ${ImageName}:latest
-    container_name: $ContainerName
+  redis:
+    image: redis:7-alpine
+    container_name: ${ContainerName}-redis
     networks:
       - openclaw-net
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    ports:
+      - "${GatewayPort}:18789"
+      - "${BridgePort}:18790"
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --dir
+      - /data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  openclaw:
+    image: ${ImageName}:latest
+    container_name: $ContainerName
+    network_mode: "service:redis"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
 $envBlock
     volumes:
       - ${WslDataDir}:${HomeDir}/.openclaw
       - openclaw-runtime-deps:${HomeDir}/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
-    ports:
-      - "${GatewayPort}:18789"
-      - "${BridgePort}:18790"
     init: true
     restart: unless-stopped
     deploy:
@@ -325,40 +357,6 @@ $envBlock
       timeout: 5s
       retries: 5
       start_period: 300s
-    depends_on:
-      redis:
-        condition: service_healthy
-
-  redis:
-    image: redis:7-alpine
-    container_name: ${ContainerName}-redis
-    networks:
-      - openclaw-net
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
-    command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --dir
-      - /data
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
 "@
 
     if ($OllamaSidecar) {

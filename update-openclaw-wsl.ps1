@@ -172,8 +172,8 @@ try {
     }
 } catch {}
 
-# Discover the port mapping from the running container
-$portMapping = (Invoke-WslData "docker port $ContainerName 18789/tcp") -join ""
+# Discover the port mapping from the Redis sidecar (network owner)
+$portMapping = (Invoke-WslData "docker port ${ContainerName}-redis 18789/tcp") -join ""
 if ($portMapping -match ':(\d+)$') {
     $GatewayPort = [int]$Matches[1]
 }
@@ -220,7 +220,7 @@ $GroqApiKey = if ($existingEnv['GROQ_API_KEY']) { $existingEnv['GROQ_API_KEY'] }
 # Bridge port (18790)
 $BridgePort = 18790
 try {
-    $bp = (Invoke-WslData "docker port $ContainerName 18790/tcp 2>/dev/null") -join ""
+    $bp = (Invoke-WslData "docker port ${ContainerName}-redis 18790/tcp 2>/dev/null") -join ""
     if ($bp -match ':(\d+)$') { $BridgePort = [int]$Matches[1] }
 } catch {}
 
