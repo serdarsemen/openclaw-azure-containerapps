@@ -373,12 +373,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
                 git checkout $Tag
                 if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
             } else {
-                Write-Host "  Pruning stale remote refs and pulling latest from main..."
-                git remote prune origin
+                Write-Host "  Fetching latest main (single-branch, pruning stale refs)..."
+                git fetch --prune origin +refs/heads/main:refs/remotes/origin/main
+                if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
                 git checkout main
                 if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-                git pull origin main
-                if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
+                git reset --hard origin/main
+                if ($LASTEXITCODE -ne 0) { throw "Git reset failed" }
             }
         } finally {
             Pop-Location
