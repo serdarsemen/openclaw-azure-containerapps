@@ -45,7 +45,7 @@
 param(
     [switch] $Npm,
     [switch] $Ollama,
-    [bool]   $OllamaWindows = $true,
+    [switch] $OllamaWindows,
     [switch] $OllamaWsl,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
@@ -59,13 +59,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-# If another Ollama mode is explicitly specified, disable the OllamaWindows default
-if ($Ollama -or $OllamaWsl -or $OllamaHost) {
-    if (-not $PSBoundParameters.ContainsKey('OllamaWindows')) {
-        $OllamaWindows = $false
-    }
-}
 
 # Validate Ollama mode — only one allowed at a time
 $ollamaModeCount = @($Ollama, $OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
