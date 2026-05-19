@@ -242,7 +242,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             git checkout $Tag
             if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
         } else {
-            Write-Host "  Pulling latest from main..."
+            Write-Host "  Pruning stale remote refs and pulling latest from main..."
+            git remote prune origin
             git checkout main
             if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
             git pull origin main
