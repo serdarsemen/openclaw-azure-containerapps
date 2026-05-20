@@ -145,17 +145,19 @@ function Resolve-OllamaHost {
     if ($OllamaWindows) {
         if ($isDockerDesktop) {
             $OllamaHost = "http://host.docker.internal:11434"
-            Write-Host "  Using host.docker.internal for Windows Ollama" -ForegroundColor Green
+            Write-Host "  Routing via host.docker.internal (Docker Desktop -> Windows)" -ForegroundColor Green
         } else {
-            $windowsIp = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf | awk '{print `$2}'").Trim()
-            if (-not $windowsIp) {
-                throw "Could not detect Windows host IP from WSL. Use -OllamaHost http://<windows-ip>:11434 instead."
+            $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()
+            $windowsIp = ($nsLine -split '\s+')[-1]
+            if (-not $windowsIp -or $windowsIp -eq 'nameserver') {
+                throw "Could not detect Windows host IP from WSL resolv.conf. Use -OllamaHost http://<windows-ip>:11434 instead."
             }
             $OllamaHost = "http://${windowsIp}:11434"
-            Write-Host "  Windows host IP: $windowsIp" -ForegroundColor Green
+            Write-Host "  Detected Windows host IP from WSL: $windowsIp" -ForegroundColor Green
         }
-        Write-Host "  NOTE: Ollama on Windows must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
-        Write-Host "  Set OLLAMA_HOST=0.0.0.0:11434 in Windows environment variables and restart Ollama." -ForegroundColor Yellow
+        Write-Host "  REQUIRED: Ollama on Windows must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
+        Write-Host "  Run:  [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST','0.0.0.0:11434','User')" -ForegroundColor Yellow
+        Write-Host "  Then restart Ollama on Windows." -ForegroundColor Yellow
     }
 
     if ($OllamaWsl) {
@@ -192,11 +194,12 @@ function Resolve-OllamaHost {
     } catch {}
 
     if ($ollamaReachable) {
-        Write-Host "  Ollama: reachable" -ForegroundColor Green
+        Write-Host "  Ollama connectivity verified" -ForegroundColor Green
     } else {
-        $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "external host" }
-        Write-Warning "Ollama not reachable — ensure Ollama is running on $sourceLabel and listening on 0.0.0.0:11434"
-        Write-Host "  Will continue, but Ollama features won't work until it's reachable." -ForegroundColor Yellow
+        $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "the external host" }
+        Write-Warning "Ollama not reachable at $OllamaHost"
+        Write-Host "  Ensure Ollama is running on $sourceLabel and bound to 0.0.0.0:11434" -ForegroundColor Yellow
+        Write-Host "  Continuing deployment — Ollama features will be unavailable until connectivity is restored." -ForegroundColor Yellow
     }
     Write-Host "  OLLAMA_HOST=$OllamaHost" -ForegroundColor Green
 
