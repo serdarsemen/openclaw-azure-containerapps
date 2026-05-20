@@ -147,10 +147,16 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Routing via host.docker.internal (Docker Desktop -> Windows)" -ForegroundColor Green
         } else {
-            $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()
-            $windowsIp = ($nsLine -split '\s+')[-1]
-            if (-not $windowsIp -or $windowsIp -eq 'nameserver') {
-                throw "Could not detect Windows host IP from WSL resolv.conf. Use -OllamaHost http://<windows-ip>:11434 instead."
+            # Primary: default route gateway (most reliable for WSL2 -> Windows)
+            $windowsIp = (Invoke-WslData "ip route show default 2>/dev/null | sed -n 's/.*via \([^ ]*\).*/\1/p'").Trim()
+            # Fallback: resolv.conf nameserver (works when DNS points at Windows host)
+            if (-not $windowsIp) {
+                $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()
+                $windowsIp = ($nsLine -split '\s+')[-1]
+            }
+            # Validate: must be a private/link-local IP, not a public DNS like 8.8.8.8
+            if (-not $windowsIp -or $windowsIp -notmatch '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)') {
+                throw "Detected IP '$windowsIp' does not look like a Windows host IP (got a public address). Use -OllamaHost http://<your-windows-lan-ip>:11434 instead."
             }
             $OllamaHost = "http://${windowsIp}:11434"
             Write-Host "  Detected Windows host IP from WSL: $windowsIp" -ForegroundColor Green
