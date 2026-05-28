@@ -337,6 +337,7 @@ properties:
       - bash
       - -c
       - >-
+        umask 077 &&
         (openclaw config set gateway.controlUi.allowInsecureAuth true || true) &&
         (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
         (openclaw config set browser.executablePath /usr/bin/chromium || true) &&
@@ -347,6 +348,9 @@ properties:
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
+        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
@@ -441,6 +445,7 @@ properties:
       - sh
       - -c
       - >-
+        umask 077 &&
         chmod -R 755 /app/dist/extensions &&
         mkdir -p $HomeDir/.openclaw/workspace/memory &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
@@ -451,7 +456,9 @@ properties:
         (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) &&
         (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) &&
         (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) &&
-        chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true &&
+        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:

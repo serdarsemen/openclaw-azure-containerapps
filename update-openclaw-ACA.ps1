@@ -538,6 +538,7 @@ properties:
       - sh
       - -c
       - >-
+        umask 077 &&
         chmod -R 755 /app/extensions &&
         mkdir -p $HomeDir/.openclaw/workspace/memory &&
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
@@ -545,6 +546,9 @@ properties:
         export OPENCLAW_NO_RESPAWN=1 &&
         (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
+        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
+        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:

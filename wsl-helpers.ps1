@@ -249,6 +249,7 @@ function New-OpenClawComposeYaml {
 
     if ($Npm) {
         $startupCmd = @(
+            "umask 077",
             "find $HomeDir/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
             "npm config set prefix '~/.openclaw/npm-global'",
             "mkdir -p $HomeDir/.openclaw/workspace/memory",
@@ -256,19 +257,24 @@ function New-OpenClawComposeYaml {
             "mkdir -p `"`$`$GOPATH/bin`"",
             "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
             "mkdir -p `$`$HOME/.openclaw/compile-cache",
-            "chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true",
+            "find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true",
+            "find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true",
+            "find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true",
             "export OPENCLAW_NO_RESPAWN=1",
             "openclaw gateway --allow-unconfigured --bind lan --port 18789"
         ) -join " && "
         $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/usr/local/lib/node_modules/openclaw/dist/extensions"
     } else {
         $startupCmd = @(
+            "umask 077",
             "find $HomeDir/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
             "chmod -R 755 /app/dist/extensions",
             "mkdir -p $HomeDir/.openclaw/workspace/memory",
             "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
             "mkdir -p `$`$HOME/.openclaw/compile-cache",
-            "chmod 600 $HomeDir/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true",
+            "find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true",
+            "find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true",
+            "find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true",
             "export OPENCLAW_NO_RESPAWN=1",
             "node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
         ) -join " && "

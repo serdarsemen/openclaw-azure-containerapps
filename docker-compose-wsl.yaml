@@ -83,7 +83,7 @@ services:
       - bash
       - -c
       - >-
-        find /home/node/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true && chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && chmod 600 /home/node/.openclaw/agents/main/sessions/sessions.json 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+        umask 077 && find /home/node/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true && chmod -R 755 /app/dist/extensions && mkdir -p /home/node/.openclaw/workspace/memory && export NODE_COMPILE_CACHE=$$HOME/.openclaw/compile-cache && mkdir -p $$HOME/.openclaw/compile-cache && find /home/node/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true && find /home/node/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true && find /home/node/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true && export OPENCLAW_NO_RESPAWN=1 && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
     healthcheck:
       test:
         [

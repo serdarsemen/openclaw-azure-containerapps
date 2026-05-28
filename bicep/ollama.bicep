@@ -61,6 +61,7 @@ resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-0
   properties: {
     shareQuota: storageShareQuota
     enabledProtocols: 'NFS'
+    rootSquash: 'RootSquash'
   }
 }
 
