@@ -4,3 +4,7 @@ openclaw-data/
 upstream/
 SMOKE-TEST.md
 $null
+
+# Generated at deploy time — embeds the plaintext gateway token / API keys
+docker-compose-wsl.yaml
+ollama-data/

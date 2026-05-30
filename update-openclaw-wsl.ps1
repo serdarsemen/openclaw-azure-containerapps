@@ -27,6 +27,7 @@
 #   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
 #   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
+#   .\update-openclaw-wsl.ps1 -LanAccess                       # expose gateway on the LAN (0.0.0.0)
 # ---------------------------------------------------------------------------
 
 param(
@@ -38,7 +39,8 @@ param(
     [string] $OllamaHost    = "",
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
-    [string] $Tag           = ""
+    [string] $Tag           = "",
+    [switch] $LanAccess
 )
 
 $ErrorActionPreference = "Stop"
@@ -179,6 +181,16 @@ if ($portMapping -match ':(\d+)$') {
 }
 Write-Host "  Gateway port: $GatewayPort" -ForegroundColor Green
 
+# Preserve the existing host bind scope (0.0.0.0 = LAN-exposed) across updates,
+# unless -LanAccess explicitly forces it on. Defaults to loopback-only otherwise.
+$existingLanAccess = $portMapping -match '0\.0\.0\.0:'
+$effectiveLanAccess = $LanAccess -or $existingLanAccess
+if ($effectiveLanAccess) {
+    Write-Host "  Host binding: 0.0.0.0 (LAN-exposed)" -ForegroundColor Yellow
+} else {
+    Write-Host "  Host binding: 127.0.0.1 (loopback only)" -ForegroundColor Gray
+}
+
 # Discover compose file path
 $WslScriptRoot = (Invoke-WslData "wslpath -u '$($PSScriptRoot -replace '\\','/')'")
 $WslScriptRoot = $WslScriptRoot.Trim()
@@ -267,7 +279,8 @@ $composeYaml = New-OpenClawComposeYaml `
     -OllamaHost $OllamaHost `
     -OllamaSidecar:$newOllamaSidecar `
     -GroqApiKey $GroqApiKey `
-    -Npm:$Npm
+    -Npm:$Npm `
+    -LanAccess:$effectiveLanAccess
 
 $composeYaml | Set-Content $composePath -Encoding utf8
 Write-Host "  Compose file regenerated" -ForegroundColor Green
@@ -336,14 +349,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         try {
             Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+            Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
             Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
@@ -402,24 +415,22 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
         Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
-        # Patch Dockerfile for local Docker compatibility:
-        # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
-        # - Strip --mount=type=cache directives (not supported by classic Docker builder)
+        # Patch Dockerfile for local Docker compatibility (shared with deploy):
+        # strips the '# syntax=...' directive but keeps BuildKit cache mounts.
         Write-Host "  Step 1c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
-        Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
-        Invoke-Wsl "sed -i 's|--mount=type=cache,[^ ]* ||g' '$($WslBuildContext.WslContextPath)/Dockerfile'"
-        Write-Host "  Stripped syntax directive and --mount=type=cache" -ForegroundColor Green
+        Update-LocalBuildDockerfile -WslDockerfilePath "$($WslBuildContext.WslContextPath)/Dockerfile"
+        Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
 
         try {
             Write-Host "  Step 1d: Rebuilding base image from source..." -ForegroundColor Gray
-            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+            Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
             Write-Host "  Step 1e: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-Wsl "docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+            Invoke-Wsl "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
@@ -478,7 +489,7 @@ while ($attempt -lt $maxAttempts) {
     # Fallback: trust container health status when host-side checks are blocked/delayed.
     try {
         $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim()
-        if ($dockerHealth -in @('healthy', 'none')) {
+        if ($dockerHealth -eq 'healthy') {
             Write-Host "  Gateway is healthy via Docker status (attempt $attempt/$maxAttempts, health=$dockerHealth)" -ForegroundColor Green
             $healthy = $true
             break
@@ -553,8 +564,8 @@ Write-Host "  Restart:         wsl docker compose -f docker-compose-wsl.yaml res
 Write-Host ""
 Write-Host "=== Last step: save gateway token ===" -ForegroundColor Cyan
 Write-Host ""
-$tokenPadded = $existingToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabel  = "GATEWAY TOKEN: $existingToken"
+$boxBorder = "─" * ($boxLabel.Length + 2)
+Write-Host "  ┌$boxBorder┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabel │" -ForegroundColor Yellow
+Write-Host "  └$boxBorder┘" -ForegroundColor Yellow

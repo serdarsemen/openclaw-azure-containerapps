@@ -87,6 +87,7 @@ sudo -n sh -c 'grep -q generateResolvConf /etc/wsl.conf 2>/dev/null || printf "\
         $dnsResult = wsl bash -c "getent hosts registry.npmjs.org > /dev/null 2>&1 && echo DNS_OK || echo DNS_FAIL" 2>$null
         if ($dnsResult -match "DNS_OK") {
             Write-Host "  DNS fixed (using 8.8.8.8 / 1.1.1.1)" -ForegroundColor Green
+            Write-Host "  NOTE: made a persistent change to /etc/resolv.conf and /etc/wsl.conf (generateResolvConf = false)." -ForegroundColor Gray
             return $true
         }
     } catch {}
@@ -116,6 +117,16 @@ function Expand-WslTransferArchive {
     $wslContextPath = "$wslContextRoot/$ContextName"
     Invoke-Wsl "set -e; mkdir -p '$wslContextRoot'; rm -rf '$wslContextPath'; mkdir -p '$wslContextPath'; tar -xf '$ArchivePath' -C '$wslContextPath'"
     return [pscustomobject]@{ WslContextPath = $wslContextPath }
+}
+
+# Patch a source Dockerfile for local (WSL) Docker builds. Strips the
+# '# syntax=docker/dockerfile:...' directive (avoids pulling the BuildKit frontend
+# image, which fails when WSL DNS is flaky) but KEEPS --mount=type=cache directives,
+# since BuildKit is the default builder in Docker 23.0+ and cache mounts speed up
+# rebuilds. Both deploy and update call this so source builds stay consistent.
+function Update-LocalBuildDockerfile {
+    param([Parameter(Mandatory)] [string] $WslDockerfilePath)
+    Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$WslDockerfilePath'"
 }
 
 # Resolve -OllamaWindows / -OllamaWsl / -OllamaHost into a concrete URL and
@@ -226,7 +237,8 @@ function New-OpenClawComposeYaml {
         [string] $OllamaHost = "",
         [switch] $OllamaSidecar,
         [string] $GroqApiKey = "",
-        [switch] $Npm
+        [switch] $Npm,
+        [switch] $LanAccess
     )
 
     $envVars = @(
@@ -283,6 +295,10 @@ function New-OpenClawComposeYaml {
 
     $envBlock = ($envVars | ForEach-Object { "      - $_" }) -join "`n"
 
+    # Host port binding: loopback-only by default (gateway is token-protected but
+    # not intended for LAN exposure). -LanAccess publishes on all interfaces (0.0.0.0).
+    $bindPrefix = if ($LanAccess) { "" } else { "127.0.0.1:" }
+
     $composeYaml = @"
 networks:
   openclaw-net:
@@ -305,8 +321,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${GatewayPort}:18789"
-      - "${BridgePort}:18790"
+      - "${bindPrefix}${GatewayPort}:18789"
+      - "${bindPrefix}${BridgePort}:18790"
       - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data

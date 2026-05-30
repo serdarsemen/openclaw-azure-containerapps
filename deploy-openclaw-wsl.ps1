@@ -40,6 +40,7 @@
 #   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # use Ollama on Windows host
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # use Ollama running in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+#   .\deploy-openclaw-wsl.ps1 -LanAccess                       # expose gateway on the LAN (0.0.0.0)
 # ---------------------------------------------------------------------------
 
 param(
@@ -55,7 +56,8 @@ param(
     [string] $DataDir       = "",
     [string] $OllamaHost    = "",
     [string] $OllamaModel   = "",
-    [string] $GroqApiKey    = ""
+    [string] $GroqApiKey    = "",
+    [switch] $LanAccess
 )
 
 $ErrorActionPreference = "Stop"
@@ -279,7 +281,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     # - Keep --mount=type=cache directives — BuildKit is the default builder in Docker 23.0+ (WSL)
     #   and cache mounts dramatically speed up rebuilds (pnpm store, apt cache).
     Write-Host "  Step 2c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
-    Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$($WslBuildContext.WslContextPath)/Dockerfile'"
+    Update-LocalBuildDockerfile -WslDockerfilePath "$($WslBuildContext.WslContextPath)/Dockerfile"
     Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
 
     try {
@@ -351,7 +353,8 @@ $composeYaml = New-OpenClawComposeYaml `
     -OllamaHost $OllamaHost `
     -OllamaSidecar:$ollamaEnabled `
     -GroqApiKey $GroqApiKey `
-    -Npm:$Npm
+    -Npm:$Npm `
+    -LanAccess:$LanAccess
 
 # Write compose file
 $composePath = Join-Path $PSScriptRoot "docker-compose-wsl.yaml"
@@ -615,8 +618,8 @@ Write-Host "   http://localhost:${GatewayPort}/#token=$GatewayToken" -Foreground
 Write-Host ""
 Write-Host "=== Last step: save gateway token ===" -ForegroundColor Cyan
 Write-Host ""
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabel  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorder = "─" * ($boxLabel.Length + 2)
+Write-Host "  ┌$boxBorder┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabel │" -ForegroundColor Yellow
+Write-Host "  └$boxBorder┘" -ForegroundColor Yellow
