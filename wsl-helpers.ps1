@@ -388,6 +388,48 @@ $envBlock
       timeout: 5s
       retries: 5
       start_period: 300s
+
+  optillm:
+    image: ghcr.io/algorithmicsuperintelligence/optillm:latest
+    container_name: optillm
+    networks:
+      - openclaw-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    # Secrets (OPENAI_API_KEY, GROQ_API_KEY) live in optillm.env (gitignored).
+    # OPENAI_BASE_URL points optillm at the local Ollama instance.
+    env_file:
+      - optillm.env
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    networks:
+      - openclaw-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    # SearXNG metasearch engine — reachable from openclaw at http://searxng:8080
+    # (openclaw shares redis's netns on openclaw-net, so service DNS resolves).
+    # settings.yml enables the JSON result format that openclaw's MCP server needs.
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 "@
 
     if ($OllamaSidecar) {
