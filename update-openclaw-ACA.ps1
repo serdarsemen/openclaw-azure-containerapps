@@ -13,15 +13,17 @@
 #   .\update-openclaw-ACA.ps1                                  # source build
 #   .\update-openclaw-ACA.ps1 -Tag v2026.3.2                  # source build, pinned tag
 #   .\update-openclaw-ACA.ps1 -Npm                             # npm install
+#   .\update-openclaw-ACA.ps1 -GroqApiKey gsk_...              # rotate the Groq API key secret
 # ---------------------------------------------------------------------------
 
 param(
     [switch] $Npm,
     [string] $ResourceGroup = "rg-openclaw",
     [string] $DeploymentName = "main",
-  [string] $AppName = "",
+    [string] $AppName = "",
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
+    [string] $GroqApiKey = "",     # if set, overrides the preserved groq-api-key secret
     [int]    $KeepBaseImages = 3   # retain N newest openclaw:base-* tags; older ones are deleted
 )
 
@@ -354,7 +356,9 @@ if ($failed) {
 $appInfoJson  = (Receive-Job $jAppInfo) -join "`n"
 $acrCredsJson = (Receive-Job $jAcr) -join "`n"
 $GatewayToken = ((Receive-Job $jGwToken) -join "").Trim()
-$GroqApiKey   = ((Receive-Job $jGroqKey) -join "").Trim()
+$existingGroqKey = ((Receive-Job $jGroqKey) -join "").Trim()
+# Prefer an explicit -GroqApiKey override; otherwise preserve the existing secret.
+if (-not $GroqApiKey) { $GroqApiKey = $existingGroqKey }
 $OllamaFqdn   = ((Receive-Job $jOllama) -join "").Trim()
 Remove-Job $jAppInfo,$jAcr,$jGwToken,$jGroqKey,$jOllama -Force
 

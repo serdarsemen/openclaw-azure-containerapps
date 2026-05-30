@@ -27,6 +27,7 @@
 #   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
 #   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
+#   .\update-openclaw-wsl.ps1 -GroqApiKey gsk_...                # set/rotate the Groq API key
 #   .\update-openclaw-wsl.ps1 -LanAccess                       # expose gateway on the LAN (0.0.0.0)
 # ---------------------------------------------------------------------------
 
@@ -40,6 +41,7 @@ param(
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
+    [string] $GroqApiKey    = "",   # if set, overrides the GROQ_API_KEY preserved from the running container
     [switch] $LanAccess
 )
 
@@ -227,7 +229,10 @@ if ($Npm) {
 # Discover remaining state needed for compose regeneration
 # ---------------------------------------------------------------------------
 $HomeDir = if ($Npm) { "/home/openclaw" } else { "/home/node" }
-$GroqApiKey = if ($existingEnv['GROQ_API_KEY']) { $existingEnv['GROQ_API_KEY'] } else { "" }
+# Prefer an explicit -GroqApiKey override; otherwise preserve the existing value.
+if (-not $GroqApiKey) {
+    $GroqApiKey = if ($existingEnv['GROQ_API_KEY']) { $existingEnv['GROQ_API_KEY'] } else { "" }
+}
 
 # Bridge port (18790)
 $BridgePort = 18790

@@ -19,7 +19,12 @@
 #   .\deploy-openclaw-aks.ps1                                  # source-build variant
 #   .\deploy-openclaw-aks.ps1 -Npm                             # npm variant
 #   .\deploy-openclaw-aks.ps1 -GatewayToken <hex>              # reuse an ACA token
+#   .\deploy-openclaw-aks.ps1 -GroqApiKey gsk_...              # set GROQ_API_KEY in openclaw-secrets
 #   .\deploy-openclaw-aks.ps1 -OllamaModels "llama3.1:8b,qwen2.5:7b"
+#
+# Sizing/cluster parameters: -AksResourceGroup, -AksName, -Location, -NodeVmSize,
+#   -NodeCount, -OpenClawCpu, -OpenClawMemory, -OllamaCpu, -OllamaMemory,
+#   -OllamaModelsPvcSize, -OpenClawStatePvSize
 # ---------------------------------------------------------------------------
 
 param(

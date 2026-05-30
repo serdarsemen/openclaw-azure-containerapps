@@ -31,6 +31,15 @@
 #   - WSL 2 with a Linux distro installed
 #   - Docker Engine running inside WSL (or Docker Desktop with WSL 2 backend)
 #
+# Parameters:
+#   -ContainerName <name>: container/compose name (default: openclaw)
+#   -SourcePath <path>:    OpenClaw source checkout (default: openclaw-repo)
+#   -Tag <tag>:            pin a specific OpenClaw release tag (default: latest)
+#   -GatewayPort <port>:   host port for the gateway (default: 18789)
+#   -BridgePort <port>:    host port for the bridge (default: 18790)
+#   -DataDir <path>:       persistent data dir (default: ./openclaw-data)
+#   -GroqApiKey <key>:     set GROQ_API_KEY in the OpenClaw container
+#
 # Usage:
 #   .\deploy-openclaw-wsl.ps1                                  # source build
 #   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build, pinned tag

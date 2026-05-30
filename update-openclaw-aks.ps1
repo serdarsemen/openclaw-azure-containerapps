@@ -19,6 +19,7 @@
 #   .\update-openclaw-aks.ps1 -Tag v2026.3.2                   # pinned tag
 #   .\update-openclaw-aks.ps1 -Npm                             # npm variant
 #   .\update-openclaw-aks.ps1 -OllamaImage ollama/ollama:0.4.0 # bump Ollama too
+#   .\update-openclaw-aks.ps1 -GroqApiKey gsk_...              # rotate GROQ_API_KEY in openclaw-secrets
 # ---------------------------------------------------------------------------
 
 param(
@@ -30,6 +31,7 @@ param(
     [string] $Namespace = "openclaw",
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
+    [string] $GroqApiKey = "",                 # if set, rotates GROQ_API_KEY in the openclaw-secrets Secret
     [string] $OllamaImage = "",                # if set, the Ollama pod image is updated too
     [int]    $KeepBaseImages = 3,
     [int]    $RolloutTimeoutSeconds = 600
@@ -185,6 +187,15 @@ Invoke-AcrBaseImageSweep -Registry $AcrName -Repository "openclaw" -KeepTagPrefi
 Write-Host "`n=== Step 4/5: Rolling out OpenClaw ===" -ForegroundColor Cyan
 kubectl -n $Namespace get deploy/openclaw -o name | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Deployment 'openclaw' not found in namespace '$Namespace' — run deploy-openclaw-aks.ps1 first" }
+
+# Optionally rotate GROQ_API_KEY before the rollout so new pods pick it up.
+if ($GroqApiKey) {
+    Write-Host "  Updating GROQ_API_KEY in openclaw-secrets..." -ForegroundColor Gray
+    $groqPatch = '{"stringData":{"GROQ_API_KEY":"' + $GroqApiKey + '"}}'
+    kubectl -n $Namespace patch secret openclaw-secrets --type merge -p $groqPatch | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to patch GROQ_API_KEY into openclaw-secrets" }
+    Write-Host "  GROQ_API_KEY updated." -ForegroundColor Green
+}
 
 kubectl -n $Namespace set image deploy/openclaw openclaw=$PinnedImage | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "kubectl set image failed" }

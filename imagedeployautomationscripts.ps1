@@ -17,10 +17,13 @@
 #   ./imagedeployautomationscripts.ps1 -ResourceGroup rg-openclaw -Option AcrTask -GitHubPAT <pat>
 #   ./imagedeployautomationscripts.ps1 -ResourceGroup rg-openclaw -Option Webhook
 #   ./imagedeployautomationscripts.ps1 -ResourceGroup rg-openclaw -Option Job
+#   # npm variant: pass the matching deployment name
+#   ./imagedeployautomationscripts.ps1 -ResourceGroup rg-openclawnpm -DeploymentName mainnpm -Option Webhook
 # ---------------------------------------------------------------------------
 param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
     [Parameter(Mandatory)] [ValidateSet("AcrTask", "Webhook", "Job")] [string] $Option,
+    [string] $DeploymentName = "main",   # Bicep deployment name (use "mainnpm" for the npm variant)
     [string] $GitHubPAT = ""
 )
 
@@ -38,13 +41,13 @@ function Assert-LastExit {
 Write-Host "Discovering resources in '$ResourceGroup'..." -ForegroundColor Cyan
 
 # Discover resource names from Bicep deployment outputs
-$AcrName = az deployment group show --resource-group $ResourceGroup --name main `
+$AcrName = az deployment group show --resource-group $ResourceGroup --name $DeploymentName `
     --query "properties.outputs.acrName.value" -o tsv 2>$null
-$AppName = az deployment group show --resource-group $ResourceGroup --name main `
+$AppName = az deployment group show --resource-group $ResourceGroup --name $DeploymentName `
     --query "properties.outputs.appName.value" -o tsv 2>$null
 
 if (-not $AcrName -or -not $AppName) {
-    throw "Could not discover ACR or App name from deployment outputs. Was main.bicep deployed to '$ResourceGroup'?"
+    throw "Could not discover ACR or App name from deployment outputs. Was deployment '$DeploymentName' run in '$ResourceGroup'?"
 }
 
 # Discover Container Apps environment name

@@ -21,6 +21,10 @@
 #   .\deploy-openclaw-ACA.ps1                                  # source build
 #   .\deploy-openclaw-ACA.ps1 -Tag v2026.2.15                  # source build, pinned tag
 #   .\deploy-openclaw-ACA.ps1 -Npm                             # npm install
+#   .\deploy-openclaw-ACA.ps1 -GroqApiKey gsk_...              # set the Groq API key secret
+#   .\deploy-openclaw-ACA.ps1 -Cpu 3 -Memory 6Gi              # override OpenClaw container size
+#
+# Other parameters: -ResourceGroup, -DeploymentName, -AppName, -SourcePath
 # ---------------------------------------------------------------------------
 
 param(
