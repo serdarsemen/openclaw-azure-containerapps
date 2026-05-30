@@ -195,7 +195,7 @@ wsl docker exec -it openclaw bash
 
 ### WSL Ollama options
 
-By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or `-OllamaHost` to point at an existing instance.
+By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or point at an existing instance with `-OllamaWindows` (Ollama on the Windows host), `-OllamaWsl` (Ollama in WSL), or `-OllamaHost <url>` (any URL). Only one Ollama mode may be used at a time.
 
 ```powershell
 # Default: OpenClaw + Redis only (no Ollama)
@@ -207,9 +207,18 @@ By default, the WSL deploy script does **not** include an Ollama sidecar — it 
 # Ollama sidecar with a specific model instead of the default set
 .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel llama3.1:8b
 
-# Use an external Ollama instance (no sidecar added)
+# Use Ollama running natively on the Windows host (auto-detects host IP)
+.\deploy-openclaw-wsl.ps1 -OllamaWindows
+
+# Use Ollama running natively in WSL (auto-detects IP)
+.\deploy-openclaw-wsl.ps1 -OllamaWsl
+
+# Use an external Ollama instance at an explicit URL (no sidecar added)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
 ```
+
+> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network.
+
 
 #### Using a local Ollama instance (no sidecar)
 
@@ -299,8 +308,10 @@ flowchart TB
 
     subgraph azure["rg-openclaw"]
         subgraph vnet["vnet-openclaw"]
-            gw["ca-openclaw<br/>OpenClaw Gateway<br/>2 vCPU · 4 GiB"]
+            gw["ca-openclaw<br/>OpenClaw Gateway<br/>3.75 vCPU · 7.5 GiB"]
+            redis["Redis sidecar<br/>0.25 vCPU · 0.5 GiB"]
             pe["Private Endpoint · pep-storage"]
+            gw ---|localhost:6379| redis
             gw ---|NFS mount| pe
         end
         pe --- nfs[("NFS Storage · openclaw-state")]

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Container Apps using Bicep for infrastructure and PowerShell scripts for image build + app configuration. The deployment uses NFS-backed persistent storage, an Ollama sidecar for local model inference, and GitHub Copilot as the primary LLM provider.
+This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Container Apps using Bicep for infrastructure and PowerShell scripts for image build + app configuration. The deployment uses NFS-backed persistent storage, a Redis sidecar for state/queues, and GitHub Copilot as the primary LLM provider. Ollama (for local model inference) deploys separately via `deploy-ollama.ps1`.
 
 ## Repository structure
 
@@ -41,10 +41,10 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 ## Container Apps constraints
 
 - Consumption tier limits: 4 vCPU / 8 GiB total per app (across all containers).
-- The Ollama sidecar uses 1.0 vCPU / 2 GiB; OpenClaw gets the remainder (default 3.0 vCPU / 6 GiB).
+- The Redis sidecar uses 0.25 vCPU / 0.5 GiB; OpenClaw gets the remainder (default 3.75 vCPU / 7.5 GiB).
 - Always validate that total CPU + memory across all containers stays within tier limits.
 - Scale: `minReplicas: 1`, `maxReplicas: 1` (single-instance gateway).
-- Use TCP probes for OpenClaw startup/liveness (port 18789) and HTTP probes for Ollama (port 11434).
+- Use TCP probes for OpenClaw startup/liveness (port 18789) and Redis (port 6379).
 
 ## Security best practices
 
