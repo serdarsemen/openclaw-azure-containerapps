@@ -142,9 +142,10 @@ if ($Npm) {
 # Data directory — persists config, workspace, and SQLite across restarts.
 # Default to WSL home (ext4) to avoid DrvFS permission issues (0777 on /mnt/c mounts).
 if (-not $DataDir) {
-    $WslDataDir = (Invoke-WslData "printf '%s' \"`$HOME/.openclaw-data\"").Trim()
+    # Use single-quoted string so PowerShell doesn't expand $HOME; bash resolves it at runtime.
+    $WslDataDir = (wsl -- bash -c 'echo "$HOME/.openclaw-data"').Trim()
     Invoke-Wsl "mkdir -p '$WslDataDir'"
-    $DataDir = (Invoke-WslData "wslpath -w '$WslDataDir'").Trim()
+    $DataDir = (wsl -- bash -c "wslpath -w '$WslDataDir'").Trim()
     Write-Host "  Using default WSL data directory: $WslDataDir" -ForegroundColor Gray
 } else {
     if (-not (Test-Path $DataDir)) {

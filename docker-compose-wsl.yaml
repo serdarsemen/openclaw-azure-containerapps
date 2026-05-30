@@ -54,7 +54,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - OPENCLAW_GATEWAY_TOKEN=b837204db3b28858134063793ea87222c8b19d9392c0b56df862aaf3510ee89e
+      - OPENCLAW_GATEWAY_TOKEN=7d7e3ec1422a7b0593842868113fed448b8d268715aa218d83dda37d97bf87ea
       - NODE_ENV=production
       - HOME=/home/node
       - TERM=xterm-256color
