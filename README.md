@@ -322,9 +322,9 @@ flowchart TB
 
     subgraph copilot["GitHub Copilot"]
         opus["Claude Opus 4.6"]
-        gpt["GPT-5.2"]
-        gem["Gemini 3 Pro"]
-        more2["+ 7 more models"]
+        gpt["GPT-5.4"]
+        gem["Gemini 3.1 Pro"]
+        more2["+ 6 more models"]
     end
 
     style azure fill:#eff6ff,stroke:#2563eb,stroke-width:2px
@@ -332,23 +332,24 @@ flowchart TB
     style copilot fill:#faf5ff,stroke:#7c3aed,stroke-width:2px
 ```
 
-This deployment uses `github-copilot/claude-opus-4.6`. GitHub Copilot provides access to models from Anthropic, OpenAI, Google, and xAI through a single subscription. Switch models after deployment with `node openclaw.mjs models set <model>`.
+This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). GitHub Copilot provides access to models from Anthropic, OpenAI, and Google through a single subscription. Switch models after deployment with `node openclaw.mjs models set <model>`.
 
 <details>
-<summary>All available models (from <code>openclaw models list</code>)</summary>
+<summary>GitHub Copilot models (from <code>openclaw models list</code>)</summary>
 
 | Model | Provider |
 |-------|----------|
-| `github-copilot/claude-opus-4.6` | Anthropic |
-| `copilot-proxy/claude-sonnet-4.5` | Anthropic |
-| `copilot-proxy/claude-haiku-4.5` | Anthropic |
-| `copilot-proxy/gpt-5.2` | OpenAI |
-| `copilot-proxy/gpt-5.2-codex` | OpenAI |
-| `copilot-proxy/gpt-5.1-codex-max` | OpenAI |
-| `copilot-proxy/gpt-5-mini` | OpenAI |
-| `copilot-proxy/gemini-3-pro` | Google |
-| `copilot-proxy/gemini-3-flash` | Google |
-| `copilot-proxy/grok-code-fast-1` | xAI |
+| `github-copilot/claude-opus-4.6` | Anthropic (default) |
+| `github-copilot/claude-opus-4.7` | Anthropic |
+| `github-copilot/claude-sonnet-4.6` | Anthropic |
+| `github-copilot/gpt-5.4` | OpenAI |
+| `github-copilot/gpt-5.4-mini` | OpenAI |
+| `github-copilot/gpt-5.3-codex` | OpenAI |
+| `github-copilot/gpt-4o` | OpenAI |
+| `github-copilot/gemini-3.1-pro-preview` | Google |
+| `github-copilot/gemini-3-flash-preview` | Google |
+
+> The exact model catalog evolves with your GitHub Copilot subscription — run `openclaw models list` for the current set. Additional providers (Ollama, OpenRouter, Groq, xAI, optillm) appear here only if you configure them.
 
 </details>
 
