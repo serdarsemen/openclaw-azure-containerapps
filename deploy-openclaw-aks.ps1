@@ -448,12 +448,11 @@ for ($i = 0; $i -lt 30; $i++) {
 if (-not $GatewayIp) { $GatewayIp = "<pending — run: kubectl -n $Namespace get svc openclaw>" }
 
 $variantLabel = if ($Npm) { "npm" } else { "source" }
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host ""
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabel  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorder = "─" * ($boxLabel.Length + 2)
+Write-Host "  ┌$boxBorder┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabel │" -ForegroundColor Yellow
+Write-Host "  └$boxBorder┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "OpenClaw ($variantLabel) URL:  http://${GatewayIp}:18789"
 Write-Host "Control UI:           http://${GatewayIp}:18789/#token=$GatewayToken"
@@ -472,11 +471,11 @@ Write-Host "   kubectl -n $Namespace exec deploy/ollama -- ollama list"
 Write-Host ""
 Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
 Write-Host ""
-$tokenPaddedLast = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabelLast  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorderLast = "─" * ($boxLabelLast.Length + 2)
+Write-Host "  ┌$boxBorderLast┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabelLast │" -ForegroundColor Yellow
+Write-Host "  └$boxBorderLast┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Control UI: http://${GatewayIp}:18789/#token=$GatewayToken" -ForegroundColor White
 

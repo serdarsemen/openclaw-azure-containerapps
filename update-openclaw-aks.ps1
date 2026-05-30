@@ -220,11 +220,11 @@ Write-Host ""
 Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
 if ($GatewayToken) {
     Write-Host ""
-    $tokenPaddedLast = $GatewayToken.PadRight(61)
-    Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-    Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-    Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
-    Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+    $boxLabelLast  = "GATEWAY TOKEN: $GatewayToken"
+    $boxBorderLast = "─" * ($boxLabelLast.Length + 2)
+    Write-Host "  ┌$boxBorderLast┐" -ForegroundColor Yellow
+    Write-Host "  │ $boxLabelLast │" -ForegroundColor Yellow
+    Write-Host "  └$boxBorderLast┘" -ForegroundColor Yellow
     if ($GatewayIp) {
         Write-Host ""
         Write-Host "  Control UI: http://${GatewayIp}:18789/#token=$GatewayToken" -ForegroundColor White

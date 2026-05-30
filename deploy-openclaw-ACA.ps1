@@ -399,7 +399,10 @@ properties:
       - ""
       - --appendonly
       - "no"
-        probes:
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
       - type: liveness
         tcpSocket:
           port: 6379
@@ -505,7 +508,10 @@ properties:
       - redis-server
       - --appendonly
       - "yes"
-        probes:
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
       - type: liveness
         tcpSocket:
           port: 6379
@@ -639,11 +645,11 @@ $fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup `
 
 $variantLabel = if ($Npm) { "npm" } else { "source" }
 Write-Host ""
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabel  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorder = "─" * ($boxLabel.Length + 2)
+Write-Host "  ┌$boxBorder┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabel │" -ForegroundColor Yellow
+Write-Host "  └$boxBorder┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "OpenClaw ($variantLabel) URL: https://$fqdn"
 Write-Host "Control UI:   https://$fqdn/#token=$GatewayToken"

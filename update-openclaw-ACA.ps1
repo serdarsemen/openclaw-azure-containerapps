@@ -696,11 +696,11 @@ $refLabel = if (-not $Npm -and $ref) { " to: $ref" } else { "" }
 Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $img" -ForegroundColor Green
 Write-Host "  App restarted with new image, FQDN: $fqdn"
 Write-Host ""
-$tokenPadded = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPadded │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabel  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorder = "─" * ($boxLabel.Length + 2)
+Write-Host "  ┌$boxBorder┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabel │" -ForegroundColor Yellow
+Write-Host "  └$boxBorder┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken"
 Write-Host ""
@@ -708,11 +708,11 @@ Write-Host "Your gateway token, config, and data are unchanged." -ForegroundColo
 Write-Host ""
 Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
 Write-Host ""
-$tokenPaddedLast = $GatewayToken.PadRight(61)
-Write-Host "  ┌───────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "  │  GATEWAY TOKEN:                                                   │" -ForegroundColor Yellow
-Write-Host "  │  $tokenPaddedLast │" -ForegroundColor Yellow
-Write-Host "  └───────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
+$boxLabelLast  = "GATEWAY TOKEN: $GatewayToken"
+$boxBorderLast = "─" * ($boxLabelLast.Length + 2)
+Write-Host "  ┌$boxBorderLast┐" -ForegroundColor Yellow
+Write-Host "  │ $boxLabelLast │" -ForegroundColor Yellow
+Write-Host "  └$boxBorderLast┘" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Control UI: https://$fqdn/#token=$GatewayToken" -ForegroundColor White
 

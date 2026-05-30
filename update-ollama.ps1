@@ -168,7 +168,7 @@ az containerapp exec --name $AppName --resource-group $ResourceGroup `
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "  Failed to pre-load $defaultModel — load manually via: az containerapp exec --name $AppName -g $ResourceGroup --command 'ollama run $defaultModel'"
 } else {
-    Write-Host "  $defaultModel loaded and kept alive (24h)" -ForegroundColor Green
+    Write-Host "  $defaultModel loaded and kept alive (1h)" -ForegroundColor Green
 }
 
 Write-Host "`n=== Ollama update complete ===" -ForegroundColor Green
