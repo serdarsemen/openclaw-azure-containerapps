@@ -374,7 +374,13 @@ $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 
 # Stop any existing containers with the same name
 Write-Host "  Stopping any existing containers..." -ForegroundColor Gray
-try { Invoke-Wsl "docker compose -f '$WslComposePath' down 2>/dev/null" } catch {}
+try { Invoke-Wsl "docker compose -f '$WslComposePath' down --remove-orphans 2>/dev/null" } catch {}
+
+# Force-remove fixed-name auxiliary containers that may have been created outside
+# this compose project (e.g. a prior manual run). Compose only manages containers
+# carrying its own project label, so a stray 'searxng'/'optillm' would otherwise
+# cause a 'container name is already in use' conflict on 'up'.
+try { Invoke-Wsl "docker rm -f searxng optillm 2>/dev/null || true" } catch {}
 
 # Clean up stale plugin-runtime-deps locks from previous failed deployments
 Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
