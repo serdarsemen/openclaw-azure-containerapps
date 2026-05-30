@@ -374,7 +374,7 @@ $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 
 # Stop any existing containers with the same name
 Write-Host "  Stopping any existing containers..." -ForegroundColor Gray
-try { Invoke-Wsl "docker compose -f '$WslComposePath' down --remove-orphans 2>/dev/null" } catch {}
+try { Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans 2>/dev/null" } catch {}
 
 # Force-remove fixed-name auxiliary containers that may have been created outside
 # this compose project (e.g. a prior manual run). Compose only manages containers
@@ -444,7 +444,7 @@ try {
 }
 
 Write-Host "  Starting containers..." -ForegroundColor Gray
-Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
+Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
 
 # Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.

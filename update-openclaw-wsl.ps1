@@ -458,7 +458,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 Write-Host "`n=== Step 2/3: Restarting containers ===" -ForegroundColor Cyan
 
 Write-Host "  Stopping existing containers..." -ForegroundColor Gray
-Invoke-Wsl "docker compose -f '$WslComposePath' down --remove-orphans"
+Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans"
 
 # Force-remove fixed-name auxiliary containers that may have been created outside
 # this compose project (e.g. a prior manual run). Compose only manages containers
@@ -492,7 +492,7 @@ try {
 }
 
 Write-Host "  Starting containers with updated image..." -ForegroundColor Gray
-Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
+Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers restarted" -ForegroundColor Green
 
 # Wait for the gateway to become healthy

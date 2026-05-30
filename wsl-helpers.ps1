@@ -303,6 +303,8 @@ function New-OpenClawComposeYaml {
         $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions"
     }
 
+    $openclawDataMount = '${OPENCLAW_DATA_DIR:-${HOME}/.openclaw-data}'
+
     $envBlock = ($envVars | ForEach-Object { "      - $_" }) -join "`n"
 
     # Host port binding: loopback-only by default (gateway is token-protected but
@@ -368,7 +370,9 @@ services:
     environment:
 $envBlock
     volumes:
-      - ${WslDataDir}:${HomeDir}/.openclaw
+      # Use a Linux-side (ext4) path by default to preserve secure permissions.
+      # Avoid /mnt/c/... because DrvFS can surface 0777 and trigger security checks.
+      - $openclawDataMount:${HomeDir}/.openclaw
       - openclaw-runtime-deps:${HomeDir}/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
     init: true

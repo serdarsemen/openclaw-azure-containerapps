@@ -295,6 +295,30 @@ wsl docker compose -f docker-compose-wsl.yaml down    # stop
 wsl docker compose -f docker-compose-wsl.yaml restart  # restart
 ```
 
+### Configure the local data mount path (WSL)
+
+`docker-compose-wsl.yaml` supports a per-machine data path via `OPENCLAW_DATA_DIR`:
+
+```yaml
+- ${OPENCLAW_DATA_DIR:-${HOME}/.openclaw-data}:/home/node/.openclaw
+```
+
+Set it before running Compose so each machine can choose its own location:
+
+```bash
+# Example: default Linux-side path in your WSL home
+export OPENCLAW_DATA_DIR="$HOME/.openclaw-data"
+mkdir -p "$OPENCLAW_DATA_DIR"
+wsl docker compose -f docker-compose-wsl.yaml up -d
+
+# Example: custom Linux-side path
+export OPENCLAW_DATA_DIR="/home/$USER/data/openclaw"
+mkdir -p "$OPENCLAW_DATA_DIR"
+wsl docker compose -f docker-compose-wsl.yaml up -d
+```
+
+Use a Linux-side WSL path (ext4). Avoid `/mnt/c/...` for this mount, because Windows DrvFS permissions can appear as `0777` in containers and trigger OpenClaw security checks.
+
 ---
 
 ## Architecture

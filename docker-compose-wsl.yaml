@@ -1,3 +1,7 @@
+# GENERATED FILE: docker-compose-wsl.yaml
+# Generator: wsl-helpers.ps1 :: New-OpenClawComposeYaml
+# If you need layout changes, update the generator and regenerate this file.
+
 networks:
   openclaw-net:
     driver: bridge
@@ -66,7 +70,9 @@ services:
       - npm_config_resolution_mode=highest
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
-      - /mnt/c/app/openclaw-azure-containerapps/openclaw-data:/home/node/.openclaw
+      # Use a Linux-side (ext4) path by default to preserve secure permissions.
+      # Avoid /mnt/c/... here because DrvFS can surface 0777 and trigger OpenClaw security checks.
+      - ${OPENCLAW_DATA_DIR:-${HOME}/.openclaw-data}:/home/node/.openclaw
       - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:/home/node/.openclaw/compile-cache
     init: true
