@@ -471,6 +471,17 @@ if ($ollamaContainerExists) {
     }
 }
 
+# Always refresh auxiliary service images to their latest tags.
+Write-Host "  Pulling latest redis, optillm and searxng images..." -ForegroundColor Gray
+try {
+    Invoke-Wsl "docker pull redis:7-alpine"
+    Invoke-Wsl "docker pull ghcr.io/algorithmicsuperintelligence/optillm:latest"
+    Invoke-Wsl "docker pull searxng/searxng:latest"
+    Write-Host "  redis, optillm and searxng images updated" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to pull latest redis/optillm/searxng image(s) — will use cached version(s)"
+}
+
 Write-Host "  Starting containers with updated image..." -ForegroundColor Gray
 Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers restarted" -ForegroundColor Green

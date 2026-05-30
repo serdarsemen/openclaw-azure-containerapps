@@ -423,6 +423,17 @@ $config.agents.defaults.model.primary = "github-copilot/claude-opus-4.6"
 $config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
 Write-Host "  Config written to openclaw.json (token + model + gateway settings)" -ForegroundColor Green
 
+# Always refresh auxiliary service images to their latest tags before startup.
+Write-Host "  Pulling latest redis, optillm and searxng images..." -ForegroundColor Gray
+try {
+    Invoke-Wsl "docker pull redis:7-alpine"
+    Invoke-Wsl "docker pull ghcr.io/algorithmicsuperintelligence/optillm:latest"
+    Invoke-Wsl "docker pull searxng/searxng:latest"
+    Write-Host "  redis, optillm and searxng images updated" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to pull latest redis/optillm/searxng image(s) — will use cached version(s)"
+}
+
 Write-Host "  Starting containers..." -ForegroundColor Gray
 Invoke-Wsl "docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
