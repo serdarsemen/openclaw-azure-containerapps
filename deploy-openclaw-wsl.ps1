@@ -66,6 +66,7 @@ param(
     [string] $OllamaHost    = "",
     [string] $OllamaModel   = "",
     [string] $GroqApiKey    = "",
+    [string] $GatewayToken  = "",
     [switch] $LanAccess
 )
 
@@ -322,17 +323,19 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 # Step 3: Resolve gateway token (reuse existing or generate new)
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 3/${totalSteps}: Resolving gateway token ===" -ForegroundColor Cyan
-$GatewayToken = $null
 $existingConfigPath = Join-Path $DataDir "openclaw.json"
-if (Test-Path $existingConfigPath) {
-    try {
-        $existingConfig = Get-Content $existingConfigPath -Raw | ConvertFrom-Json
-        if ($existingConfig.gateway.auth.token) {
-            $GatewayToken = $existingConfig.gateway.auth.token
-            Write-Host "  Reusing existing gateway token from openclaw.json" -ForegroundColor Green
+if (-not $GatewayToken) {
+    # No token passed via -GatewayToken; try to reuse the one in openclaw.json
+    if (Test-Path $existingConfigPath) {
+        try {
+            $existingConfig = Get-Content $existingConfigPath -Raw | ConvertFrom-Json
+            if ($existingConfig.gateway.auth.token) {
+                $GatewayToken = $existingConfig.gateway.auth.token
+                Write-Host "  Reusing existing gateway token from openclaw.json" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "  Could not read existing token, generating new one" -ForegroundColor Gray
         }
-    } catch {
-        Write-Host "  Could not read existing token, generating new one" -ForegroundColor Gray
     }
 }
 if (-not $GatewayToken) {
@@ -340,6 +343,8 @@ if (-not $GatewayToken) {
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
     $GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
     Write-Host "  New token generated (save this for Control UI access):" -ForegroundColor Gray
+} else {
+    Write-Host "  Using token:" -ForegroundColor Gray
 }
 Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
@@ -414,20 +419,21 @@ if (-not $config.agents) { $config | Add-Member -NotePropertyName agents -NotePr
 if (-not $config.agents.defaults) { $config.agents | Add-Member -NotePropertyName defaults -NotePropertyValue ([pscustomobject]@{}) }
 if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -NotePropertyName model -NotePropertyValue ([pscustomobject]@{}) }
 
-# Gateway settings
-$config.gateway.auth.mode  = "token"
-$config.gateway.auth.token = $GatewayToken
-$config.gateway.auth.rateLimit.maxAttempts = 10
-$config.gateway.auth.rateLimit.windowMs    = 60000
-$config.gateway.auth.rateLimit.lockoutMs   = 300000
-$config.gateway.port = 18789
-$config.gateway.bind = "lan"
-$config.gateway.mode = "local"
-$config.gateway.controlUi.allowInsecureAuth = $true
-$config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = $true
+# Gateway settings — use Add-Member -Force so properties are created or updated
+# regardless of whether they pre-exist on the deserialized PSCustomObject
+$config.gateway.auth | Add-Member -NotePropertyName mode          -NotePropertyValue "token"        -Force
+$config.gateway.auth | Add-Member -NotePropertyName token         -NotePropertyValue $GatewayToken  -Force
+$config.gateway.auth.rateLimit | Add-Member -NotePropertyName maxAttempts -NotePropertyValue 10     -Force
+$config.gateway.auth.rateLimit | Add-Member -NotePropertyName windowMs    -NotePropertyValue 60000  -Force
+$config.gateway.auth.rateLimit | Add-Member -NotePropertyName lockoutMs   -NotePropertyValue 300000 -Force
+$config.gateway | Add-Member -NotePropertyName port -NotePropertyValue 18789  -Force
+$config.gateway | Add-Member -NotePropertyName bind -NotePropertyValue "lan"  -Force
+$config.gateway | Add-Member -NotePropertyName mode -NotePropertyValue "local" -Force
+$config.gateway.controlUi | Add-Member -NotePropertyName allowInsecureAuth                           -NotePropertyValue $true -Force
+$config.gateway.controlUi | Add-Member -NotePropertyName dangerouslyAllowHostHeaderOriginFallback    -NotePropertyValue $true -Force
 
 # Model
-$config.agents.defaults.model.primary = "github-copilot/claude-opus-4.6"
+$config.agents.defaults.model | Add-Member -NotePropertyName primary -NotePropertyValue "github-copilot/claude-opus-4.6" -Force
 
 # Write back
 $config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
