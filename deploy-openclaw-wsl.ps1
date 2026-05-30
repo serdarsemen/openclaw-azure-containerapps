@@ -138,16 +138,20 @@ if ($Npm) {
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
 
-# Data directory — persists config, workspace, and SQLite across restarts
+# Data directory — persists config, workspace, and SQLite across restarts.
+# Default to WSL home (ext4) to avoid DrvFS permission issues (0777 on /mnt/c mounts).
 if (-not $DataDir) {
-    $DataDir = Join-Path $PSScriptRoot "openclaw-data"
+    $WslDataDir = (Invoke-WslData "printf '%s' \"`$HOME/.openclaw-data\"").Trim()
+    Invoke-Wsl "mkdir -p '$WslDataDir'"
+    $DataDir = (Invoke-WslData "wslpath -w '$WslDataDir'").Trim()
+    Write-Host "  Using default WSL data directory: $WslDataDir" -ForegroundColor Gray
+} else {
+    if (-not (Test-Path $DataDir)) {
+        New-Item -ItemType Directory -Path $DataDir | Out-Null
+        Write-Host "  Created data directory: $DataDir" -ForegroundColor Gray
+    }
+    $WslDataDir = (Invoke-WslData "wslpath -u '$($DataDir -replace '\\','/')'").Trim()
 }
-if (-not (Test-Path $DataDir)) {
-    New-Item -ItemType Directory -Path $DataDir | Out-Null
-    Write-Host "  Created data directory: $DataDir" -ForegroundColor Gray
-}
-$WslDataDir = Invoke-WslData "wslpath -u '$($DataDir -replace '\\','/')'"
-$WslDataDir = ($WslDataDir -join "").Trim()
 Write-Host "  Data dir (WSL): $WslDataDir" -ForegroundColor Green
 
 # Convert script root and source path to WSL paths

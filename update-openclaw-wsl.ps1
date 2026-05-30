@@ -125,6 +125,9 @@ Write-Host "  Container '$ContainerName': found" -ForegroundColor Green
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Discovering existing configuration ===" -ForegroundColor Cyan
 
+$defaultWslDataDir = (Invoke-WslData "printf '%s' \"`$HOME/.openclaw-data\"").Trim()
+$defaultDataDir = (Invoke-WslData "wslpath -w '$defaultWslDataDir'").Trim()
+
 # Read existing gateway token from the container environment
 $existingToken = (Invoke-WslData "docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $ContainerName" |
     Where-Object { $_ -match '^OPENCLAW_GATEWAY_TOKEN=' }) -replace 'OPENCLAW_GATEWAY_TOKEN=', ''
@@ -132,7 +135,7 @@ $existingToken = ($existingToken -join "").Trim()
 
 if (-not $existingToken) {
     # Try reading from openclaw.json before generating a new one
-    $configPath = Join-Path $PSScriptRoot "openclaw-data" "openclaw.json"
+    $configPath = Join-Path $defaultDataDir "openclaw.json"
     if (Test-Path $configPath) {
         try {
             $existingConfig = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -241,7 +244,7 @@ try {
     if ($bp -match ':(\d+)$') { $BridgePort = [int]$Matches[1] }
 } catch {}
 
-# Discover WslDataDir from the existing mount; fall back to ./openclaw-data
+# Discover WslDataDir from the existing mount; fall back to ~/.openclaw-data in WSL
 $WslDataDir = ""
 try {
     $inspectFmt = '{{range .Mounts}}{{if eq .Destination "' + "$HomeDir/.openclaw" + '"}}{{.Source}}{{end}}{{end}}'
@@ -249,9 +252,8 @@ try {
     $WslDataDir = $mount.Trim()
 } catch {}
 if (-not $WslDataDir) {
-    $defaultDataDir = Join-Path $PSScriptRoot "openclaw-data"
-    if (-not (Test-Path $defaultDataDir)) { New-Item -ItemType Directory -Path $defaultDataDir -Force | Out-Null }
-    $WslDataDir = (Invoke-WslData "wslpath -u '$($defaultDataDir -replace '\\','/')'").Trim()
+    Invoke-Wsl "mkdir -p '$defaultWslDataDir'"
+    $WslDataDir = $defaultWslDataDir
 }
 Write-Host "  Data dir (WSL): $WslDataDir" -ForegroundColor Gray
 Write-Host "  Bridge port:    $BridgePort" -ForegroundColor Gray
