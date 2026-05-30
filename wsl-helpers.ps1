@@ -25,6 +25,16 @@ function Invoke-WslData {
     return $result
 }
 
+# Run a WSL command and stream its output live to the terminal (do not capture).
+# Use for long-running commands like 'docker pull' where progress should be shown.
+function Invoke-WslStream {
+    param([string] $Command)
+    wsl bash -c $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "WSL command failed (exit $LASTEXITCODE): $Command"
+    }
+}
+
 function Test-WslDocker {
     try {
         $null = Invoke-Wsl "docker info > /dev/null 2>&1"
