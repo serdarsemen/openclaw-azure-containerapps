@@ -59,7 +59,7 @@ RUN set -eux \
      && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
      && cd / && rm -rf /tmp/gogcli \
      # Bun — required by qmd (session memory / vector store)
-     && BUN_INSTALL=/usr/local curl -fsSL https://bun.sh/install | bash
+     && npm install -g bun
 
 RUN set -eux \
      # Python validation + pip packages
