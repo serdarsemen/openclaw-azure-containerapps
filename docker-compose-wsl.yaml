@@ -66,9 +66,9 @@ services:
       - npm_config_resolution_mode=highest
       - OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
     volumes:
-      # Use a Linux-side (ext4) path by default to preserve secure permissions.
+      # Use the resolved Linux-side (ext4) path to preserve secure permissions.
       # Avoid /mnt/c/... because DrvFS can surface 0777 and trigger security checks.
-      - ${OPENCLAW_DATA_DIR:-${HOME}/.openclaw-data}:/home/node/.openclaw
+      - /home/serdar/.openclaw-data:/home/node/.openclaw
       - openclaw-runtime-deps:/home/node/.openclaw/plugin-runtime-deps
       - openclaw-compile-cache:/home/node/.openclaw/compile-cache
     init: true

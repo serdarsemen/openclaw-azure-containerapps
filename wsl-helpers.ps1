@@ -303,7 +303,11 @@ function New-OpenClawComposeYaml {
         $envVars += "OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions"
     }
 
-    $openclawDataMount = '${OPENCLAW_DATA_DIR:-${HOME}/.openclaw-data}'
+    if (-not $WslDataDir) {
+      throw "WslDataDir is required to generate the OpenClaw data mount."
+    }
+
+    $openclawDataMount = $WslDataDir
 
     $envBlock = ($envVars | ForEach-Object { "      - $_" }) -join "`n"
 
@@ -370,7 +374,7 @@ services:
     environment:
 $envBlock
     volumes:
-      # Use a Linux-side (ext4) path by default to preserve secure permissions.
+      # Use the resolved Linux-side (ext4) path to preserve secure permissions.
       # Avoid /mnt/c/... because DrvFS can surface 0777 and trigger security checks.
       - $($openclawDataMount):${HomeDir}/.openclaw
       - openclaw-runtime-deps:${HomeDir}/.openclaw/plugin-runtime-deps
