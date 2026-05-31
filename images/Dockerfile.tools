@@ -9,6 +9,7 @@
 #   - GitHub CLI 2.72.0 → /usr/local/bin/gh
 #   - Gemini CLI       → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI          → /usr/local/bin/gog     (built from source)
+#   - Bun               → /usr/local/bin/bun
 #   - Python 3.14.3    → /usr/local/bin/python3
 #   - redis-py         → Python redis client    (installed via pip)
 #   - sqlite-vec       → SQLite vector extension (native .so for QMD)
@@ -56,7 +57,9 @@ RUN set -eux \
      # GoG CLI — compile with stripped symbols (-s -w) to reduce binary ~50%
      && git clone --depth 1 https://github.com/steipete/gogcli.git /tmp/gogcli \
      && cd /tmp/gogcli && CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /usr/local/bin/gog ./cmd/gog \
-     && cd / && rm -rf /tmp/gogcli
+     && cd / && rm -rf /tmp/gogcli \
+     # Bun — required by qmd (session memory / vector store)
+     && BUN_INSTALL=/usr/local curl -fsSL https://bun.sh/install | bash
 
 RUN set -eux \
      # Python validation + pip packages
@@ -77,6 +80,7 @@ RUN set -eux \
      && printf '{\n  "max_open_trades": 3,\n  "stake_currency": "USDT",\n  "stake_amount": "unlimited",\n  "tradable_balance_ratio": 0.99,\n  "fiat_display_currency": "USD",\n  "dry_run": true,\n  "dry_run_wallet": 1000,\n  "trading_mode": "spot",\n  "cancel_open_orders_on_exit": false,\n  "unfilledtimeout": { "entry": 10, "exit": 10, "unit": "minutes" },\n  "entry_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exit_pricing": { "price_side": "same", "use_order_book": true, "order_book_top": 1 },\n  "exchange": {\n    "name": "binance",\n    "key": "",\n    "secret": "",\n    "pair_whitelist": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"],\n    "pair_blacklist": []\n  },\n  "pairlists": [{ "method": "StaticPairList" }],\n  "bot_name": "freqtrade-openclaw",\n  "initial_state": "running",\n  "internals": { "process_throttle_secs": 5 },\n  "strategy": "SampleStrategy",\n  "strategy_path": "/opt/freqtrade/user_data/strategies"\n}\n' > /opt/freqtrade/config.json \
      # Comprehensive cleanup: Go caches, npm caches, pip caches, Python bytecache, test dirs
      && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
+     && rm -rf /root/.bun/install /root/.bun/cache \
      && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
      && find /usr/local/lib/python${PYTHON_VERSION} -type d -name "test*" -prune -exec rm -rf {} + 2>/dev/null || true \
      && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
