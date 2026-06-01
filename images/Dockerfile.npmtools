@@ -16,6 +16,8 @@
 #   - QMD                → /usr/local/bin/qmd     (installed via bun)
 #   - Freqtrade          → /usr/local/bin/freqtrade (crypto trading bot)
 #   - freqtrade-strategies → /opt/freqtrade-strategies (community strategies)
+#   - scipy              → scientific computing     (installed via pip)
+#   - statsmodels        → statistical modeling     (installed via pip)
 #
 # Performance: all tool installs are merged into a single RUN to minimise
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
@@ -56,9 +58,9 @@ RUN set -eux \
     # Bun + QMD
     && BUN_INSTALL=/usr/local curl -fsSL https://bun.sh/install | bash \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
-    # Python validation + redis-py
+    # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade \
+    && python3 -m pip install --no-cache-dir redis freqtrade scipy statsmodels \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
