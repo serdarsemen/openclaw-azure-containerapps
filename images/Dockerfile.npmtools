@@ -60,7 +60,7 @@ RUN set -eux \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
     # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade scipy==1.14.1 statsmodels==0.14.4 \
+    && python3 -m pip install --no-cache-dir redis freqtrade scipy==1.14.1 statsmodels==0.14.6 \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
