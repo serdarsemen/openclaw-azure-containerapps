@@ -20,6 +20,7 @@
 #   - safetensors      → fast model serialization(installed via pip)
 #   - huggingface_hub  → HF model downloads     (installed via pip)
 #   - yfinance         → Yahoo Finance data      (installed via pip)
+#   - openbb           → OpenBB financial data platform (installed via pip)
 #
 # Performance: installs are grouped into stable layers so iterative rebuilds
 # can reuse cache when only later steps change.
@@ -65,7 +66,7 @@ RUN set -eux \
      # Python validation + pip packages
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      && python3 -m pip install --no-cache-dir redis freqtrade \
-         einops safetensors huggingface_hub yfinance
+         einops safetensors huggingface_hub yfinance openbb
 
 RUN set -eux \
      # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI for Python 3.14+ compat
