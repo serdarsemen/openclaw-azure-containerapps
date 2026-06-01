@@ -66,7 +66,10 @@ RUN set -eux \
      # Python validation + pip packages
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      && python3 -m pip install --no-cache-dir redis freqtrade \
-         einops safetensors huggingface_hub yfinance openbb
+         einops safetensors huggingface_hub yfinance openbb \
+     # OpenBB writes generated extension code into its package dir on first import;
+     # make the directory world-writable so non-root container users can do this.
+     && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/
 
 RUN set -eux \
      # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI for Python 3.14+ compat
