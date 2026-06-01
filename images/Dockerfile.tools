@@ -23,6 +23,7 @@
 #   - openbb           → OpenBB financial data platform (installed via pip)
 #   - scipy            → scientific computing     (installed via pip)
 #   - statsmodels      → statistical modeling     (installed via pip)
+#   - zipline-reloaded → Zipline API/runtime      (installed via pip)
 #
 # Performance: installs are grouped into stable layers so iterative rebuilds
 # can reuse cache when only later steps change.
@@ -68,7 +69,8 @@ RUN set -eux \
      # Python validation + pip packages
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      && python3 -m pip install --no-cache-dir redis freqtrade \
-         einops safetensors huggingface_hub yfinance openbb scipy==1.14.1 statsmodels==0.14.6 \
+         einops safetensors huggingface_hub yfinance openbb scipy==1.14.1 statsmodels==0.14.6 zipline-reloaded==3.1.1 \
+     && python3 -c "import zipline; print('zipline import OK')" \
      # OpenBB writes generated extension code into its package dir on first import;
      # make the directory world-writable so non-root container users can do this.
      && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/
@@ -92,6 +94,7 @@ RUN set -eux \
      && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
      && npm cache clean --force
 
-ENV GOPATH=/home/node/.openclaw/gopath PATH="/home/node/.openclaw/gopath/bin:${PATH}"
+ENV GOPATH=/home/node/.openclaw/gopath
+ENV PATH="/home/node/.openclaw/gopath/bin:${PATH}"
 
 USER node

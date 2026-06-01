@@ -18,6 +18,7 @@
 #   - freqtrade-strategies → /opt/freqtrade-strategies (community strategies)
 #   - scipy              → scientific computing     (installed via pip)
 #   - statsmodels        → statistical modeling     (installed via pip)
+#   - zipline-reloaded   → Zipline API/runtime      (installed via pip)
 #
 # Performance: all tool installs are merged into a single RUN to minimise
 # intermediate layer commits on ACR Tasks (classic builder, no BuildKit).
@@ -60,7 +61,8 @@ RUN set -eux \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
     # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade scipy==1.14.1 statsmodels==0.14.6 \
+    && python3 -m pip install --no-cache-dir redis freqtrade scipy==1.14.1 statsmodels==0.14.6 zipline-reloaded==3.1.1 \
+    && python3 -c "import zipline; print('zipline import OK')" \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
