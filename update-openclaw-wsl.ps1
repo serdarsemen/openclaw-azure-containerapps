@@ -59,6 +59,12 @@ $ollamaModeOverride = $ollamaModeCount -gt 0
 # Resolve-OllamaHost, New-OpenClawComposeYaml).
 . "$PSScriptRoot/wsl-helpers.ps1"
 
+function Test-IgnorableUpdateNoiseLine {
+    param([string] $Line)
+    if (-not $Line) { return $false }
+    return ($Line -match 'Failed to update:\s*github/awesome-copilot')
+}
+
 function Invoke-NonFatalSecurityAudit {
     param(
         [string] $Command,
@@ -69,14 +75,40 @@ function Invoke-NonFatalSecurityAudit {
     $output = wsl bash -c "docker exec $ContainerName bash -c 'timeout $ExecTimeoutSec $Command'" 2>&1
 
     if ($LASTEXITCODE -eq 0) {
-        if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
+        if ($output) {
+            $lines = @($output)
+            $shownNoiseNotice = $false
+            foreach ($line in $lines) {
+                if (Test-IgnorableUpdateNoiseLine -Line $line) {
+                    if (-not $shownNoiseNotice) {
+                        Write-Host "    [info] Ignoring known non-fatal update warning for github/awesome-copilot" -ForegroundColor Yellow
+                        $shownNoiseNotice = $true
+                    }
+                    continue
+                }
+                Write-Host "    $line" -ForegroundColor DarkGray
+            }
+        }
         return $true
     }
 
     if ($LASTEXITCODE -eq 124) {
         Write-Warning "[Security audit] timed out after ${ExecTimeoutSec}s"
     }
-    if ($output) { Write-Host "    $output" -ForegroundColor DarkGray }
+    if ($output) {
+        $lines = @($output)
+        $shownNoiseNotice = $false
+        foreach ($line in $lines) {
+            if (Test-IgnorableUpdateNoiseLine -Line $line) {
+                if (-not $shownNoiseNotice) {
+                    Write-Host "    [info] Ignoring known non-fatal update warning for github/awesome-copilot" -ForegroundColor Yellow
+                    $shownNoiseNotice = $true
+                }
+                continue
+            }
+            Write-Host "    $line" -ForegroundColor DarkGray
+        }
+    }
     Write-Warning "[Security audit] skipped due to runtime/plugin issue; update continues"
     return $false
 }
@@ -557,7 +589,17 @@ $containerImage = (Invoke-WslData "docker inspect --format '{{.Config.Image}}' $
 $containerImage = $containerImage.Trim()
 
 Write-Host "`n=== Recent container logs ===" -ForegroundColor Cyan
-Invoke-Wsl "docker logs --tail 30 $ContainerName 2>&1" | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+$shownLogNoiseNotice = $false
+Invoke-Wsl "docker logs --tail 30 $ContainerName 2>&1" | ForEach-Object {
+    if (Test-IgnorableUpdateNoiseLine -Line $_) {
+        if (-not $shownLogNoiseNotice) {
+            Write-Host "  [info] Ignoring known non-fatal update warning for github/awesome-copilot" -ForegroundColor Yellow
+            $shownLogNoiseNotice = $true
+        }
+        return
+    }
+    Write-Host "  $_" -ForegroundColor DarkGray
+}
 
 Write-Host "`n=== Update complete ===" -ForegroundColor Green
 

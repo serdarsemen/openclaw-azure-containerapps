@@ -466,6 +466,12 @@ Write-Host "  Containers are starting — Docker healthcheck will verify readine
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 5/${totalSteps}: Configuring OpenClaw ===" -ForegroundColor Cyan
 
+function Test-IgnorableUpdateNoiseLine {
+    param([string] $Line)
+    if (-not $Line) { return $false }
+    return ($Line -match 'Failed to update:\s*github/awesome-copilot')
+}
+
 function Wait-ContainerRunning {
     param([int] $TimeoutSec = 60)
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -487,6 +493,7 @@ function Wait-OpenClawReady {
     Write-Host "  Waiting for OpenClaw gateway to become ready (first-run deps may take a few minutes)..." -ForegroundColor Gray
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     $lastMsg   = ""
+    $noiseNoticePrinted = $false
     while ((Get-Date) -lt $deadline) {
         $check = wsl bash -c "docker exec $ContainerName bash -c 'timeout 3 bash -c ""</dev/tcp/localhost/18789"" 2>/dev/null && echo READY || echo NOT_READY'" 2>$null
         if ($check -match "READY") {
@@ -496,7 +503,14 @@ function Wait-OpenClawReady {
         # Surface latest log line so user can see progress
         $logLine = (wsl bash -c "docker logs --tail 1 $ContainerName 2>&1") -join ""
         if ($logLine -and $logLine -ne $lastMsg) {
-            Write-Host "  [container] $logLine" -ForegroundColor DarkGray
+            if (Test-IgnorableUpdateNoiseLine -Line $logLine) {
+                if (-not $noiseNoticePrinted) {
+                    Write-Host "  [container] Ignoring known non-fatal update warning for github/awesome-copilot" -ForegroundColor Yellow
+                    $noiseNoticePrinted = $true
+                }
+            } else {
+                Write-Host "  [container] $logLine" -ForegroundColor DarkGray
+            }
             $lastMsg = $logLine
         }
         Start-Sleep -Seconds 5
