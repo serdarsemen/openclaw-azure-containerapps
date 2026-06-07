@@ -198,7 +198,7 @@ wsl docker exec -it openclaw bash
 By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or point at an existing instance with `-OllamaWindows` (Ollama on the Windows host), `-OllamaWsl` (Ollama in WSL), or `-OllamaHost <url>` (any URL). Only one Ollama mode may be used at a time.
 
 ```powershell
-# Default: OpenClaw + Redis only (no Ollama)
+# Default: OpenClaw + Redis + SearXNG (no Ollama)
 .\deploy-openclaw-wsl.ps1
 
 # Add Ollama sidecar + pull 3 default models
@@ -215,6 +215,9 @@ By default, the WSL deploy script does **not** include an Ollama sidecar — it 
 
 # Use an external Ollama instance at an explicit URL (no sidecar added)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+
+# Expose the gateway on the LAN (0.0.0.0) instead of loopback-only
+.\deploy-openclaw-wsl.ps1 -LanAccess
 ```
 
 > **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network.
@@ -323,6 +326,8 @@ Use a Linux-side WSL path (ext4). Avoid `/mnt/c/...` for this mount, because Win
 
 ## Architecture
 
+### Azure Container Apps
+
 ```mermaid
 flowchart TB
     cui(["Control UI (browser)"])
@@ -355,6 +360,36 @@ flowchart TB
     style vnet fill:#dbeafe,stroke:#3b82f6,stroke-width:1px
     style copilot fill:#faf5ff,stroke:#7c3aed,stroke-width:2px
 ```
+
+### WSL Docker (local)
+
+```mermaid
+flowchart TB
+    browser(["Browser"]) <-->|http://localhost:18789| openclaw
+
+    subgraph wsl["WSL 2 · Docker Engine"]
+        subgraph net["openclaw-net (bridge)"]
+            openclaw["openclaw<br/>Gateway container<br/>shares redis netns"]
+            redis["openclaw-redis<br/>Redis 7-alpine"]
+            searxng["searxng<br/>Metasearch backend"]
+            ollama["openclaw-ollama<br/>(optional sidecar)"]
+            openclaw -.->|localhost:6379| redis
+            openclaw -->|http://searxng:8080| searxng
+            openclaw -.->|http://openclaw-ollama:11434| ollama
+        end
+        data[("$DataDir<br/>ext4 bind mount")]
+        openclaw --- data
+    end
+
+    openclaw <-->|GitHub Copilot API| copilot["GitHub Copilot"]
+    openclaw -.->|optional| host[("Windows / WSL Ollama<br/>-OllamaWindows / -OllamaWsl / -OllamaHost")]
+
+    style wsl fill:#ecfeff,stroke:#0891b2,stroke-width:2px
+    style net fill:#cffafe,stroke:#06b6d4,stroke-width:1px
+    style copilot fill:#faf5ff,stroke:#7c3aed,stroke-width:2px
+```
+
+The WSL stack always includes OpenClaw, Redis, and SearXNG. Ollama is opt-in: pass `-Ollama` to add a sidecar container, or `-OllamaWindows` / `-OllamaWsl` / `-OllamaHost <url>` to reuse an existing Ollama instance.
 
 This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). GitHub Copilot provides access to models from Anthropic, OpenAI, and Google through a single subscription. Switch models after deployment with `node openclaw.mjs models set <model>`.
 
@@ -389,7 +424,7 @@ This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). Git
 | Container Apps Environment + NFS storage | `Microsoft.App/managedEnvironments` |
 | Container App (placeholder) | `Microsoft.App/containerApps` |
 
-Globally unique names (ACR, storage) are auto-generated using `uniqueString()`.
+`bicep/ollama.bicep` is a separate template that deploys a standalone Ollama Container App into the same environment — used by `deploy-ollama.ps1`. Globally unique names (ACR, storage) are auto-generated using `uniqueString()`.
 
 ### Deploy script variants
 
@@ -401,9 +436,9 @@ Six deploy scripts are provided — two per target (ACA, AKS, WSL). Source-build
 | **Variants** | `-Npm` switch | `-Npm` switch | `-Npm` switch |
 | **Infra source** | `bicep/main[.npm].bicep` | Reuses ACA ACR + NFS; provisions AKS | — |
 | **Build method** | `az acr build` (remote) | `az acr build` (remote) | `docker build` inside WSL |
-| **Containers / pods** | OpenClaw + Redis sidecar | OpenClaw (+ Redis sidecar) pod, Ollama pod | OpenClaw + Redis (+ optional Ollama sidecar) |
-| **Ollama** | Separate Container App (`deploy-ollama.ps1`) | **Separate pod + `ollama` Service** | Sidecar with `-Ollama`, or external via `-OllamaHost` |
-| **Ingress** | Managed HTTPS FQDN | `LoadBalancer` public IP (or Ingress) | `localhost:18789` |
+| **Containers / pods** | OpenClaw + Redis sidecar | OpenClaw (+ Redis sidecar) pod, Ollama pod | OpenClaw + Redis + SearXNG (+ optional Ollama sidecar) |
+| **Ollama** | Separate Container App (`deploy-ollama.ps1`) | **Separate pod + `ollama` Service** | Sidecar with `-Ollama`, host instance with `-OllamaWindows`/`-OllamaWsl`, or external `-OllamaHost` |
+| **Ingress** | Managed HTTPS FQDN | `LoadBalancer` public IP (or Ingress) | `localhost:18789` (or LAN with `-LanAccess`) |
 | **Storage** | NFS via private endpoint | Same NFS share via static `PersistentVolume` | Host bind mount |
 | **Update script** | `update-openclaw-ACA.ps1` | `update-openclaw-aks.ps1` | `update-openclaw-wsl.ps1` |
 
@@ -667,18 +702,22 @@ az group delete --name rg-openclaw-aks --yes --no-wait
 ├── bicep/                         # Azure infrastructure templates
 │   ├── main.bicep / .bicepparam   # Source-build variant
 │   ├── mainnpm.bicep / .bicepparam# NPM variant
-│   └── ollama.bicep / .bicepparam # Standalone Ollama
+│   └── ollama.bicep / .bicepparam # Standalone Ollama Container App
 ├── images/                        # Extended tool-layer Dockerfiles
 │   ├── Dockerfile.tools           # Go, gh, Gemini CLI, GoG CLI, etc.
 │   └── Dockerfile.npmtools        # Adds Bun, QMD on top of npm base
+├── searxng/                       # SearXNG settings (mounted into the searxng container)
 ├── deploy-openclaw-ACA.ps1        # Azure Container Apps deploy
 ├── update-openclaw-ACA.ps1        # Azure Container Apps update
 ├── deploy-openclaw-aks.ps1        # Azure Kubernetes Service deploy (Ollama as separate pod)
 ├── update-openclaw-aks.ps1        # Azure Kubernetes Service update
 ├── deploy-openclaw-wsl.ps1        # WSL Docker deploy (local)
 ├── update-openclaw-wsl.ps1        # WSL Docker update (local)
+├── wsl-helpers.ps1                # Shared WSL helpers (compose YAML, DNS repair, Ollama host resolver)
+├── docker-compose-wsl.yaml        # Generated compose file used by the WSL scripts
 ├── deploy-ollama.ps1              # Azure standalone Ollama Container App deploy
 ├── update-ollama.ps1              # Azure standalone Ollama Container App update
+├── imagedeployautomationscripts.ps1 # ACR Tasks / webhook / scheduled Job CI for the ACA image
 ├── ACA2AKSMigration.md            # Migration guide: ACA → AKS
 ├── ACA2WSLMigration.md            # Migration guide: ACA → WSL
 └── openclaw-repo/                 # Cloned OpenClaw source (gitignored)
