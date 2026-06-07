@@ -23,6 +23,8 @@
 #   - openbb           → OpenBB financial data platform (installed via pip)
 #   - scipy            → scientific computing     (installed via pip)
 #   - statsmodels      → statistical modeling     (installed via pip)
+#   - langgraph + langchain-* → TradingAgents framework deps (installed via pip)
+#   - stockstats, backtrader, parsel → TradingAgents framework deps (installed via pip)
 #
 # Performance: installs are grouped into stable layers so iterative rebuilds
 # can reuse cache when only later steps change.
@@ -69,6 +71,9 @@ RUN set -eux \
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      && python3 -m pip install --no-cache-dir redis freqtrade \
          einops safetensors huggingface_hub yfinance openbb scipy==1.14.1 statsmodels==0.14.6 \
+         langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
+         langchain-openai langchain-anthropic langchain-google-genai \
+         langchain-experimental stockstats backtrader parsel \
      # OpenBB writes generated extension code into its package dir on first import;
      # make the directory world-writable so non-root container users can do this.
      && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/
