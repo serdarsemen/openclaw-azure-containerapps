@@ -373,7 +373,7 @@ This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). Git
 | `github-copilot/gemini-3.1-pro-preview` | Google |
 | `github-copilot/gemini-3-flash-preview` | Google |
 
-> The exact model catalog evolves with your GitHub Copilot subscription — run `openclaw models list` for the current set. Additional providers (Ollama, OpenRouter, Groq, xAI, optillm) appear here only if you configure them.
+> The exact model catalog evolves with your GitHub Copilot subscription — run `openclaw models list` for the current set. Additional providers (Ollama, OpenRouter, Groq, xAI) appear here only if you configure them.
 
 </details>
 

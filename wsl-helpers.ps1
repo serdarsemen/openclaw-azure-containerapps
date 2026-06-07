@@ -426,26 +426,6 @@ $envBlock
       retries: 5
       start_period: 300s
 
-  optillm:
-    image: ghcr.io/algorithmicsuperintelligence/optillm:latest
-    container_name: optillm
-    networks:
-      - openclaw-net
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "8000:8000"
-    # Secrets (OPENAI_API_KEY, GROQ_API_KEY) live in optillm.env (gitignored).
-    # OPENAI_BASE_URL points optillm at the local Ollama instance.
-    env_file:
-      - optillm.env
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-    restart: unless-stopped
-
   searxng:
     image: searxng/searxng:latest
     container_name: searxng

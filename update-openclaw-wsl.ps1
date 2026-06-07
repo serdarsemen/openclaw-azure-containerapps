@@ -496,9 +496,9 @@ Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' 
 
 # Force-remove fixed-name auxiliary containers that may have been created outside
 # this compose project (e.g. a prior manual run). Compose only manages containers
-# carrying its own project label, so a stray 'searxng'/'optillm' would otherwise
+# carrying its own project label, so a stray 'searxng' would otherwise
 # cause a 'container name is already in use' conflict on 'up'.
-try { Invoke-Wsl "docker rm -f searxng optillm 2>/dev/null || true" } catch {}
+try { Invoke-Wsl "docker rm -f searxng 2>/dev/null || true" } catch {}
 
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {
@@ -512,17 +512,15 @@ if ($ollamaContainerExists) {
 }
 
 # Always refresh auxiliary service images to their latest tags.
-Write-Host "  Pulling latest redis, optillm and searxng images..." -ForegroundColor Gray
+Write-Host "  Pulling latest redis and searxng images..." -ForegroundColor Gray
 try {
     Write-Host "  -> docker pull redis:7-alpine" -ForegroundColor Gray
     Invoke-WslStream "docker pull redis:7-alpine"
-    Write-Host "  -> docker pull ghcr.io/algorithmicsuperintelligence/optillm:latest" -ForegroundColor Gray
-    Invoke-WslStream "docker pull ghcr.io/algorithmicsuperintelligence/optillm:latest"
     Write-Host "  -> docker pull searxng/searxng:latest" -ForegroundColor Gray
     Invoke-WslStream "docker pull searxng/searxng:latest"
-    Write-Host "  redis, optillm and searxng images updated" -ForegroundColor Green
+    Write-Host "  redis and searxng images updated" -ForegroundColor Green
 } catch {
-    Write-Warning "  Failed to pull latest redis/optillm/searxng image(s) — will use cached version(s)"
+    Write-Warning "  Failed to pull latest redis/searxng image(s) — will use cached version(s)"
 }
 
 Write-Host "  Starting containers with updated image..." -ForegroundColor Gray
