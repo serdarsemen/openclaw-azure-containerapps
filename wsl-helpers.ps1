@@ -15,6 +15,70 @@ function Invoke-Wsl {
     return $result
 }
 
+# Heuristic for transient network failures seen during Docker/BuildKit dependency
+# downloads (npm registry timeouts, DNS hiccups, TLS/connect resets).
+function Test-WslTransientNetworkError {
+  param([string] $Output)
+  if (-not $Output) { return $false }
+
+  $patterns = @(
+    'UND_ERR_CONNECT_TIMEOUT',
+    'Connect Timeout Error',
+    'fetch failed',
+    'Temporary failure in name resolution',
+    'i/o timeout',
+    'TLS handshake timeout',
+    'connection reset by peer',
+    'network is unreachable',
+    'context deadline exceeded',
+    'lookup .*: no such host',
+    'registry\.npmjs\.org',
+    'registry-1\.docker\.io'
+  )
+
+  foreach ($pattern in $patterns) {
+    if ($Output -match $pattern) { return $true }
+  }
+  return $false
+}
+
+# Run a WSL command with retries when the failure looks network-transient.
+function Invoke-WslRetry {
+  param(
+    [string] $Command,
+    [int] $MaxAttempts = 3,
+    [int] $InitialDelaySeconds = 5
+  )
+
+  $attempt = 1
+  $delaySeconds = $InitialDelaySeconds
+  $lastResult = ""
+  $lastExitCode = 0
+
+  while ($attempt -le $MaxAttempts) {
+    $result = wsl bash -c $Command 2>&1
+    $lastExitCode = $LASTEXITCODE
+
+    if ($lastExitCode -eq 0) {
+      return $result
+    }
+
+    $lastResult = ($result -join [Environment]::NewLine)
+    $isTransient = Test-WslTransientNetworkError -Output $lastResult
+
+    if (-not $isTransient -or $attempt -eq $MaxAttempts) {
+      throw "WSL command failed (exit $lastExitCode): $Command`n$lastResult"
+    }
+
+    Write-Host "  Transient network failure detected (attempt $attempt/$MaxAttempts). Retrying in ${delaySeconds}s..." -ForegroundColor Yellow
+    Start-Sleep -Seconds $delaySeconds
+    $delaySeconds = [Math]::Min($delaySeconds * 2, 30)
+    $attempt++
+  }
+
+  throw "WSL command failed (exit $lastExitCode): $Command`n$lastResult"
+}
+
 # Run a WSL command, discard stderr (use for value capture), throw on non-zero exit.
 function Invoke-WslData {
     param([string] $Command)
