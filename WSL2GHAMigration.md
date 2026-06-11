@@ -12,7 +12,8 @@ Instead of keeping a Gateway container running 24/7 on your machine, GitHub spin
 | State storage | Local `openclaw-data/` bind mount | Actions cache (`~/.openclaw`), seeded once |
 | Container image | Locally built via `deploy-openclaw-wsl.ps1` | `npm i -g openclaw` on the runner |
 | Cron execution | In-Gateway scheduler (always running) | `openclaw cron run --due` per tick |
-| Redis sidecar | Yes | No (single-process tick; no shared queue needed) |
+| Redis sidecar | Yes | Yes (`redis:7-alpine`, AOF persisted in the cache) |
+| SearXNG sidecar | Yes | Yes (`searxng/searxng:latest`, fed `searxng/settings.yml`) |
 | Ollama | Sidecar or host | Not available — use cloud models / Groq fallbacks |
 | Secrets | `docker-compose-wsl.yaml` env | GitHub repository secrets |
 | Notifications | OpenClaw channels | OpenClaw channels + workflow-level Telegram step |
@@ -71,10 +72,10 @@ Make sure each cron job in `openclaw-data/cron/jobs.json` has a cloud model or `
 
 ## Step 4 — Configure Secrets and Build the Seed
 
-The `setup-openclaw-gha.ps1` helper sets repository secrets/variables and builds the seed archive from your data directory:
+The `deploy-openclaw-gha.ps1` helper sets repository secrets/variables and builds the seed archive from your data directory:
 
 ```powershell
-.\setup-openclaw-gha.ps1 `
+.\deploy-openclaw-gha.ps1 `
     -Repo me/openclaw-gha `
     -DataDir .\openclaw-data `
     -GenerateGatewayToken `
@@ -92,7 +93,7 @@ This:
 The workflow only runs from the repository's **default branch**, so push it there:
 
 ```powershell
-git add .github/workflows/openclaw-runtime.yml .github/scripts/run-openclaw-cron.sh setup-openclaw-gha.ps1
+git add .github/workflows/openclaw-runtime.yml .github/scripts/run-openclaw-cron.sh deploy-openclaw-gha.ps1 update-openclaw-gha.ps1 gha-helpers.ps1
 git add -f seed/openclaw-seed.tar.gz   # seed/ is gitignored — force-add into a PRIVATE repo only
 git commit -m "Add OpenClaw GitHub Actions runtime + seed"
 git push origin HEAD
@@ -127,6 +128,37 @@ The cron tick supports two strategies (set via the `OPENCLAW_GHA_DRIVE` repo var
 
 - **`manual`** (default) — disables the periodic scheduler (`OPENCLAW_SKIP_CRON=1`) and fires due jobs explicitly with `openclaw cron run <id> --due --wait`. Deterministic, no duplicate firing.
 - **`scheduler`** — lets the in-Gateway scheduler fire due jobs on its own and keeps the Gateway alive for `OPENCLAW_GHA_DWELL_SECONDS` (default 180s) before shutting down. Use this if `cron run` does not execute in your build.
+
+## Sidecars (Redis & SearXNG)
+
+The workflow starts the same companion services as the WSL Docker runtime, using Docker on the runner:
+
+- **Redis** (`redis:7-alpine`) on `127.0.0.1:6379`. The host-side OpenClaw process reads `REDIS_HOST=127.0.0.1` / `REDIS_PORT=6379` (exported by the workflow). Its append-only file is mounted under the cached `~/.openclaw/redis-data`, so queue/state survives between ticks.
+- **SearXNG** (`searxng/searxng:latest`) on `:8080`, fed `searxng/settings.yml` (JSON format enabled) from the checked-out repo. The seeded `searxng-search` MCP config reaches it at `http://172.17.0.1:8080` (the docker0 gateway, also reachable from the host process).
+
+Both are on by default and can be disabled with repository variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `OPENCLAW_ENABLE_REDIS` | `true` | Set `false` to skip the Redis sidecar |
+| `OPENCLAW_ENABLE_SEARXNG` | `true` | Set `false` to skip the SearXNG sidecar |
+
+> `searxng/settings.yml` is committed in the repo (not gitignored), so SearXNG works without any extra setup. Sidecars are torn down at the end of every run (gracefully, so Redis flushes its AOF before the cache is saved).
+
+## Updating
+
+OpenClaw itself self-updates every tick — the workflow runs `npm i -g openclaw@latest` on each run — so there is no image to rebuild. Use `update-openclaw-gha.ps1` for day-2 changes (it preserves everything you do not pass explicitly):
+
+```powershell
+.\update-openclaw-gha.ps1                          # rebuild + push seed, then trigger a run
+.\update-openclaw-gha.ps1 -GroqApiKey gsk_newkey   # rotate a secret
+.\update-openclaw-gha.ps1 -DriveMode scheduler     # switch drive mode
+.\update-openclaw-gha.ps1 -DisableSearXNG          # toggle a sidecar off
+.\update-openclaw-gha.ps1 -ResetState              # clear the cache so a fresh seed is adopted
+.\update-openclaw-gha.ps1 -SkipSeed -NoTrigger     # change vars/secrets only
+```
+
+Because the Actions cache wins after the first run, a refreshed seed only takes effect on a cache miss — pass `-ResetState` to delete the `openclaw-state-*` caches and force the next run to re-seed from the archive.
 
 ## Caveats
 

@@ -339,25 +339,29 @@ Run OpenClaw's cron jobs on a free Ubuntu runner every 15 minutes instead of kee
 > Use a **private** repository — the seed archive and Actions cache can contain credentials and session data.
 
 ```powershell
-# 1. From your repo, configure secrets and build a seed from your local data dir
-.\setup-openclaw-gha.ps1 -GenerateGatewayToken -GroqApiKey gsk_... `
-    -TelegramBotToken 123456:ABC-DEF -TelegramChatId 2093604311
+# 1. From your repo, configure secrets, build a seed, push it, and trigger the first run
+.\deploy-openclaw-gha.ps1 -GenerateGatewayToken -GroqApiKey gsk_... `
+    -TelegramBotToken 123456:ABC-DEF -TelegramChatId 2093604311 -PushSeed -Trigger
 
-# 2. Commit the workflow to your DEFAULT branch (schedules only run there)
-git add .github/workflows/openclaw-runtime.yml .github/scripts/run-openclaw-cron.sh setup-openclaw-gha.ps1
+# 2. Or, if you prefer to do the git/trigger steps yourself:
+.\deploy-openclaw-gha.ps1 -GenerateGatewayToken -GroqApiKey gsk_...
+git add .github/workflows/openclaw-runtime.yml .github/scripts/run-openclaw-cron.sh `
+    deploy-openclaw-gha.ps1 update-openclaw-gha.ps1 gha-helpers.ps1
 git add -f seed/openclaw-seed.tar.gz          # private repo only
 git commit -m "Add OpenClaw GitHub Actions runtime"
 git push origin HEAD
-
-# 3. Trigger the first run (the */15 schedule takes over afterwards)
 gh workflow run "OpenClaw Runtime"
 gh run watch
+
+# 3. Later, to refresh state / rotate secrets / toggle sidecars and re-run
+.\update-openclaw-gha.ps1 -GroqApiKey gsk_newkey      # rebuilds seed + triggers a run
 ```
 
 | Aspect | Detail |
 |---|---|
 | Schedule | `*/15 * * * *` (best-effort; GitHub may delay under load) + manual `workflow_dispatch` |
 | State | `~/.openclaw` via `actions/cache` (rolling key), seeded once from `seed/openclaw-seed.tar.gz` |
+| Sidecars | Redis (`redis:7-alpine`) + SearXNG (`searxng/searxng:latest`) on the runner, same as WSL — toggle with `OPENCLAW_ENABLE_REDIS` / `OPENCLAW_ENABLE_SEARXNG` variables |
 | Models | Cloud only (no Ollama/GPU) — give each cron job cloud `fallbacks` |
 | Notifications | Optional workflow-level Telegram step (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` secrets) |
 | Drive mode | `OPENCLAW_GHA_DRIVE` variable: `manual` (default, explicit `cron run --due`) or `scheduler` |

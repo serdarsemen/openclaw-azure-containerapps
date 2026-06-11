@@ -22,6 +22,14 @@
 # Optional repository variables (Settings → Secrets and variables → Actions → Variables):
 #   OPENCLAW_SEED_PATH        seed archive path (default: seed/openclaw-seed.tar.gz)
 #   OPENCLAW_GHA_DRIVE        manual | scheduler (default: manual)
+#   OPENCLAW_ENABLE_REDIS     run a Redis sidecar  (default: true)
+#   OPENCLAW_ENABLE_SEARXNG   run a SearXNG sidecar (default: true)
+#
+# Sidecars (parity with the WSL Docker runtime):
+#   - Redis (redis:7-alpine) on 127.0.0.1:6379 with AOF persisted under the cached
+#     ~/.openclaw/redis-data, so queues/state carry over between ticks.
+#   - SearXNG (searxng/searxng:latest) on :8080, fed searxng/settings.yml from the
+#     repo. The seeded MCP config reaches it at http://172.17.0.1:8080 (docker0).
 #
 # NOTE: Scheduled workflows only run from the repository's DEFAULT branch, and
 # GitHub may delay cron triggers under load (so "*/15" is best-effort, not exact).
@@ -53,6 +61,8 @@ env:
   OPENCLAW_GATEWAY_PORT: '18789'
   OPENCLAW_SEED_PATH: ${{ vars.OPENCLAW_SEED_PATH || 'seed/openclaw-seed.tar.gz' }}
   OPENCLAW_GHA_DRIVE: ${{ inputs.drive || vars.OPENCLAW_GHA_DRIVE || 'manual' }}
+  OPENCLAW_ENABLE_REDIS: ${{ vars.OPENCLAW_ENABLE_REDIS || 'true' }}
+  OPENCLAW_ENABLE_SEARXNG: ${{ vars.OPENCLAW_ENABLE_SEARXNG || 'true' }}
 
 jobs:
   tick:
@@ -102,6 +112,63 @@ jobs:
             echo "Cache miss and no seed archive present — starting from a fresh state."
           fi
 
+      - name: Start Redis & SearXNG sidecars
+        run: |
+          set -euo pipefail
+
+          # Redis — same role as the WSL/ACA/AKS Redis sidecar. Published on
+          # loopback:6379 so the host-side OpenClaw process reaches it as localhost.
+          # AOF data lives under the cached ~/.openclaw so queue state survives ticks.
+          if [ "${OPENCLAW_ENABLE_REDIS}" = "true" ]; then
+            echo "Starting Redis (redis:7-alpine)..."
+            mkdir -p "$HOME/.openclaw/redis-data"
+            docker run -d --name openclaw-redis \
+              --user "$(id -u):$(id -g)" \
+              -p 127.0.0.1:6379:6379 \
+              -v "$HOME/.openclaw/redis-data:/data" \
+              redis:7-alpine \
+              redis-server --appendonly yes --dir /data
+            echo "Waiting for Redis to answer PING..."
+            for _ in $(seq 1 30); do
+              if docker exec openclaw-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+                echo "Redis is healthy."; break
+              fi
+              sleep 1
+            done
+            { echo "REDIS_HOST=127.0.0.1"; echo "REDIS_PORT=6379"; } >> "$GITHUB_ENV"
+          else
+            echo "Redis disabled (OPENCLAW_ENABLE_REDIS=${OPENCLAW_ENABLE_REDIS})."
+          fi
+
+          # SearXNG — private metasearch backend for OpenClaw's searxng-search MCP.
+          # Needs settings.yml (JSON format enabled) mounted from the checked-out repo,
+          # which is why this runs as a post-checkout step rather than a service container.
+          if [ "${OPENCLAW_ENABLE_SEARXNG}" = "true" ]; then
+            settings="$GITHUB_WORKSPACE/searxng/settings.yml"
+            if [ ! -f "$settings" ]; then
+              echo "::warning::searxng/settings.yml not found — skipping SearXNG."
+            else
+              echo "Starting SearXNG (searxng/searxng:latest)..."
+              docker run -d --name searxng \
+                -p 8080:8080 \
+                -v "$settings:/etc/searxng/settings.yml:ro" \
+                searxng/searxng:latest
+              echo "Waiting for SearXNG /healthz..."
+              for _ in $(seq 1 30); do
+                if curl -fsS --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+                  echo "SearXNG is healthy."; break
+                fi
+                sleep 2
+              done
+              # Seeded MCP config points at http://172.17.0.1:8080 (docker0 gateway),
+              # which the host process also reaches. Export SEARXNG_URL too for any
+              # consumer that reads it from the environment.
+              echo "SEARXNG_URL=http://127.0.0.1:8080" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "SearXNG disabled (OPENCLAW_ENABLE_SEARXNG=${OPENCLAW_ENABLE_SEARXNG})."
+          fi
+
       - name: Inject secrets
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -125,6 +192,18 @@ jobs:
           .github/scripts/run-openclaw-cron.sh
         env:
           OPENCLAW_BIN: openclaw
+
+      - name: Stop sidecars
+        if: always()
+        run: |
+          # Graceful stop lets Redis flush its AOF before the cache is saved.
+          for c in searxng openclaw-redis; do
+            if [ -n "$(docker ps -aq -f name=^${c}$)" ]; then
+              echo "Stopping ${c}..."
+              docker stop "${c}" >/dev/null 2>&1 || true
+              docker rm "${c}" >/dev/null 2>&1 || true
+            fi
+          done
 
       - name: Notify Telegram
         if: always() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
