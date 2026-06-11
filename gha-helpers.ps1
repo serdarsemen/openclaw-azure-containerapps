@@ -138,12 +138,13 @@ function Publish-SeedArchive {
     git add -f $SeedPath
     if ($LASTEXITCODE -ne 0) { throw "git add failed for $SeedPath" }
 
-    # Only commit if the index actually changed (avoids 'nothing to commit' errors).
-    git diff --cached --quiet
+    # Scope the staged-change check and the commit to the seed path only, so any
+    # unrelated files the user already staged are never swept into this commit.
+    git diff --cached --quiet -- $SeedPath
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  Seed archive unchanged — nothing to commit." -ForegroundColor Gray
     } else {
-        git commit -m $Message | Out-Null
+        git commit -m $Message -- $SeedPath | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "git commit failed" }
         Write-Host "  Seed committed: $Message" -ForegroundColor Green
     }
@@ -171,8 +172,14 @@ function Invoke-WorkflowRun {
     Write-Host "  Triggered workflow: $WorkflowName" -ForegroundColor Green
 
     if ($Watch) {
-        Write-Host "  Watching the latest run (Ctrl+C to stop watching; the run continues)..." -ForegroundColor Gray
+        Write-Host "  Resolving the triggered run..." -ForegroundColor Gray
         Start-Sleep -Seconds 4   # give GitHub a moment to register the queued run
-        gh run watch --repo $Repo --exit-status
+        $runId = gh run list --repo $Repo --workflow $WorkflowName --limit 1 --json databaseId -q '.[0].databaseId' 2>$null
+        if ($runId) {
+            Write-Host "  Watching run $runId (Ctrl+C to stop watching; the run continues)..." -ForegroundColor Gray
+            gh run watch $runId --repo $Repo --exit-status
+        } else {
+            Write-Warning "Could not resolve the run id to watch. Check: gh run list --repo $Repo"
+        }
     }
 }

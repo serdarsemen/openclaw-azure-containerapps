@@ -137,11 +137,14 @@ if (-not $SkipSeed) {
 if ($ResetState) {
     Write-Host "`n=== Step 4: Reset cached state ===" -ForegroundColor Cyan
     Write-Host "  Deleting Actions caches with key prefix 'openclaw-state'..." -ForegroundColor Gray
-    $caches = gh cache list --repo $Repo --key "openclaw-state" --json id,key 2>$null | ConvertFrom-Json
-    if (-not $caches) {
+    # gh's --key filter is an exact match, but the workflow uses a rolling key
+    # (openclaw-state-<run_id>-<attempt>), so list all and filter by prefix here.
+    $caches = gh cache list --repo $Repo --limit 100 --json id,key 2>$null | ConvertFrom-Json
+    $stateCaches = @($caches | Where-Object { $_.key -like 'openclaw-state*' })
+    if (-not $stateCaches) {
         Write-Host "  No matching caches found." -ForegroundColor Gray
     } else {
-        foreach ($c in $caches) {
+        foreach ($c in $stateCaches) {
             gh cache delete $c.id --repo $Repo 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  Deleted cache: $($c.key)" -ForegroundColor Green
