@@ -1,0 +1,144 @@
+# ---------------------------------------------------------------------------
+# OpenClaw runtime on GitHub Actions
+#
+# A serverless replacement for the long-lived WSL/ACA/AKS Gateway. Instead of
+# keeping a Gateway process running 24/7, GitHub spins up a fresh Ubuntu runner
+# every 15 minutes, restores the previous OpenClaw state from the Actions cache,
+# fires any cron jobs that are due, saves the updated state back to the cache,
+# and shuts down — typically in 2-3 minutes. Zero infrastructure cost.
+#
+# State model:
+#   - $HOME/.openclaw is restored/saved via actions/cache (rolling key).
+#   - On a cache miss, optional seed archive (OPENCLAW_SEED_PATH) is extracted.
+#   - Secrets are injected from GitHub Secrets, never committed in plaintext.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   (all optional — only set the ones your jobs use)
+#   GROQ_API_KEY              Groq API key for optillm/groq fallbacks
+#   OPENCLAW_GATEWAY_TOKEN    pin a fixed gateway token (else auto-generated)
+#   TELEGRAM_BOT_TOKEN        bot token for workflow-level run notifications
+#   TELEGRAM_CHAT_ID          chat/user id to notify
+#
+# Optional repository variables (Settings → Secrets and variables → Actions → Variables):
+#   OPENCLAW_SEED_PATH        seed archive path (default: seed/openclaw-seed.tar.gz)
+#   OPENCLAW_GHA_DRIVE        manual | scheduler (default: manual)
+#
+# NOTE: Scheduled workflows only run from the repository's DEFAULT branch, and
+# GitHub may delay cron triggers under load (so "*/15" is best-effort, not exact).
+# Because the cache can contain credentials/sessions, use a PRIVATE repository.
+# ---------------------------------------------------------------------------
+name: OpenClaw Runtime
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes
+  workflow_dispatch:          # allow manual execution from the Actions tab
+    inputs:
+      drive:
+        description: 'Cron drive mode'
+        type: choice
+        default: manual
+        options: [manual, scheduler]
+
+# Never run two ticks at once — overlapping runs would corrupt the shared state.
+concurrency:
+  group: openclaw-runtime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  OPENCLAW_GATEWAY_PORT: '18789'
+  OPENCLAW_SEED_PATH: ${{ vars.OPENCLAW_SEED_PATH || 'seed/openclaw-seed.tar.gz' }}
+  OPENCLAW_GHA_DRIVE: ${{ inputs.drive || vars.OPENCLAW_GHA_DRIVE || 'manual' }}
+
+jobs:
+  tick:
+    name: OpenClaw cron tick
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Job-level env so the Telegram step's `if:` can test for configured secrets
+    # (step-level env is not visible to `if:` expressions).
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore OpenClaw state
+        id: state-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.openclaw
+          # Rolling cache: the key is unique per run so a new cache is always
+          # saved at the end, while restore-keys pulls the most recent prior state.
+          key: openclaw-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            openclaw-state-
+
+      - name: Install OpenClaw (npm)
+        run: |
+          npm install -g openclaw
+          openclaw --version || node -v
+
+      - name: Seed state on first run (cache miss)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.openclaw"
+          if [ -f "$HOME/.openclaw/openclaw.json" ]; then
+            echo "Existing state restored from cache — skipping seed."
+          elif [ -f "$OPENCLAW_SEED_PATH" ]; then
+            echo "Cache miss — extracting seed archive: $OPENCLAW_SEED_PATH"
+            tar xzf "$OPENCLAW_SEED_PATH" -C "$HOME/.openclaw"
+          else
+            echo "Cache miss and no seed archive present — starting from a fresh state."
+          fi
+
+      - name: Inject secrets
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENCLAW_GATEWAY_TOKEN: ${{ secrets.OPENCLAW_GATEWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Export non-empty secrets to the job env for the run step below.
+          # OpenClaw reads GROQ_API_KEY / OPENCLAW_GATEWAY_TOKEN from the environment.
+          if [ -n "${GROQ_API_KEY:-}" ]; then
+            echo "::add-mask::$GROQ_API_KEY"
+            echo "GROQ_API_KEY=$GROQ_API_KEY" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
+            echo "::add-mask::$OPENCLAW_GATEWAY_TOKEN"
+            echo "OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run OpenClaw cron tick
+        run: |
+          chmod +x .github/scripts/run-openclaw-cron.sh
+          .github/scripts/run-openclaw-cron.sh
+        env:
+          OPENCLAW_BIN: openclaw
+
+      - name: Notify Telegram
+        if: always() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          RUN_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN_STATUS" = "success" ]; then icon="✅"; else icon="🔴"; fi
+          text="${icon} OpenClaw runtime tick: ${RUN_STATUS}
+          ${RUN_URL}"
+          curl -fsS --max-time 15 \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            --data-urlencode "disable_web_page_preview=true" >/dev/null || \
+            echo "Telegram notification failed (non-fatal)."

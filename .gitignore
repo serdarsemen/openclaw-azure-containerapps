@@ -9,3 +9,7 @@ $null
 # Generated at deploy time — embeds the plaintext gateway token / API keys
 docker-compose-wsl.yaml
 ollama-data/
+
+# GitHub Actions runtime seed — may contain credentials/sessions.
+# Force-add into a PRIVATE repo only: git add -f seed/openclaw-seed.tar.gz
+seed/

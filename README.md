@@ -14,13 +14,14 @@ Deploy [OpenClaw](https://github.com/openclaw/openclaw) on Azure Container Apps 
 
 ## What this repo does
 
-This repo provides three ways to deploy OpenClaw:
+This repo provides four ways to run OpenClaw:
 
 1. **Azure Container Apps (ACA)** — Bicep templates and PowerShell scripts that deploy to Azure with managed HTTPS, NFS storage, and consumption-based pricing. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed.
 2. **Azure Kubernetes Service (AKS)** — PowerShell scripts that provision an AKS cluster, reuse the ACA ACR + NFS share, and deploy OpenClaw and **Ollama as separate pods** with a `LoadBalancer` Service. See [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) for a full walkthrough of migrating an existing ACA instance to AKS.
 3. **WSL Docker (local)** — PowerShell scripts that build and run OpenClaw as Docker containers inside WSL 2 on your Windows machine. No Azure subscription required. See [`ACA2WSLMigration.md`](./ACA2WSLMigration.md) for migrating an existing ACA instance to WSL.
+4. **GitHub Actions (serverless)** — a scheduled workflow that runs OpenClaw's cron jobs on a free Ubuntu runner every 15 minutes instead of a 24/7 Gateway. State persists via the Actions cache; zero infrastructure cost. See [`WSL2GHAMigration.md`](./WSL2GHAMigration.md) for migrating a WSL instance to GitHub Actions.
 
-All three options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch).
+The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch). The GitHub Actions runtime uses the npm install and carries Copilot auth over in its seed/cache.
 
 ## Prerequisites
 
@@ -42,6 +43,13 @@ All three options support GitHub Copilot as the LLM provider (device-flow OAuth,
 - Docker Engine running inside WSL (Docker Desktop with WSL 2 backend, or native Docker CE in a WSL distro)
 - Git
 - PowerShell 5.1+ (ships with Windows)
+
+### GitHub Actions runtime (serverless)
+
+- A **private** GitHub repository (the seed archive and Actions cache can contain credentials)
+- [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth login`)
+- `tar` on PATH (ships with Windows 10/11)
+- No Azure subscription, Docker, or always-on machine required
 
 Verify resource providers are registered:
 
@@ -321,6 +329,47 @@ wsl docker compose -f docker-compose-wsl.yaml up -d
 ```
 
 Use a Linux-side WSL path (ext4). Avoid `/mnt/c/...` for this mount, because Windows DrvFS permissions can appear as `0777` in containers and trigger OpenClaw security checks.
+
+---
+
+## Run (GitHub Actions — serverless)
+
+Run OpenClaw's cron jobs on a free Ubuntu runner every 15 minutes instead of keeping a Gateway up 24/7. Each tick restores `~/.openclaw` from the Actions cache, fires due cron jobs, saves the state back, and shuts down — typically in 2-3 minutes. See [`WSL2GHAMigration.md`](./WSL2GHAMigration.md) for migrating an existing WSL instance.
+
+> Use a **private** repository — the seed archive and Actions cache can contain credentials and session data.
+
+```powershell
+# 1. From your repo, configure secrets and build a seed from your local data dir
+.\setup-openclaw-gha.ps1 -GenerateGatewayToken -GroqApiKey gsk_... `
+    -TelegramBotToken 123456:ABC-DEF -TelegramChatId 2093604311
+
+# 2. Commit the workflow to your DEFAULT branch (schedules only run there)
+git add .github/workflows/openclaw-runtime.yml .github/scripts/run-openclaw-cron.sh setup-openclaw-gha.ps1
+git add -f seed/openclaw-seed.tar.gz          # private repo only
+git commit -m "Add OpenClaw GitHub Actions runtime"
+git push origin HEAD
+
+# 3. Trigger the first run (the */15 schedule takes over afterwards)
+gh workflow run "OpenClaw Runtime"
+gh run watch
+```
+
+| Aspect | Detail |
+|---|---|
+| Schedule | `*/15 * * * *` (best-effort; GitHub may delay under load) + manual `workflow_dispatch` |
+| State | `~/.openclaw` via `actions/cache` (rolling key), seeded once from `seed/openclaw-seed.tar.gz` |
+| Models | Cloud only (no Ollama/GPU) — give each cron job cloud `fallbacks` |
+| Notifications | Optional workflow-level Telegram step (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` secrets) |
+| Drive mode | `OPENCLAW_GHA_DRIVE` variable: `manual` (default, explicit `cron run --due`) or `scheduler` |
+
+**Repository secrets** (all optional — set only what your jobs use): `GROQ_API_KEY`, `OPENCLAW_GATEWAY_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+
+```powershell
+# Useful commands
+gh run list --workflow "OpenClaw Runtime"     # recent ticks
+gh run view --log                              # logs of the latest run
+gh cache list                                  # inspect saved state caches
+```
 
 ---
 
