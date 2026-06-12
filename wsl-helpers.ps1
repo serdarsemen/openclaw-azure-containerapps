@@ -99,6 +99,31 @@ function Invoke-WslStream {
     }
 }
 
+# Run a WSL command and recover once from Docker bridge subnet exhaustion by
+# pruning unused networks and retrying. This targets the common compose error:
+# "all predefined address pools have been fully subnetted".
+function Invoke-WslWithNetworkPoolRecovery {
+  param(
+    [string] $Command,
+    [string] $Context = "Docker command"
+  )
+
+  try {
+    return Invoke-Wsl $Command
+  } catch {
+    $message = $_.Exception.Message
+    if ($message -notmatch 'predefined address pools have been fully subnetted') {
+      throw
+    }
+
+    Write-Host "  $Context failed due to exhausted Docker address pools." -ForegroundColor Yellow
+    Write-Host "  Pruning unused Docker networks and retrying once..." -ForegroundColor Yellow
+    Invoke-Wsl "docker network prune -f"
+
+    return Invoke-Wsl $Command
+  }
+}
+
 function Test-WslDocker {
     try {
         $null = Invoke-Wsl "docker info > /dev/null 2>&1"

@@ -453,7 +453,7 @@ try {
 }
 
 Write-Host "  Starting containers..." -ForegroundColor Gray
-Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
+Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers started" -ForegroundColor Green
 
 # Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.

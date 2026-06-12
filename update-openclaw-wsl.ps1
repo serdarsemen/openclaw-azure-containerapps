@@ -524,7 +524,7 @@ try {
 }
 
 Write-Host "  Starting containers with updated image..." -ForegroundColor Gray
-Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
+Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
 Write-Host "  Containers restarted" -ForegroundColor Green
 
 # Wait for the gateway to become healthy
