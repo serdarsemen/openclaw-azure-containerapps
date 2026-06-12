@@ -427,6 +427,9 @@ function New-OpenClawComposeYaml {
 networks:
   openclaw-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
 
 volumes:
   redis-data:
