@@ -10,6 +10,7 @@
 # Prerequisites: OpenClaw already deployed via deploy-openclaw-wsl.ps1
 #
 # Ollama mode switches (optional — override preserved Ollama config):
+#   -Ollama:       keep/start the Ollama sidecar in Docker
 #   -OllamaWindows: switch to Ollama running natively on the Windows host
 #   -OllamaWsl:     switch to Ollama running natively in WSL
 #   -OllamaHost <url>: switch to an external Ollama instance at a custom URL
@@ -24,6 +25,7 @@
 #   .\update-openclaw-wsl.ps1 -Npm                             # npm install
 #   .\update-openclaw-wsl.ps1 -NoCache                         # rebuild without Docker cache
 #   .\update-openclaw-wsl.ps1 -PullOnly                        # skip rebuild, just restart
+#   .\update-openclaw-wsl.ps1 -Ollama                          # explicitly keep/start Ollama sidecar
 #   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
 #   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
@@ -35,6 +37,7 @@ param(
     [switch] $Npm,
     [switch] $NoCache,
     [switch] $PullOnly,
+    [switch] $Ollama,
     [switch] $OllamaWindows,
     [switch] $OllamaWsl,
     [string] $OllamaHost    = "",
@@ -48,11 +51,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Validate Ollama mode — only one allowed at a time
-$ollamaModeCount = @($OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
+$ollamaModeCount = @($Ollama, $OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
 if ($ollamaModeCount -gt 1) {
-    throw "Only one Ollama mode allowed at a time: -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
+    throw "Only one Ollama mode allowed at a time: -Ollama, -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
 }
-$ollamaModeOverride = $ollamaModeCount -gt 0
+$ollamaModeOverride = $OllamaWindows -or $OllamaWsl -or [bool]$OllamaHost
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,
 # Start-WslDocker, Repair-WslDns, New/Expand-WslTransferArchive,
@@ -196,9 +199,7 @@ foreach ($line in $existingEnvLines) {
     }
 }
 
-if (-not $ollamaModeOverride) {
-    $OllamaHost = $existingEnv['OLLAMA_HOST']
-}
+$OllamaHost = if ($OllamaWindows -or $OllamaWsl -or $OllamaHost) { $OllamaHost } else { "" }
 $GatewayPort = 18789
 
 # Check if Ollama sidecar is part of this deployment
@@ -292,12 +293,12 @@ Write-Host "  Bridge port:    $BridgePort" -ForegroundColor Gray
 Write-Host "  HomeDir:        $HomeDir" -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
-# Sidecar teardown: if user switched to a non-sidecar Ollama mode, remove the
+# Sidecar teardown: if the user did not explicitly request -Ollama, remove the
 # orphaned sidecar container so it doesn't keep running with stale config.
 # ---------------------------------------------------------------------------
-$newOllamaSidecar = $ollamaContainerExists -and -not $ollamaModeOverride
-if ($ollamaContainerExists -and $ollamaModeOverride) {
-    Write-Host "  Removing orphan Ollama sidecar (mode switched away from -Ollama)..." -ForegroundColor Yellow
+$newOllamaSidecar = $Ollama
+if ($ollamaContainerExists -and -not $newOllamaSidecar) {
+    Write-Host "  Removing Ollama sidecar (explicit -Ollama not provided)..." -ForegroundColor Yellow
     try { Invoke-Wsl "docker rm -f ${ContainerName}-ollama 2>/dev/null" } catch {}
     $ollamaContainerExists = $false
 }

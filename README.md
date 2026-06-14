@@ -17,7 +17,7 @@ Deploy [OpenClaw](https://github.com/openclaw/openclaw) on Azure Container Apps 
 This repo provides four ways to run OpenClaw:
 
 1. **Azure Container Apps (ACA)** — Bicep templates and PowerShell scripts that deploy to Azure with managed HTTPS, NFS storage, and consumption-based pricing. The container image builds remotely in Azure Container Registry, so no Docker Desktop is needed.
-2. **Azure Kubernetes Service (AKS)** — PowerShell scripts that provision an AKS cluster, reuse the ACA ACR + NFS share, and deploy OpenClaw and **Ollama as separate pods** with a `LoadBalancer` Service. See [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) for a full walkthrough of migrating an existing ACA instance to AKS.
+2. **Azure Kubernetes Service (AKS)** — PowerShell scripts that provision an AKS cluster, reuse the ACA ACR + NFS share, and deploy OpenClaw (with optional **Ollama as a separate pod**) behind a `LoadBalancer` Service. See [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) for a full walkthrough of migrating an existing ACA instance to AKS.
 3. **WSL Docker (local)** — PowerShell scripts that build and run OpenClaw as Docker containers inside WSL 2 on your Windows machine. No Azure subscription required. See [`ACA2WSLMigration.md`](./ACA2WSLMigration.md) for migrating an existing ACA instance to WSL.
 4. **GitHub Actions (serverless)** — a scheduled workflow that runs OpenClaw's cron jobs on a free Ubuntu runner every 15 minutes instead of a 24/7 Gateway. State persists via the Actions cache; zero infrastructure cost. See [`WSL2GHAMigration.md`](./WSL2GHAMigration.md) for migrating a WSL instance to GitHub Actions.
 
@@ -113,17 +113,18 @@ You should see a valid FQDN, an active revision, and gateway startup logs withou
 
 ## Deploy (Azure Kubernetes Service)
 
-Provision AKS and deploy OpenClaw with **Ollama running as a separate pod** in the same namespace. Reuses the ACR and NFS Azure Files share from the ACA Bicep deployment — you can run this alongside or after the ACA deployment, or use [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) to migrate an existing ACA instance.
+Provision AKS and deploy OpenClaw (optionally with **Ollama as a separate pod**) in the same namespace. Reuses the ACR and NFS Azure Files share from the ACA Bicep deployment — you can run this alongside or after the ACA deployment, or use [`ACA2AKSMigration.md`](./ACA2AKSMigration.md) to migrate an existing ACA instance.
 
 ```powershell
 # 1. Ensure ACA infrastructure exists (provides ACR + NFS storage for AKS to reuse)
 az deployment group create --resource-group rg-openclaw `
   --template-file bicep/main.bicep --parameters bicep/main.bicepparam
 
-# 2. Provision AKS, deploy Ollama + OpenClaw, pre-pull models (~15 min)
-.\deploy-openclaw-aks.ps1                                   # source-build variant
+# 2. Provision AKS and deploy OpenClaw (~15 min)
+.\deploy-openclaw-aks.ps1                                   # source-build variant (OpenClaw only)
 # .\deploy-openclaw-aks.ps1 -Npm                            # npm variant
-# .\deploy-openclaw-aks.ps1 -OllamaModels "llama3.1:8b,qwen2.5:7b"
+# .\deploy-openclaw-aks.ps1 -Ollama                         # explicitly deploy Ollama pod/service
+# .\deploy-openclaw-aks.ps1 -Ollama -OllamaModels "llama3.1:8b,qwen2.5:7b"
 
 # 3. Authenticate GitHub Copilot
 kubectl -n openclaw exec -it deploy/openclaw -c openclaw -- bash
@@ -131,7 +132,7 @@ kubectl -n openclaw exec -it deploy/openclaw -c openclaw -- bash
 #   openclaw models auth login-github-copilot               # (npm variant)
 ```
 
-The script prints the external `LoadBalancer` IP plus a Control UI URL with the embedded token.
+The script prints the external `LoadBalancer` IP plus a Control UI URL with the embedded token. Ollama is now opt-in on AKS and is deployed only when `-Ollama` is provided.
 
 ### AKS update
 
@@ -293,9 +294,14 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 # Pin to a specific tag
 .\update-openclaw-wsl.ps1 -Tag v2026.3.2
 
+# Keep/start the Ollama sidecar during update
+.\update-openclaw-wsl.ps1 -Ollama
+
 # Just restart without rebuilding
 .\update-openclaw-wsl.ps1 -PullOnly
 ```
+
+By default, the WSL update script now leaves Ollama disabled unless you pass `-Ollama` or choose one of the host-based Ollama modes.
 
 ### WSL useful commands
 

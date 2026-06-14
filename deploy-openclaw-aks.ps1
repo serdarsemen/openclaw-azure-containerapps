@@ -1,9 +1,10 @@
 # ---------------------------------------------------------------------------
-# deploy-openclaw-aks.ps1 — Provision AKS and deploy OpenClaw + Ollama (separate pods)
+# deploy-openclaw-aks.ps1 — Provision AKS and deploy OpenClaw (optional Ollama)
 #
 # Mirrors deploy-openclaw-ACA.ps1 but targets an Azure Kubernetes Service
-# cluster. Ollama runs as its own Deployment/Service in the `openclaw` namespace
-# and OpenClaw reaches it via in-cluster DNS at http://ollama:11434.
+# cluster. Ollama is optional and, when enabled, runs as its own Deployment/Service
+# in the `openclaw` namespace. OpenClaw then reaches it via in-cluster DNS at
+# http://ollama:11434.
 #
 # Infrastructure reuse:
 #   - Reuses the existing ACR + NFS Azure Files share from the ACA Bicep deployment
@@ -18,6 +19,7 @@
 # Usage:
 #   .\deploy-openclaw-aks.ps1                                  # source-build variant
 #   .\deploy-openclaw-aks.ps1 -Npm                             # npm variant
+#   .\deploy-openclaw-aks.ps1 -Ollama                          # deploy Ollama pod/service + model pre-pull
 #   .\deploy-openclaw-aks.ps1 -GatewayToken <hex>              # reuse an ACA token
 #   .\deploy-openclaw-aks.ps1 -GroqApiKey gsk_...              # set GROQ_API_KEY in openclaw-secrets
 #   .\deploy-openclaw-aks.ps1 -OllamaModels "llama3.1:8b,qwen2.5:7b"
@@ -29,6 +31,7 @@
 
 param(
     [switch] $Npm,
+    [switch] $Ollama,
     [string] $SourceResourceGroup = "rg-openclaw",      # ACA resource group (source of ACR + storage)
     [string] $SourceDeploymentName = "main",            # "mainnpm" for npm variant
     [string] $AksResourceGroup = "rg-openclaw-aks",
@@ -64,8 +67,10 @@ if ($Npm) {
     Write-Host "`n*** Source-build variant selected ***" -ForegroundColor Magenta
 }
 
+$TotalSteps = if ($Ollama) { 8 } else { 7 }
+
 # --- Discover source infra from ACA Bicep deployment ---
-Write-Host "`n=== Step 1/8: Discovering source infrastructure ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 1/$TotalSteps: Discovering source infrastructure ===" -ForegroundColor Cyan
 
 $AcrName = az deployment group show --resource-group $SourceResourceGroup --name $SourceDeploymentName `
     --query "properties.outputs.acrName.value" -o tsv 2>$null
@@ -83,7 +88,7 @@ Write-Host "  ACR:       $AcrServer" -ForegroundColor Green
 Write-Host "  Storage:   $StorageAccount (rg: $StorageRg)" -ForegroundColor Green
 
 # --- Provision AKS (idempotent) ---
-Write-Host "`n=== Step 2/8: Provisioning AKS cluster ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 2/$TotalSteps: Provisioning AKS cluster ===" -ForegroundColor Cyan
 
 az group create --name $AksResourceGroup --location $Location --only-show-errors | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to create resource group $AksResourceGroup" }
@@ -123,7 +128,7 @@ if ($LASTEXITCODE -ne 0) { throw "get-credentials failed" }
 kubectl get nodes --no-headers | Out-Host
 
 # --- Namespace + secrets ---
-Write-Host "`n=== Step 3/8: Creating namespace and secrets ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 3/$TotalSteps: Creating namespace and secrets ===" -ForegroundColor Cyan
 
 kubectl get namespace $Namespace 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -148,7 +153,7 @@ kubectl -n $Namespace create secret generic openclaw-secrets `
 if ($LASTEXITCODE -ne 0) { throw "Failed to create openclaw-secrets" }
 
 # --- Persistent storage ---
-Write-Host "`n=== Step 4/8: Provisioning persistent storage ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 4/$TotalSteps: Provisioning persistent storage ===" -ForegroundColor Cyan
 
 $stateManifest = @"
 apiVersion: v1
@@ -182,6 +187,10 @@ spec:
     requests:
       storage: ${OpenClawStatePvSize}Gi
   volumeName: openclaw-state
+"@
+
+if ($Ollama) {
+    $stateManifest += @"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -195,6 +204,7 @@ spec:
     requests:
       storage: ${OllamaModelsPvcSize}Gi
 "@
+}
 
 $tmpState = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".yaml")
 try {
@@ -205,8 +215,9 @@ try {
     Remove-Item $tmpState -ErrorAction SilentlyContinue
 }
 
-# --- Deploy Ollama as a separate pod ---
-Write-Host "`n=== Step 5/8: Deploying Ollama (separate pod) ===" -ForegroundColor Cyan
+# --- Deploy Ollama as a separate pod (optional) ---
+if ($Ollama) {
+Write-Host "`n=== Step 5/$TotalSteps: Deploying Ollama (separate pod) ===" -ForegroundColor Cyan
 
 $ollamaManifest = @"
 apiVersion: apps/v1
@@ -291,9 +302,13 @@ if ($OllamaModels) {
         if ($LASTEXITCODE -ne 0) { Write-Warning "ollama pull $m failed (exit $LASTEXITCODE)" }
     }
 }
+} else {
+    Write-Host "`n=== Step 5/$TotalSteps: Skipping Ollama deployment (use -Ollama to enable) ===" -ForegroundColor Gray
+}
 
 # --- Deploy OpenClaw (with Redis sidecar) ---
-Write-Host "`n=== Step 6/8: Deploying OpenClaw ===" -ForegroundColor Cyan
+$openClawStep = if ($Ollama) { 6 } else { 5 }
+Write-Host "`n=== Step $openClawStep/$TotalSteps: Deploying OpenClaw ===" -ForegroundColor Cyan
 
 if ($Npm) {
     $OpenClawCommand = @(
@@ -310,6 +325,14 @@ if ($Npm) {
 }
 
 $cmdYaml = ($OpenClawCommand | ForEach-Object { "            - " + ($_ | ConvertTo-Json -Compress) }) -join "`n"
+
+$ollamaEnvYaml = ""
+if ($Ollama) {
+    $ollamaEnvYaml = @"
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+"@
+}
 
 $openclawManifest = @"
 apiVersion: apps/v1
@@ -352,8 +375,7 @@ $cmdYaml
               value: xterm-256color
             - name: OPENCLAW_BUNDLED_PLUGINS_DIR
               value: $PluginsDir
-            - name: OLLAMA_HOST
-              value: "http://ollama:11434"
+$ollamaEnvYaml
             - name: OPENCLAW_DISABLE_BONJOUR
               value: "true"
           resources:
@@ -413,7 +435,8 @@ kubectl -n $Namespace rollout status deploy/openclaw --timeout=600s | Out-Host
 if ($LASTEXITCODE -ne 0) { Write-Warning "openclaw rollout did not complete within timeout" }
 
 # --- Non-interactive onboarding ---
-Write-Host "`n=== Step 7/8: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
+$configStep = if ($Ollama) { 7 } else { 6 }
+Write-Host "`n=== Step $configStep/$TotalSteps: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
 
 function Invoke-PodExec {
     param([string] $Label, [string] $Command, [int] $MaxRetries = 3, [int] $DelaySec = 15)
@@ -442,7 +465,8 @@ Invoke-PodExec -Label "Model set" -Command "$bin models set github-copilot/claud
 Invoke-PodExec -Label "Security audit" -Command "$bin security audit"
 
 # --- Summary ---
-Write-Host "`n=== Step 8/8: Gateway configured ===" -ForegroundColor Green
+$summaryStep = if ($Ollama) { 8 } else { 7 }
+Write-Host "`n=== Step $summaryStep/$TotalSteps: Gateway configured ===" -ForegroundColor Green
 
 $GatewayIp = ""
 for ($i = 0; $i -lt 30; $i++) {
@@ -470,10 +494,15 @@ Write-Host "2. Inside the container:" -ForegroundColor Yellow
 $authCmd = if ($Npm) { "openclaw models auth login-github-copilot" } else { "node openclaw.mjs models auth login-github-copilot" }
 Write-Host "   $authCmd" -ForegroundColor White
 Write-Host ""
-Write-Host "Ollama pod:" -ForegroundColor Cyan
-Write-Host "   kubectl -n $Namespace get pods -l app=ollama"
-Write-Host "   kubectl -n $Namespace exec deploy/ollama -- ollama list"
-Write-Host ""
+if ($Ollama) {
+    Write-Host "Ollama pod:" -ForegroundColor Cyan
+    Write-Host "   kubectl -n $Namespace get pods -l app=ollama"
+    Write-Host "   kubectl -n $Namespace exec deploy/ollama -- ollama list"
+    Write-Host ""
+} else {
+    Write-Host "Ollama: disabled (deploy with -Ollama to enable local models)" -ForegroundColor Gray
+    Write-Host ""
+}
 Write-Host "=== Last step: save gateway token and URL ===" -ForegroundColor Cyan
 Write-Host ""
 $boxLabelLast  = "GATEWAY TOKEN: $GatewayToken"
