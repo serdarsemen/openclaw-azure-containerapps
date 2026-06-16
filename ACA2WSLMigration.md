@@ -8,7 +8,7 @@ Migrate a running OpenClaw instance from Azure Container Apps (ACA) to a local W
 |---|---|---|
 | State storage | NFS Azure File share (`openclaw-state`) mounted at `$HOME/.openclaw` | Local `openclaw-data/` folder mounted at `$HOME/.openclaw` |
 | Container image | ACR-hosted `openclaw:latest` + tools layer | Locally built via `deploy-openclaw-wsl.ps1` |
-| Ollama | Separate Container App (`ca-ollama`) on internal DNS | Sidecar container (`-Ollama` flag) or external host (`-OllamaHost`) |
+| Ollama | Separate Container App (`ca-ollama`) on internal DNS | Sidecar container (`-Ollama` flag) or explicitly selected native/external host (`-OllamaWindows`, `-OllamaWsl`, `-OllamaHost`) |
 | Gateway access | External ingress on port 18789 | `localhost:18789` |
 | Redis | Sidecar container | Sidecar container |
 
@@ -158,11 +158,17 @@ Write-Host "Updated Ollama URL in openclaw.json" -ForegroundColor Green
 
 > **Note:** If using the `-Ollama` sidecar flag in WSL, replace with `http://ollama:11434` instead.
 
+> **Important:** WSL scripts do not auto-install or auto-start native Ollama. If using `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`, start Ollama manually first and ensure it listens on `0.0.0.0:11434`.
+
 ## Step 6 — Deploy to WSL
 
 ```powershell
 # Source build with external Ollama (running on Windows host)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
+
+# Or: source build with Ollama on Windows host (auto-detect host IP)
+# Native Ollama must already be running on Windows and listening on 0.0.0.0:11434
+.\deploy-openclaw-wsl.ps1 -OllamaWindows
 
 # Or: source build with Ollama sidecar
 .\deploy-openclaw-wsl.ps1 -Ollama

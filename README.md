@@ -206,6 +206,8 @@ wsl docker exec -it openclaw bash
 
 By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or point at an existing instance with `-OllamaWindows` (Ollama on the Windows host), `-OllamaWsl` (Ollama in WSL), or `-OllamaHost <url>` (any URL). Only one Ollama mode may be used at a time.
 
+The script does **not** auto-install or auto-start native Ollama. Native Ollama is used only when you explicitly pass `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`.
+
 ```powershell
 # Default: OpenClaw + Redis + SearXNG (no Ollama)
 .\deploy-openclaw-wsl.ps1
@@ -229,8 +231,7 @@ By default, the WSL deploy script does **not** include an Ollama sidecar — it 
 .\deploy-openclaw-wsl.ps1 -LanAccess
 ```
 
-> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network.
-
+> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` and be started manually — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network.
 
 #### Using a local Ollama instance (no sidecar)
 
@@ -242,7 +243,7 @@ If Ollama is already running on your Windows PC, use `-OllamaHost` to point Open
 
 `host.docker.internal` is a special hostname that Docker containers use to reach services on the Windows host. Ollama listens on port `11434` by default.
 
-> **Note:** If Ollama is bound only to `127.0.0.1`, set `OLLAMA_HOST=0.0.0.0` in your local Ollama environment so it accepts connections from the Docker bridge network.
+> **Note:** If Ollama is bound only to `127.0.0.1`, set `OLLAMA_HOST=0.0.0.0` in your local Ollama environment so it accepts connections from the Docker bridge network. Start/restart Ollama manually after changing this.
 
 When using `-OllamaHost`, the script skips the Ollama sidecar container and model pulling entirely — you manage models on the external instance yourself.
 
