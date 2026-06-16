@@ -239,6 +239,9 @@ function Resolve-OllamaHost {
     )
 
     if (-not ($OllamaWindows -or $OllamaWsl -or $OllamaHost)) {
+    Write-Host "`n=== Ollama ===" -ForegroundColor Cyan
+    Write-Host "  No Ollama parameter provided." -ForegroundColor Gray
+    Write-Host "  Skipping host resolution and connectivity checks." -ForegroundColor Gray
         return @{ OllamaHost = ""; Reachable = $false }
     }
 

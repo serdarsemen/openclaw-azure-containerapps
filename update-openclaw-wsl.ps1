@@ -243,12 +243,11 @@ if (-not (Test-Path $composePath)) {
 Write-Host "  Compose file: found" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Resolve -OllamaWindows / -OllamaWsl / -OllamaHost to a concrete OLLAMA_HOST URL
+# Resolve native/external Ollama usage to a concrete OLLAMA_HOST URL, or emit
+# a skip note when Ollama is not being changed for this update.
 # ---------------------------------------------------------------------------
-if ($OllamaWindows -or $OllamaWsl) {
-    $resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
-    $OllamaHost = $resolved.OllamaHost
-}
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
+$OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------
 # Set variant-specific defaults (image name needed for compose regeneration)

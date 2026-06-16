@@ -119,12 +119,11 @@ Write-Host "  Checking DNS resolution..." -ForegroundColor Gray
 $null = Repair-WslDns
 
 # ---------------------------------------------------------------------------
-# Resolve -OllamaWindows / -OllamaWsl / -OllamaHost to a concrete URL
+# Resolve native/external Ollama usage to a concrete URL, or emit a skip note
+# when Ollama is not in use for this deployment.
 # ---------------------------------------------------------------------------
-if ($OllamaWindows -or $OllamaWsl) {
-    $resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
-    $OllamaHost = $resolved.OllamaHost
-}
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
+$OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------
 # Set variant-specific defaults
