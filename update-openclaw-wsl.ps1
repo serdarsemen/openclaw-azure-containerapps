@@ -14,6 +14,8 @@
 #   -OllamaWindows: switch to Ollama running natively on the Windows host
 #   -OllamaWsl:     switch to Ollama running natively in WSL
 #   -OllamaHost <url>: switch to an external Ollama instance at a custom URL
+#   - No automatic native Ollama install/start is performed; native Ollama must
+#     be started manually and is only used when one of the Ollama parameters is passed.
 #
 # Important: For -OllamaWindows, Ollama on Windows must listen on 0.0.0.0
 #   (not 127.0.0.1). Set OLLAMA_HOST=0.0.0.0:11434 in Windows environment

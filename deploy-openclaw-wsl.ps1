@@ -22,6 +22,8 @@
 #   - -OllamaWsl: use Ollama running natively in WSL (auto-detects IP)
 #   - -OllamaHost <url>: use an external Ollama instance at a custom URL
 #   - -OllamaModel <name>: pull only this model instead of the default set
+#   - No automatic native Ollama install/start is performed; native Ollama must
+#     be started manually and is only used when one of the Ollama parameters is passed.
 #
 # Important: For -OllamaWindows, Ollama on Windows must listen on 0.0.0.0
 #   (not 127.0.0.1). Set OLLAMA_HOST=0.0.0.0:11434 in Windows environment

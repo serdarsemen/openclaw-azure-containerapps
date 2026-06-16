@@ -243,6 +243,8 @@ function Resolve-OllamaHost {
     }
 
     Write-Host "`n=== Resolving Ollama host ===" -ForegroundColor Cyan
+    Write-Host "  Note: this script does not auto-install or auto-start Ollama." -ForegroundColor Gray
+    Write-Host "  Ollama runs only when explicitly requested via -Ollama / -OllamaWindows / -OllamaWsl / -OllamaHost." -ForegroundColor Gray
 
     $dockerOs = (Invoke-WslData "docker info --format '{{.OperatingSystem}}' 2>/dev/null").Trim()
     $isDockerDesktop = $dockerOs -match "Docker Desktop"
@@ -271,9 +273,9 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://${windowsIp}:11434"
             Write-Host "  Detected Windows host IP from WSL: $windowsIp" -ForegroundColor Green
         }
-        Write-Host "  REQUIRED: Ollama on Windows must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
-        Write-Host "  Run:  [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST','0.0.0.0:11434','User')" -ForegroundColor Yellow
-        Write-Host "  Then restart Ollama on Windows." -ForegroundColor Yellow
+        Write-Host "  MANUAL prerequisite: Ollama on Windows must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
+        Write-Host "  Run manually: [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST','0.0.0.0:11434','User')" -ForegroundColor Yellow
+        Write-Host "  Then restart Ollama on Windows manually." -ForegroundColor Yellow
     }
 
     if ($OllamaWsl) {
@@ -288,8 +290,8 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Using host.docker.internal for WSL Ollama" -ForegroundColor Green
         }
-        Write-Host "  NOTE: Ollama in WSL must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
-        Write-Host "  Set OLLAMA_HOST=0.0.0.0:11434 before starting Ollama in WSL." -ForegroundColor Yellow
+        Write-Host "  MANUAL prerequisite: Ollama in WSL must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
+        Write-Host "  Set OLLAMA_HOST=0.0.0.0:11434 before starting Ollama in WSL manually." -ForegroundColor Yellow
     }
 
     Write-Host "  Verifying Ollama connectivity at $OllamaHost ..." -ForegroundColor Gray
@@ -315,6 +317,7 @@ function Resolve-OllamaHost {
         $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "the external host" }
         Write-Warning "Ollama not reachable at $OllamaHost"
         Write-Host "  Ensure Ollama is running on $sourceLabel and bound to 0.0.0.0:11434" -ForegroundColor Yellow
+      Write-Host "  No auto-install/start attempted by this script." -ForegroundColor Yellow
         Write-Host "  Continuing deployment — Ollama features will be unavailable until connectivity is restored." -ForegroundColor Yellow
     }
     Write-Host "  OLLAMA_HOST=$OllamaHost" -ForegroundColor Green
