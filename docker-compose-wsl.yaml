@@ -63,7 +63,6 @@ services:
       - TERM=xterm-256color
       - REDIS_HOST=localhost
       - REDIS_PORT=6379
-      - OLLAMA_HOST=http://192.168.1.1:11434
       - OPENCLAW_DISABLE_BONJOUR=true
       - NPM_CONFIG_RESOLUTION_MODE=highest
       - npm_config_resolution_mode=highest
