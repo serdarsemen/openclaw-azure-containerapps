@@ -61,6 +61,7 @@ $ollamaModeOverride = $OllamaWindows -or $OllamaWsl -or [bool]$OllamaHost
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,
 # Start-WslDocker, Repair-WslDns, New/Expand-WslTransferArchive,
+# Get-LatestOllamaVersion, Start-OllamaWindows, Start-OllamaWsl,
 # Resolve-OllamaHost, New-OpenClawComposeYaml).
 . "$PSScriptRoot/wsl-helpers.ps1"
 
@@ -525,6 +526,19 @@ try {
     Write-Host "  redis, searxng, and crw images updated" -ForegroundColor Green
 } catch {
     Write-Warning "  Failed to pull latest redis/searxng/crw image(s) — will use cached version(s)"
+}
+
+# Fetch latest Ollama version if native Ollama mode is selected
+if ($OllamaWindows -or $OllamaWsl) {
+    Write-Host "  Fetching latest Ollama version..." -ForegroundColor Gray
+    try {
+        $latestOllamaVersion = Get-LatestOllamaVersion
+        if ($latestOllamaVersion) {
+            Write-Host "  Latest Ollama version available: $latestOllamaVersion" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  Could not fetch latest Ollama version (network issue)" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "  Starting containers with updated image..." -ForegroundColor Gray

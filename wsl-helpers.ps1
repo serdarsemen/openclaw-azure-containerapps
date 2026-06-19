@@ -228,6 +228,22 @@ function Update-LocalBuildDockerfile {
     Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$WslDockerfilePath'"
 }
 
+# Get the latest Ollama version from GitHub releases.
+function Get-LatestOllamaVersion {
+    try {
+        Write-Host "  Fetching latest Ollama version from GitHub..." -ForegroundColor Gray
+        $releases = Invoke-WebRequest -Uri "https://api.github.com/repos/ollama/ollama/releases/latest" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($releases.StatusCode -eq 200) {
+            $releaseData = $releases.Content | ConvertFrom-Json
+            $latestTag = $releaseData.tag_name -replace '^v', ''
+            Write-Host "  Latest Ollama version: $latestTag" -ForegroundColor Green
+            return $latestTag
+        }
+    } catch {}
+    Write-Host "  Could not fetch latest version from GitHub. Using installed version." -ForegroundColor Yellow
+    return $null
+}
+
 # Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWindows {
     try {
@@ -238,6 +254,18 @@ function Start-OllamaWindows {
         if (-not $ollamaPath) {
             Write-Host "  Ollama not found in PATH. Install from https://ollama.ai" -ForegroundColor Yellow
             return $false
+        }
+
+        # Fetch and display latest version info
+        Write-Host "  Checking Ollama version..." -ForegroundColor Gray
+        $latestVersion = Get-LatestOllamaVersion
+        try {
+            $currentVersion = & ollama --version 2>$null | Select-Object -First 1
+            Write-Host "    Current: $currentVersion" -ForegroundColor Gray
+        } catch {}
+        if ($latestVersion) {
+            Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
+            Write-Host "    Tip: Visit https://ollama.ai to update to the latest version" -ForegroundColor Gray
         }
 
         # Set OLLAMA_HOST to 0.0.0.0:11434 if not already set
@@ -291,6 +319,20 @@ function Start-OllamaWsl {
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  Ollama not found in WSL. Install with: wsl -- sudo apt-get install ollama" -ForegroundColor Yellow
             return $false
+        }
+
+        # Check and display version info
+        Write-Host "  Checking Ollama version in WSL..." -ForegroundColor Gray
+        try {
+            $currentVersion = wsl -- bash -c "ollama --version" 2>$null
+            if ($currentVersion) {
+                Write-Host "    Current: $currentVersion" -ForegroundColor Gray
+            }
+        } catch {}
+        $latestVersion = Get-LatestOllamaVersion
+        if ($latestVersion) {
+            Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
+            Write-Host "    Tip: Update with: wsl -- sudo apt-get install --only-upgrade ollama" -ForegroundColor Gray
         }
 
         # Set OLLAMA_HOST in WSL environment and start service

@@ -20,8 +20,10 @@
 #   - -Ollama: add Ollama sidecar container in Docker and pull models
 #   - -OllamaWindows: use Ollama running natively on the Windows host (auto-detects IP)
 #     * Script will attempt to auto-start Ollama on Windows
+#     * Latest Ollama version is checked and displayed
 #   - -OllamaWsl: use Ollama running natively in WSL (auto-detects IP)
 #     * Script will attempt to auto-start Ollama in WSL
+#     * Latest Ollama version is checked and displayed
 #   - -OllamaHost <url>: use an external Ollama instance at a custom URL
 #   - -OllamaModel <name>: pull only this model instead of the default set
 #
@@ -83,6 +85,7 @@ if ($ollamaModeCount -gt 1) {
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,
 # Start-WslDocker, Repair-WslDns, New/Expand-WslTransferArchive,
+# Get-LatestOllamaVersion, Start-OllamaWindows, Start-OllamaWsl,
 # Resolve-OllamaHost, New-OpenClawComposeYaml).
 . "$PSScriptRoot/wsl-helpers.ps1"
 
@@ -454,6 +457,19 @@ try {
     Write-Host "  redis, searxng, and crw images updated" -ForegroundColor Green
 } catch {
     Write-Warning "  Failed to pull latest redis/searxng/crw image(s) — will use cached version(s)"
+}
+
+# Fetch latest Ollama version if native Ollama mode is selected
+if ($OllamaWindows -or $OllamaWsl) {
+    Write-Host "  Fetching latest Ollama version..." -ForegroundColor Gray
+    try {
+        $latestOllamaVersion = Get-LatestOllamaVersion
+        if ($latestOllamaVersion) {
+            Write-Host "  Latest Ollama version available: $latestOllamaVersion" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  Could not fetch latest Ollama version (network issue)" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "  Starting containers..." -ForegroundColor Gray
