@@ -585,7 +585,7 @@ $envBlock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     # CRW (Code Ready Workspace) — collaborative development environment.
     # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
     restart: unless-stopped

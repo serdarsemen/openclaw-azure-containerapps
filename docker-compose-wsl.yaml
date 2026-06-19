@@ -124,3 +124,30 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  crw:
+    image: ghcr.io/us/crw:latest
+    container_name: openclaw-crw
+    networks:
+      - openclaw-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3000:3000"
+    # CRW (Code Ready Workspace) — collaborative development environment.
+    # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
