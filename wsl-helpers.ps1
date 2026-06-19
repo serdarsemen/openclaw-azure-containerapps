@@ -228,6 +228,103 @@ function Update-LocalBuildDockerfile {
     Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$WslDockerfilePath'"
 }
 
+# Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
+function Start-OllamaWindows {
+    try {
+        Write-Host "  Attempting to auto-start Ollama on Windows..." -ForegroundColor Gray
+
+        # Check if Ollama executable exists
+        $ollamaPath = Get-Command ollama -ErrorAction SilentlyContinue
+        if (-not $ollamaPath) {
+            Write-Host "  Ollama not found in PATH. Install from https://ollama.ai" -ForegroundColor Yellow
+            return $false
+        }
+
+        # Set OLLAMA_HOST to 0.0.0.0:11434 if not already set
+        $currentHost = [System.Environment]::GetEnvironmentVariable('OLLAMA_HOST', 'User')
+        if ($currentHost -ne '0.0.0.0:11434') {
+            Write-Host "    Setting OLLAMA_HOST=0.0.0.0:11434 in user environment..." -ForegroundColor Gray
+            [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST', '0.0.0.0:11434', 'User')
+            $env:OLLAMA_HOST = '0.0.0.0:11434'
+        }
+
+        # Try to start the Ollama service
+        Write-Host "    Starting Ollama service..." -ForegroundColor Gray
+        try {
+            Start-Service -Name "Ollama" -ErrorAction SilentlyContinue
+        } catch {}
+
+        # Alternative: start ollama CLI if service doesn't exist
+        if (-not (Get-Service -Name "Ollama" -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) {
+            Write-Host "    Ollama service not available, trying CLI start..." -ForegroundColor Gray
+            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
+        }
+
+        # Wait for Ollama to become reachable
+        Write-Host "    Waiting for Ollama to start (up to 15 seconds)..." -ForegroundColor Gray
+        $maxAttempts = 15
+        for ($i = 0; $i -lt $maxAttempts; $i++) {
+            try {
+                $resp = Invoke-WebRequest -Uri "http://localhost:11434" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+                if ($resp.StatusCode -eq 200) {
+                    Write-Host "    Ollama started successfully" -ForegroundColor Green
+                    return $true
+                }
+            } catch {}
+            Start-Sleep -Seconds 1
+        }
+        Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
+        return $false
+    } catch {
+        Write-Host "    Error starting Ollama: $_" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+# Auto-start Ollama in WSL by setting OLLAMA_HOST and starting the service.
+function Start-OllamaWsl {
+    try {
+        Write-Host "  Attempting to auto-start Ollama in WSL..." -ForegroundColor Gray
+
+        # Check if Ollama is installed in WSL
+        $ollamaCheck = wsl -- which ollama 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  Ollama not found in WSL. Install with: wsl -- sudo apt-get install ollama" -ForegroundColor Yellow
+            return $false
+        }
+
+        # Set OLLAMA_HOST in WSL environment and start service
+        Write-Host "    Setting OLLAMA_HOST=0.0.0.0:11434 and starting Ollama in WSL..." -ForegroundColor Gray
+        $startCmd = 'export OLLAMA_HOST=0.0.0.0:11434; '
+        $startCmd += 'if command -v systemctl &>/dev/null; then '
+        $startCmd += '  sudo systemctl start ollama; '
+        $startCmd += 'else '
+        $startCmd += '  nohup ollama serve >/dev/null 2>&1 &; '
+        $startCmd += 'fi'
+
+        wsl -- bash -c $startCmd 2>&1 | Out-Null
+
+        # Wait for Ollama to become reachable
+        Write-Host "    Waiting for Ollama to start (up to 15 seconds)..." -ForegroundColor Gray
+        $maxAttempts = 15
+        for ($i = 0; $i -lt $maxAttempts; $i++) {
+            try {
+                $check = wsl -- bash -c "curl -sf --connect-timeout 2 'http://localhost:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
+                if ($check -match "OK") {
+                    Write-Host "    Ollama started successfully in WSL" -ForegroundColor Green
+                    return $true
+                }
+            } catch {}
+            Start-Sleep -Seconds 1
+        }
+        Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
+        return $false
+    } catch {
+        Write-Host "    Error starting Ollama in WSL: $_" -ForegroundColor Yellow
+        return $false
+    }
+}
+
 # Resolve -OllamaWindows / -OllamaWsl / -OllamaHost into a concrete URL and
 # verify reachability. Returns @{ OllamaHost = '...'; Reachable = $bool }.
 # Passes the resolved OllamaHost through unchanged when an explicit URL is given.
@@ -273,9 +370,8 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://${windowsIp}:11434"
             Write-Host "  Detected Windows host IP from WSL: $windowsIp" -ForegroundColor Green
         }
-        Write-Host "  MANUAL prerequisite: Ollama on Windows must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
-        Write-Host "  Run manually: [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST','0.0.0.0:11434','User')" -ForegroundColor Yellow
-        Write-Host "  Then restart Ollama on Windows manually." -ForegroundColor Yellow
+        Write-Host "  Auto-starting Ollama on Windows..." -ForegroundColor Green
+        $null = Start-OllamaWindows
     }
 
     if ($OllamaWsl) {
@@ -290,8 +386,8 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Using host.docker.internal for WSL Ollama" -ForegroundColor Green
         }
-        Write-Host "  MANUAL prerequisite: Ollama in WSL must listen on 0.0.0.0 (not 127.0.0.1)." -ForegroundColor Yellow
-        Write-Host "  Set OLLAMA_HOST=0.0.0.0:11434 before starting Ollama in WSL manually." -ForegroundColor Yellow
+        Write-Host "  Auto-starting Ollama in WSL..." -ForegroundColor Green
+        $null = Start-OllamaWsl
     }
 
     Write-Host "  Verifying Ollama connectivity at $OllamaHost ..." -ForegroundColor Gray
@@ -316,8 +412,10 @@ function Resolve-OllamaHost {
     } else {
         $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "the external host" }
         Write-Warning "Ollama not reachable at $OllamaHost"
-        Write-Host "  Ensure Ollama is running on $sourceLabel and bound to 0.0.0.0:11434" -ForegroundColor Yellow
-      Write-Host "  No auto-install/start attempted by this script." -ForegroundColor Yellow
+        Write-Host "  Auto-start was attempted. If Ollama did not start, please check:" -ForegroundColor Yellow
+        Write-Host "    - Ollama is installed on $sourceLabel" -ForegroundColor Yellow
+        Write-Host "    - OLLAMA_HOST is set to 0.0.0.0:11434 (not 127.0.0.1)" -ForegroundColor Yellow
+        Write-Host "    - Ollama service/process has sufficient permissions" -ForegroundColor Yellow
         Write-Host "  Continuing deployment — Ollama features will be unavailable until connectivity is restored." -ForegroundColor Yellow
     }
     Write-Host "  OLLAMA_HOST=$OllamaHost" -ForegroundColor Green
