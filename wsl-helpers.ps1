@@ -759,6 +759,8 @@ $envBlock
   ollama:
     image: ollama/ollama:latest
     container_name: ${ContainerName}-ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
     networks:
       - openclaw-net
     volumes:
