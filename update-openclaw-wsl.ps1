@@ -55,8 +55,15 @@ $ErrorActionPreference = "Stop"
 # Validate Ollama mode — only one allowed at a time
 $ollamaModeCount = @($Ollama, $OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
 if ($ollamaModeCount -gt 1) {
-    throw "Only one Ollama mode allowed at a time: -Ollama, -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
+    throw "Only one Ollama mode allowed at a time: -Ollama (Docker sidecar), -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
 }
+
+# Default to -OllamaWsl if no Ollama mode specified
+if ($ollamaModeCount -eq 0) {
+    $OllamaWsl = $true
+    Write-Host "No Ollama mode specified; defaulting to -OllamaWsl (native WSL Ollama)" -ForegroundColor Cyan
+}
+
 $ollamaModeOverride = $OllamaWindows -or $OllamaWsl -or [bool]$OllamaHost
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,

@@ -65,6 +65,7 @@ services:
       - REDIS_PORT=6379
       - CRW_HOST=localhost
       - CRW_PORT=3000
+      - OLLAMA_HOST=http://host.docker.internal:11434
       - OPENCLAW_DISABLE_BONJOUR=true
       - NPM_CONFIG_RESOLUTION_MODE=highest
       - npm_config_resolution_mode=highest

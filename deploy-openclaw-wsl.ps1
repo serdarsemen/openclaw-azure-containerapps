@@ -16,13 +16,12 @@
 #   - Includes Bun, Playwright/Chromium, QMD
 #
 # Ollama modes:
-#   - Default: no Ollama sidecar (OpenClaw only + Redis)
+#   - Default (-OllamaWsl): use Ollama running natively in WSL (auto-detects IP)
+#     * Script will attempt to auto-start Ollama in WSL
+#     * Latest Ollama version is checked and displayed
 #   - -Ollama: add Ollama sidecar container in Docker and pull models
 #   - -OllamaWindows: use Ollama running natively on the Windows host (auto-detects IP)
 #     * Script will attempt to auto-start Ollama on Windows
-#     * Latest Ollama version is checked and displayed
-#   - -OllamaWsl: use Ollama running natively in WSL (auto-detects IP)
-#     * Script will attempt to auto-start Ollama in WSL
 #     * Latest Ollama version is checked and displayed
 #   - -OllamaHost <url>: use an external Ollama instance at a custom URL
 #   - -OllamaModel <name>: pull only this model instead of the default set
@@ -46,14 +45,13 @@
 #   -GroqApiKey <key>:     set GROQ_API_KEY in the OpenClaw container
 #
 # Usage:
-#   .\deploy-openclaw-wsl.ps1                                  # source build, no Ollama
-#   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build, pinned tag
-#   .\deploy-openclaw-wsl.ps1 -Npm                             # npm install
+#   .\deploy-openclaw-wsl.ps1                                  # source build, default: auto-start OllamaWsl
+#   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build with pinned tag, default OllamaWsl
+#   .\deploy-openclaw-wsl.ps1 -Npm                             # npm install, default OllamaWsl
 #   .\deploy-openclaw-wsl.ps1 -Ollama                          # add Ollama sidecar in Docker
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
-#   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host
-#   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # auto-start Ollama in WSL
-#   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama
+#   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host instead
+#   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama instance
 #   .\deploy-openclaw-wsl.ps1 -Npm -Ollama -LanAccess          # all features: npm + sidecar + LAN access
 # ---------------------------------------------------------------------------
 
@@ -81,6 +79,12 @@ $ErrorActionPreference = "Stop"
 $ollamaModeCount = @($Ollama, $OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Where({ $_ }).Count
 if ($ollamaModeCount -gt 1) {
     throw "Only one Ollama mode allowed at a time: -Ollama (Docker sidecar), -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
+}
+
+# Default to -OllamaWsl if no Ollama mode specified
+if ($ollamaModeCount -eq 0) {
+    $OllamaWsl = $true
+    Write-Host "No Ollama mode specified; defaulting to -OllamaWsl (native WSL Ollama)" -ForegroundColor Cyan
 }
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,
