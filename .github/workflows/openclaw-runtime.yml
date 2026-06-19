@@ -112,9 +112,16 @@ jobs:
             echo "Cache miss and no seed archive present — starting from a fresh state."
           fi
 
-      - name: Start Redis & SearXNG sidecars
+      - name: Start Redis, SearXNG & CRW sidecars
         run: |
           set -euo pipefail
+
+          # Pull latest images to ensure we always run the most recent versions
+          echo "Pulling latest images..."
+          docker pull redis:7-alpine >/dev/null 2>&1 || true
+          docker pull searxng/searxng:latest >/dev/null 2>&1 || true
+          docker pull ghcr.io/us/crw:latest >/dev/null 2>&1 || true
+          echo "Latest images pulled (or already cached)"
 
           # Redis — same role as the WSL/ACA/AKS Redis sidecar. Published on
           # loopback:6379 so the host-side OpenClaw process reaches it as localhost.
@@ -169,6 +176,21 @@ jobs:
             echo "SearXNG disabled (OPENCLAW_ENABLE_SEARXNG=${OPENCLAW_ENABLE_SEARXNG})."
           fi
 
+          # CRW — Code Ready Workspace (collaborative development environment).
+          # Published on loopback:3000 so OpenClaw can reach it as localhost.
+          echo "Starting CRW (ghcr.io/us/crw:latest)..."
+          docker run -d --name openclaw-crw \
+            -p 127.0.0.1:3000:3000 \
+            ghcr.io/us/crw:latest
+          echo "Waiting for CRW to be healthy..."
+          for _ in $(seq 1 30); do
+            if docker exec openclaw-crw wget -q --spider http://localhost:3000 2>/dev/null; then
+              echo "CRW is healthy."; break
+            fi
+            sleep 1
+          done
+          { echo "CRW_HOST=127.0.0.1"; echo "CRW_PORT=3000"; } >> "$GITHUB_ENV"
+
       - name: Inject secrets
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -197,7 +219,7 @@ jobs:
         if: always()
         run: |
           # Graceful stop lets Redis flush its AOF before the cache is saved.
-          for c in searxng openclaw-redis; do
+          for c in searxng openclaw-redis openclaw-crw; do
             if [ -n "$(docker ps -aq -f name=^${c}$)" ]; then
               echo "Stopping ${c}..."
               docker stop "${c}" >/dev/null 2>&1 || true

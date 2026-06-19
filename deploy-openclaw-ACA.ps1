@@ -6,12 +6,12 @@
 #
 # Without -Npm: source-build variant (rg-openclaw, main.bicep, ca-openclaw, acropenclaw)
 #   - Builds from the OpenClaw Git repo Dockerfile
-#   - Two containers: OpenClaw gateway + Redis
+#   - Three containers: OpenClaw gateway + Redis + CRW
 #   - Home directory: /home/node
 #
 # With -Npm: npm-install variant (rg-openclawnpm, mainnpm.bicep, ca-openclawnpm, acropennpm)
 #   - Builds a custom Dockerfile (node:22-slim + npm i -g openclaw)
-#   - Two containers: OpenClaw gateway + Redis
+#   - Three containers: OpenClaw gateway + Redis + CRW
 #   - Home directory: /home/openclaw
 #   - Includes Bun, Playwright/Chromium, QMD
 #
@@ -66,14 +66,15 @@ if ($HomeDir -match '\s' -or $HomeDir -match '["''`:#]') {
 }
 
 # --- Resource defaults (both variants use Consumption: 4 CPU / 8Gi max) ---
-if (-not $Cpu)    { $Cpu    = "3.75" }
-if (-not $Memory) { $Memory = "7.5Gi" }
-# Sidecar: Redis (0.25 CPU / 0.5Gi) — validate total <= 4 CPU / 8Gi
+if (-not $Cpu)    { $Cpu    = "3.5" }
+if (-not $Memory) { $Memory = "7Gi" }
+# Sidecars: Redis (0.25 CPU / 0.5Gi) + CRW (0.25 CPU / 0.5Gi) — validate total <= 4 CPU / 8Gi
 $redisCpu = 0.25; $redisMem = 0.5
-$totalCpu = [double]$Cpu + $redisCpu
-$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem
+$crwCpu = 0.25; $crwMem = 0.5
+$totalCpu = [double]$Cpu + $redisCpu + $crwCpu
+$totalMem = [double]($Memory -replace '[^0-9.]','') + $redisMem + $crwMem
 if ($totalCpu -gt 4.0 -or $totalMem -gt 8.0) {
-    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) sidecar."
+    throw "Total resources (CPU: $totalCpu, Memory: ${totalMem}Gi) exceed Consumption profile max (4 CPU / 8Gi). Reduce -Cpu/-Memory to account for Redis (0.25 CPU / 0.5Gi) + CRW (0.25 CPU / 0.5Gi) sidecars."
 }
 
 # --- Discover resource names from Bicep deployment outputs ---
@@ -271,6 +272,20 @@ $GatewayToken = [BitConverter]::ToString($bytes).Replace('-', '').ToLower()
 Write-Host "Token generated (save this for Control UI access):"
 Write-Host "  $GatewayToken" -ForegroundColor Yellow
 
+# --- Step 3.5/6: Import latest CRW image to ACR ---
+Write-Host "`n=== Step 3.5/6: Importing latest CRW image to ACR ===" -ForegroundColor Cyan
+try {
+    Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
+    az acr import `
+        --name $AcrName `
+        --source ghcr.io/us/crw:latest `
+        --image crw:latest `
+        --force
+    Write-Host "  CRW image imported to ACR" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to import CRW image to ACR — deployment will attempt to pull from ghcr.io directly"
+}
+
 # --- Step 4/6: Update Container App with OpenClaw ---
 Write-Host "`n=== Step 4/6: Updating Container App with OpenClaw ===" -ForegroundColor Cyan
 
@@ -367,6 +382,10 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
+      - name: CRW_HOST
+        value: localhost
+      - name: CRW_PORT
+        value: "3000"
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -410,6 +429,16 @@ properties:
       - type: liveness
         tcpSocket:
           port: 6379
+        periodSeconds: 30
+    - name: crw
+      image: ghcr.io/us/crw:latest
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 3000
         periodSeconds: 30
     scale:
       # Single-instance gateway: local SQLite + in-memory OpenClaw state means
@@ -478,6 +507,10 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
+      - name: CRW_HOST
+        value: localhost
+      - name: CRW_PORT
+        value: "3000"
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -519,6 +552,16 @@ properties:
       - type: liveness
         tcpSocket:
           port: 6379
+        periodSeconds: 30
+    - name: crw
+      image: ghcr.io/us/crw:latest
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 3000
         periodSeconds: 30
     scale:
       # Single-instance gateway: local SQLite + in-memory OpenClaw state means

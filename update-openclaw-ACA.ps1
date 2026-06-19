@@ -317,6 +317,20 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages
 }
 
+# --- Step 2.5/3: Import latest CRW image to ACR ---
+Write-Host "`n=== Step 2.5/3: Importing latest CRW image to ACR ===" -ForegroundColor Cyan
+try {
+    Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
+    az acr import `
+        --name $AcrName `
+        --source ghcr.io/us/crw:latest `
+        --image crw:latest `
+        --force
+    Write-Host "  CRW image imported to ACR" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to import CRW image to ACR — update will attempt to pull from ghcr.io directly"
+}
+
 # --- Step 3/3: Update container app via YAML (creates a new revision automatically) ---
 Write-Host "`n=== Step 3/3: Updating Container App via YAML ===" -ForegroundColor Cyan
 
@@ -457,6 +471,10 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
+      - name: CRW_HOST
+        value: localhost
+      - name: CRW_PORT
+        value: "3000"
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -500,6 +518,16 @@ properties:
       - type: liveness
         tcpSocket:
           port: 6379
+        periodSeconds: 30
+    - name: crw
+      image: ghcr.io/us/crw:latest
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 3000
         periodSeconds: 30
     scale:
       # Single-instance gateway: local SQLite + in-memory OpenClaw state means
@@ -565,6 +593,10 @@ properties:
         value: localhost
       - name: REDIS_PORT
         value: "6379"
+      - name: CRW_HOST
+        value: localhost
+      - name: CRW_PORT
+        value: "3000"
       - name: GROQ_API_KEY
         secretRef: groq-api-key
       - name: NODE_ENV
@@ -606,6 +638,16 @@ properties:
       - type: liveness
         tcpSocket:
           port: 6379
+        periodSeconds: 30
+    - name: crw
+      image: ghcr.io/us/crw:latest
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      probes:
+      - type: liveness
+        tcpSocket:
+          port: 3000
         periodSeconds: 30
     scale:
       # Single-instance gateway: local SQLite + in-memory OpenClaw state means

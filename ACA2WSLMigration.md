@@ -8,9 +8,11 @@ Migrate a running OpenClaw instance from Azure Container Apps (ACA) to a local W
 |---|---|---|
 | State storage | NFS Azure File share (`openclaw-state`) mounted at `$HOME/.openclaw` | Local `openclaw-data/` folder mounted at `$HOME/.openclaw` |
 | Container image | ACR-hosted `openclaw:latest` + tools layer | Locally built via `deploy-openclaw-wsl.ps1` |
+| Redis | Sidecar container | Sidecar container |
+| CRW | Sidecar container | Sidecar container |
+| SearXNG | — | Sidecar container (metasearch backend) |
 | Ollama | Separate Container App (`ca-ollama`) on internal DNS | Sidecar container (`-Ollama` flag) or explicitly selected native/external host (`-OllamaWindows`, `-OllamaWsl`, `-OllamaHost`) |
 | Gateway access | External ingress on port 18789 | `localhost:18789` |
-| Redis | Sidecar container | Sidecar container |
 
 ## Prerequisites
 

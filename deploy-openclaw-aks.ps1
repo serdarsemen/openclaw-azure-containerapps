@@ -127,6 +127,21 @@ az aks get-credentials --resource-group $AksResourceGroup --name $AksName --over
 if ($LASTEXITCODE -ne 0) { throw "get-credentials failed" }
 kubectl get nodes --no-headers | Out-Host
 
+# --- Import CRW image to ACR ---
+Write-Host "`n=== Step 2.5/$TotalSteps: Importing CRW image to ACR ===" -ForegroundColor Cyan
+try {
+    Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
+    az acr import `
+        --name $AcrName `
+        --source ghcr.io/us/crw:latest `
+        --image crw:latest `
+        --force `
+        --only-show-errors
+    Write-Host "  CRW image imported to ACR" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to import CRW image to ACR — pod deployment will attempt to pull from ghcr.io directly"
+}
+
 # --- Namespace + secrets ---
 Write-Host "`n=== Step 3/$TotalSteps: Creating namespace and secrets ===" -ForegroundColor Cyan
 
@@ -367,6 +382,10 @@ $cmdYaml
               value: localhost
             - name: REDIS_PORT
               value: "6379"
+            - name: CRW_HOST
+              value: localhost
+            - name: CRW_PORT
+              value: "3000"
             - name: NODE_ENV
               value: production
             - name: HOME
@@ -400,6 +419,17 @@ $ollamaEnvYaml
           volumeMounts:
             - name: redis-data
               mountPath: /data
+        - name: crw
+          image: ghcr.io/us/crw:latest
+          ports:
+            - name: crw
+              containerPort: 3000
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "250m", memory: "512Mi" }
+          livenessProbe:
+            tcpSocket: { port: crw }
+            periodSeconds: 30
       volumes:
         - name: state
           persistentVolumeClaim:
@@ -418,6 +448,8 @@ spec:
   ports:
     - name: gateway
       port: 18789
+    - name: crw
+      port: 3000
       targetPort: 18789
 "@
 

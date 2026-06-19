@@ -14,6 +14,7 @@ Instead of keeping a Gateway container running 24/7 on your machine, GitHub spin
 | Cron execution | In-Gateway scheduler (always running) | `openclaw cron run --due` per tick |
 | Redis sidecar | Yes | Yes (`redis:7-alpine`, AOF persisted in the cache) |
 | SearXNG sidecar | Yes | Yes (`searxng/searxng:latest`, fed `searxng/settings.yml`) |
+| CRW sidecar | Yes | Yes (`ghcr.io/us/crw:latest`) |
 | Ollama | Sidecar or host | Not available — use cloud models / Groq fallbacks |
 | Secrets | `docker-compose-wsl.yaml` env | GitHub repository secrets |
 | Notifications | OpenClaw channels | OpenClaw channels + workflow-level Telegram step |
@@ -129,21 +130,22 @@ The cron tick supports two strategies (set via the `OPENCLAW_GHA_DRIVE` repo var
 - **`manual`** (default) — disables the periodic scheduler (`OPENCLAW_SKIP_CRON=1`) and fires due jobs explicitly with `openclaw cron run <id> --due --wait`. Deterministic, no duplicate firing.
 - **`scheduler`** — lets the in-Gateway scheduler fire due jobs on its own and keeps the Gateway alive for `OPENCLAW_GHA_DWELL_SECONDS` (default 180s) before shutting down. Use this if `cron run` does not execute in your build.
 
-## Sidecars (Redis & SearXNG)
+## Sidecars (Redis, SearXNG & CRW)
 
 The workflow starts the same companion services as the WSL Docker runtime, using Docker on the runner:
 
 - **Redis** (`redis:7-alpine`) on `127.0.0.1:6379`. The host-side OpenClaw process reads `REDIS_HOST=127.0.0.1` / `REDIS_PORT=6379` (exported by the workflow). Its append-only file is mounted under the cached `~/.openclaw/redis-data`, so queue/state survives between ticks.
 - **SearXNG** (`searxng/searxng:latest`) on `:8080`, fed `searxng/settings.yml` (JSON format enabled) from the checked-out repo. The seeded `searxng-search` MCP config reaches it at `http://172.17.0.1:8080` (the docker0 gateway, also reachable from the host process).
+- **CRW** (`ghcr.io/us/crw:latest`) on `:3000`. Code Ready Workspace for collaborative development — the host-side OpenClaw process reads `CRW_HOST=127.0.0.1` / `CRW_PORT=3000` (exported by the workflow).
 
-Both are on by default and can be disabled with repository variables:
+All three are on by default and can be disabled with repository variables:
 
 | Variable | Default | Effect |
 |---|---|---|
 | `OPENCLAW_ENABLE_REDIS` | `true` | Set `false` to skip the Redis sidecar |
 | `OPENCLAW_ENABLE_SEARXNG` | `true` | Set `false` to skip the SearXNG sidecar |
 
-> `searxng/settings.yml` is committed in the repo (not gitignored), so SearXNG works without any extra setup. Sidecars are torn down at the end of every run (gracefully, so Redis flushes its AOF before the cache is saved).
+> `searxng/settings.yml` is committed in the repo (not gitignored), so SearXNG works without any extra setup. CRW is always available (no toggle variable). Sidecars are torn down at the end of every run (gracefully, so Redis flushes its AOF before the cache is saved).
 
 ## Updating
 

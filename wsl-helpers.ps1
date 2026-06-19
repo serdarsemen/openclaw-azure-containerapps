@@ -325,6 +325,38 @@ function Resolve-OllamaHost {
     return @{ OllamaHost = $OllamaHost; Reachable = $ollamaReachable }
 }
 
+# Verify CRW (Code Ready Workspace) is running and healthy in Docker.
+# CRW typically starts quickly but this waits up to 30 seconds with TCP health checks.
+# Returns $true if healthy, $false if container doesn't exist or fails health check.
+function Test-WslCrwHealth {
+    param(
+        [string] $ContainerName = "openclaw-crw",
+        [int] $TimeoutSeconds = 30
+    )
+
+    try {
+        # Check if container exists and is running
+        $containerExists = wsl bash -c "docker ps -q -f name=^${ContainerName}$" 2>$null
+        if (-not $containerExists) {
+            return $false
+        }
+
+        # Wait for CRW to respond on port 3000
+        $elapsed = 0
+        while ($elapsed -lt $TimeoutSeconds) {
+            $check = wsl bash -c "timeout 3 bash -c '</dev/tcp/localhost/3000' 2>/dev/null && echo OK || echo FAIL" 2>$null
+            if ($check -match "OK") {
+                return $true
+            }
+            Start-Sleep -Seconds 1
+            $elapsed++
+        }
+        return $false
+    } catch {
+        return $false
+    }
+}
+
 # Generate the docker-compose-wsl.yaml content from a single template.
 # This is the SOURCE OF TRUTH for compose layout — both deploy and update use it.
 function New-OpenClawComposeYaml {
@@ -349,7 +381,9 @@ function New-OpenClawComposeYaml {
         "HOME=$HomeDir",
         "TERM=xterm-256color",
         "REDIS_HOST=localhost",
-        "REDIS_PORT=6379"
+        "REDIS_PORT=6379",
+        "CRW_HOST=localhost",
+        "CRW_PORT=3000"
     )
     if ($GroqApiKey) { $envVars += "GROQ_API_KEY=$GroqApiKey" }
     if ($OllamaSidecar) {

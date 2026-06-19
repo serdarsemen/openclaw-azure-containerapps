@@ -8,6 +8,8 @@ networks:
 volumes:
   redis-data:
     driver: local
+  crw-data:
+    driver: local
   openclaw-runtime-deps:
     driver: local
   openclaw-compile-cache:
@@ -49,12 +51,41 @@ services:
       retries: 3
       start_period: 5s
 
+  crw:
+    image: ghcr.io/us/crw:latest
+    container_name: openclaw-crw
+    networks:
+      - openclaw-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - crw-data:/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   openclaw:
     image: openclaw-source:latest
     container_name: openclaw
     network_mode: "service:redis"
     depends_on:
       redis:
+        condition: service_healthy
+      crw:
         condition: service_healthy
     environment:
       - OPENCLAW_GATEWAY_TOKEN=7d7e3ec1422a7b0593842868113fed448b8d268715aa218d83dda37d97bf87ea
@@ -63,6 +94,8 @@ services:
       - TERM=xterm-256color
       - REDIS_HOST=localhost
       - REDIS_PORT=6379
+      - CRW_HOST=crw
+      - CRW_PORT=3000
       - OPENCLAW_DISABLE_BONJOUR=true
       - NPM_CONFIG_RESOLUTION_MODE=highest
       - npm_config_resolution_mode=highest

@@ -92,7 +92,7 @@ $GroqKey = az containerapp secret show `
 $AksRg        = "rg-openclaw-aks"
 $AksName      = "aks-openclaw"
 $NodeCount    = 2
-$NodeVmSize   = "Standard_D4s_v5"   # 4 vCPU / 16 GiB — fits OpenClaw (3 CPU/6 Gi) + Ollama (1 CPU/2 Gi)
+$NodeVmSize   = "Standard_D4s_v5"   # 4 vCPU / 16 GiB — fits OpenClaw (3.5 CPU/7.0 Gi) + Redis + CRW sidecars; add Ollama separately or use larger SKU
 
 az group create --name $AksRg --location $Location | Out-Null
 

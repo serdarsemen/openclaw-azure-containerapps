@@ -85,6 +85,21 @@ Write-Host "  ACR: $AcrServer" -ForegroundColor Green
 az aks get-credentials --resource-group $AksResourceGroup --name $AksName --overwrite-existing --only-show-errors | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to fetch AKS credentials for $AksName" }
 
+# --- Import CRW image to ACR ---
+Write-Host "`n=== Step 1.5/5: Importing CRW image to ACR ===" -ForegroundColor Cyan
+try {
+    Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
+    az acr import `
+        --name $AcrName `
+        --source ghcr.io/us/crw:latest `
+        --image crw:latest `
+        --force `
+        --only-show-errors
+    Write-Host "  CRW image imported to ACR" -ForegroundColor Green
+} catch {
+    Write-Warning "  Failed to import CRW image to ACR — pod update will attempt to pull from ghcr.io directly"
+}
+
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
 $BaseTag = "base-$stamp"
 

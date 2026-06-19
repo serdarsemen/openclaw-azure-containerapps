@@ -368,7 +368,7 @@ gh run watch
 |---|---|
 | Schedule | `*/15 * * * *` (best-effort; GitHub may delay under load) + manual `workflow_dispatch` |
 | State | `~/.openclaw` via `actions/cache` (rolling key), seeded once from `seed/openclaw-seed.tar.gz` |
-| Sidecars | Redis (`redis:7-alpine`) + SearXNG (`searxng/searxng:latest`) on the runner, same as WSL — toggle with `OPENCLAW_ENABLE_REDIS` / `OPENCLAW_ENABLE_SEARXNG` variables |
+| Sidecars | Redis (`redis:7-alpine`) + SearXNG (`searxng/searxng:latest`) + CRW (`ghcr.io/us/crw:latest`) on the runner, same as WSL — toggle with `OPENCLAW_ENABLE_REDIS` / `OPENCLAW_ENABLE_SEARXNG` variables |
 | Models | Cloud only (no Ollama/GPU) — give each cron job cloud `fallbacks` |
 | Notifications | Optional workflow-level Telegram step (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` secrets) |
 | Drive mode | `OPENCLAW_GHA_DRIVE` variable: `manual` (default, explicit `cron run --due`) or `scheduler` |
@@ -397,10 +397,12 @@ flowchart TB
 
     subgraph azure["rg-openclaw"]
         subgraph vnet["vnet-openclaw"]
-            gw["ca-openclaw<br/>OpenClaw Gateway<br/>3.75 vCPU · 7.5 GiB"]
+            gw["ca-openclaw<br/>OpenClaw Gateway<br/>3.5 vCPU · 7.0 GiB"]
             redis["Redis sidecar<br/>0.25 vCPU · 0.5 GiB"]
+            crw["CRW sidecar<br/>0.25 vCPU · 0.5 GiB"]
             pe["Private Endpoint · pep-storage"]
             gw ---|localhost:6379| redis
+            gw ---|localhost:3000| crw
             gw ---|NFS mount| pe
         end
         pe --- nfs[("NFS Storage · openclaw-state")]
@@ -429,11 +431,13 @@ flowchart TB
 
     subgraph wsl["WSL 2 · Docker Engine"]
         subgraph net["openclaw-net (bridge)"]
-            openclaw["openclaw<br/>Gateway container<br/>shares redis netns"]
+            openclaw["openclaw<br/>Gateway container"]
             redis["openclaw-redis<br/>Redis 7-alpine"]
+            crw["openclaw-crw<br/>CRW (workspace)"]
             searxng["searxng<br/>Metasearch backend"]
             ollama["openclaw-ollama<br/>(optional sidecar)"]
             openclaw -.->|localhost:6379| redis
+            openclaw -.->|localhost:3000| crw
             openclaw -->|http://searxng:8080| searxng
             openclaw -.->|http://openclaw-ollama:11434| ollama
         end
@@ -449,7 +453,7 @@ flowchart TB
     style copilot fill:#faf5ff,stroke:#7c3aed,stroke-width:2px
 ```
 
-The WSL stack always includes OpenClaw, Redis, and SearXNG. Ollama is opt-in: pass `-Ollama` to add a sidecar container, or `-OllamaWindows` / `-OllamaWsl` / `-OllamaHost <url>` to reuse an existing Ollama instance.
+The WSL stack always includes OpenClaw, Redis, SearXNG, and CRW. Ollama is opt-in: pass `-Ollama` to add a sidecar container, or `-OllamaWindows` / `-OllamaWsl` / `-OllamaHost <url>` to reuse an existing Ollama instance.
 
 This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). GitHub Copilot provides access to models from Anthropic, OpenAI, and Google through a single subscription. Switch models after deployment with `node openclaw.mjs models set <model>`.
 
@@ -496,7 +500,7 @@ Six deploy scripts are provided — two per target (ACA, AKS, WSL). Source-build
 | **Variants** | `-Npm` switch | `-Npm` switch | `-Npm` switch |
 | **Infra source** | `bicep/main[.npm].bicep` | Reuses ACA ACR + NFS; provisions AKS | — |
 | **Build method** | `az acr build` (remote) | `az acr build` (remote) | `docker build` inside WSL |
-| **Containers / pods** | OpenClaw + Redis sidecar | OpenClaw (+ Redis sidecar) pod, Ollama pod | OpenClaw + Redis + SearXNG (+ optional Ollama sidecar) |
+| **Containers / pods** | OpenClaw (3.5 CPU / 7.0 GiB) + Redis (0.25/0.5) + CRW (0.25/0.5) sidecars | OpenClaw + Redis + CRW sidecar pod; Ollama pod | OpenClaw + Redis + SearXNG + CRW (+ optional Ollama sidecar) |
 | **Ollama** | Separate Container App (`deploy-ollama.ps1`) | **Separate pod + `ollama` Service** | Sidecar with `-Ollama`, host instance with `-OllamaWindows`/`-OllamaWsl`, or external `-OllamaHost` |
 | **Ingress** | Managed HTTPS FQDN | `LoadBalancer` public IP (or Ingress) | `localhost:18789` (or LAN with `-LanAccess`) |
 | **Storage** | NFS via private endpoint | Same NFS share via static `PersistentVolume` | Host bind mount |
