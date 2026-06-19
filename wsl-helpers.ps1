@@ -586,6 +586,8 @@ $envBlock
       - "host.docker.internal:host-gateway"
     ports:
       - "3000:3000"
+    environment:
+      - SEARXNG_URL=http://host.docker.internal:8080
     # CRW (Code Ready Workspace) — collaborative development environment.
     # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
     restart: unless-stopped
