@@ -515,6 +515,16 @@ function New-OpenClawComposeYaml {
         [switch] $LanAccess
     )
 
+    # Determine Ollama base URL based on deployment mode
+    $ollamaBaseUrl = if ($OllamaSidecar) {
+        "http://ollama:11434/v1"  # Docker sidecar on same network
+    } else {
+        "http://host.docker.internal:11434/v1"  # Windows/WSL host
+    }
+
+    # SearXNG always runs in Docker on openclaw-net
+    $searxngUrl = "http://searxng:8080"
+
     $envVars = @(
         "OPENCLAW_GATEWAY_TOKEN=$GatewayToken",
         "NODE_ENV=production",
@@ -729,11 +739,11 @@ $envBlock
     environment:
       # LLM extraction via Ollama
       - CRW_EXTRACTION__LLM__PROVIDER=openai-compatible
-      - CRW_EXTRACTION__LLM__BASE_URL=http://host.docker.internal:11434/v1
+      - CRW_EXTRACTION__LLM__BASE_URL=$ollamaBaseUrl
       - CRW_EXTRACTION__LLM__API_KEY=key
       - CRW_EXTRACTION__LLM__MODEL=qwen3.5
       # Search via SearXNG
-      - CRW_SEARCH__SEARXNG_URL=http://host.docker.internal:8080
+      - CRW_SEARCH__SEARXNG_URL=$searxngUrl
     # CRW (Code Ready Workspace) — collaborative development environment.
     # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
     restart: unless-stopped
