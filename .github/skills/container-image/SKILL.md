@@ -50,6 +50,26 @@ ACR Tasks uses the **classic Docker builder**, not BuildKit. The deploy scripts 
 4. Build as `root`, switch back to `USER node` at the end
 5. Test the build: `az acr build --registry <acr> --image openclaw:test --build-arg BASE_IMAGE=<acr>.azurecr.io/openclaw:base --file images/Dockerfile.tools images`
 
+## Python ML Stack Installation Order (CRITICAL)
+
+The Dockerfiles include PyTorch, scipy, statsmodels, huggingface_hub, langgraph, and 20+ scientific packages. **Installation order must be strictly maintained** to prevent numpy version conflicts:
+
+1. **scipy==1.14.1** and **statsmodels==0.14.6** install FIRST (they have strict numpy version requirements)
+2. All other packages install next
+3. **PyTorch installs LAST** (it adapts to the existing numpy environment)
+
+**Why this matters:**
+- Wrong order (PyTorch before scipy/statsmodels) causes numpy version downgrade and breaks `numpy.testing`
+- PyTorch's bundled numpy then becomes incompatible with scipy/statsmodels
+- This also breaks torch library imports with "cannot load libaries" errors
+
+**Cleanup patterns:**
+- Use conservative cleanup: `-maxdepth 2 -type d -name "tests"`
+- **Never** use aggressive patterns like `-name "test*" -prune` — they remove torch .so library files
+- Always verify torch after cleanup: `python3 -c "import torch; import torch.utils.data"`
+
+Both `images/Dockerfile.tools` and `images/Dockerfile.npmtools` must be kept in sync for consistency.
+
 ### Example: Adding a New Go Tool
 
 ```dockerfile

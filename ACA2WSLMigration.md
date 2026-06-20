@@ -160,7 +160,10 @@ Write-Host "Updated Ollama URL in openclaw.json" -ForegroundColor Green
 
 > **Note:** If using the `-Ollama` sidecar flag in WSL, replace with `http://ollama:11434` instead.
 
-> **Important:** WSL scripts do not auto-install or auto-start native Ollama. If using `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`, start Ollama manually first and ensure it listens on `0.0.0.0:11434`.
+> **Important:** WSL scripts do not auto-install or auto-start native Ollama. If using `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`, start Ollama using one of the provided startup scripts:
+> - `start-ollama-qwen.ps1` — Automates Ollama startup on WSL 2, validates Docker connectivity, and pulls qwen3.5 model
+> - `start-ollama-windows.ps1` — Starts Ollama natively on Windows host
+> - Any native Ollama must listen on `0.0.0.0:11434` to accept Docker bridge network connections
 
 ## Step 6 — Deploy to WSL
 

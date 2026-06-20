@@ -38,6 +38,15 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 - ACR Tasks uses the classic Docker builder, so BuildKit `--mount=type=cache` directives must be stripped from the Dockerfile before building. The scripts handle this automatically.
 - Set `$env:PYTHONIOENCODING = "utf-8"` before ACR builds to avoid encoding issues in Azure CLI output.
 
+## Python ML Stack (Dockerfile.tools and Dockerfile.npmtools)
+
+- **Installation order is critical** to prevent numpy version conflicts:
+  1. scipy/statsmodels install first (they have strict numpy requirements: scipy==1.14.1, statsmodels==0.14.6)
+  2. PyTorch installs last and adapts to the existing numpy environment
+  3. This ordering prevents `numpy.testing` broken and torch import failures
+- **Library preservation**: Cleanup patterns are intentionally conservative (`-maxdepth 2 -type d -name "tests"`) to avoid removing torch shared objects
+- **Torch verification**: After install, verify with `python3 -c "import torch; import torch.utils.data"` to catch broken installations early
+
 ## Container Apps constraints
 
 - Consumption tier limits: 4 vCPU / 8 GiB total per app (across all containers).
@@ -45,6 +54,23 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 - Always validate that total CPU + memory across all containers stays within tier limits.
 - Scale: `minReplicas: 1`, `maxReplicas: 1` (single-instance gateway).
 - Use TCP probes for OpenClaw startup/liveness (port 18789) and Redis (port 6379).
+
+## Ollama Startup Scripts
+
+Five portable startup scripts automate Ollama setup + qwen3.5 model pull across all 5 deployment environments:
+
+- **`start-ollama-qwen.ps1`** (WSL 2) — Kills any existing Ollama bound to loopback, restarts with `OLLAMA_HOST=0.0.0.0:11434`, verifies Docker connectivity, pulls qwen3.5
+- **`start-ollama-windows.ps1`** (Windows native) — Starts Ollama on the Windows host (GitHub Actions, native dev machines)
+- **`start-ollama-aca.ps1`** (Azure Container Apps) — Deploys Ollama as a standalone Container App with external ingress
+- **`start-ollama-aks.ps1`** (Azure Kubernetes) — Deploys Ollama as a Kubernetes pod + service with liveness probes
+- **`start-ollama-gha.ps1`** (GitHub Actions/Codespaces) — Cross-platform startup (auto-detects Linux/Windows/macOS, platform-specific installation)
+
+**Key features:**
+- 3-step process: start Ollama → wait for readiness (30-second timeout) → pull qwen3.5 model
+- All scripts output step headers (Cyan), success messages (Green), and errors (Red)
+- WSL variant includes Docker connectivity verification to catch loopback-only binding early
+- Manual workaround guidance if auto-start fails
+- See `OLLAMA_STARTUP_SCRIPTS_GUIDE.ps1` for comprehensive documentation and use cases
 
 ## Security best practices
 
@@ -67,6 +93,8 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 - **Changing default resources**: Update the `param` block in `deploy-openclaw.ps1` and the Ollama budget calculation. Verify total stays under 4 vCPU / 8 GiB.
 - **Adding a new environment variable**: Add it to both the deploy and update scripts' YAML templates to ensure it persists across updates.
 - **Adding a new Bicep parameter**: Add the param with `@description()`, add it to the `.bicepparam` file, and document it in the README.
+- **Starting Ollama for a specific deployment**: Use the appropriate startup script: `start-ollama-qwen.ps1` (WSL), `start-ollama-aca.ps1` (Azure), etc. Scripts handle binding to 0.0.0.0 and verify connectivity.
+- **Fixing numpy.testing or torch import errors**: Verify installation order in Dockerfile — scipy/statsmodels must install before PyTorch. PyTorch adapts to the existing numpy environment and prevents version conflicts.
 
 ## Do not
 
@@ -76,3 +104,5 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 - Do not skip the Dockerfile patching step (stripping `--mount=type=cache`) for ACR builds.
 - Do not add `docker` or `docker-compose` commands — all builds go through `az acr build`.
 - Do not store secrets in environment variables directly — use Container App secrets with `secretRef`.
+- Do not reverse the Python package installation order in Dockerfiles — scipy/statsmodels first, then PyTorch last. Reversing this causes numpy version conflicts that break torch library imports.
+- Do not use aggressive cleanup patterns for test directories in Dockerfile — use `-maxdepth 2 -type d -name "test*"` instead of `-name "test*" -prune` to avoid removing torch shared object libraries.

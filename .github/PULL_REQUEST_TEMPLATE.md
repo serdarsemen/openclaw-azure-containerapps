@@ -27,6 +27,8 @@
 - [ ] Header comment updated with new tool listing
 - [ ] `USER node` remains as the last directive
 - [ ] No `--mount=type=cache` directives (ACR Tasks uses classic builder)
+- [ ] **If modifying Python packages:** scipy/statsmodels install BEFORE PyTorch (prevents numpy conflicts)
+- [ ] **If modifying cleanup:** Conservative patterns only (`-maxdepth 2 -type d -name "tests"` — avoid removing torch libraries)
 - [ ] Total container resources stay within 4 vCPU / 8 GiB
 
 ### Documentation

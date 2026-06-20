@@ -292,6 +292,8 @@ kubectl -n openclaw exec deploy/ollama -- ollama pull llama3.1:8b
 
 In-cluster DNS makes Ollama reachable at **`http://ollama:11434`** from any pod in the `openclaw` namespace.
 
+> **Tip:** For automated Ollama setup in AKS (environment bootstrap), use `start-ollama-aks.ps1` which deploys the pod, service, and pulls initial models in one command.
+
 ## Step 8 — Deploy OpenClaw (and Redis sidecar)
 
 `openclaw.yaml`:

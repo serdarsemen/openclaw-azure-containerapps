@@ -231,7 +231,7 @@ The script does **not** auto-install or auto-start native Ollama. Native Ollama 
 .\deploy-openclaw-wsl.ps1 -LanAccess
 ```
 
-> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` and be started manually — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network.
+> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` and be started manually — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network. Use `start-ollama-qwen.ps1` to automate this startup and model pull across all 5 deployment environments.
 
 #### Using a local Ollama instance (no sidecar)
 
@@ -243,9 +243,9 @@ If Ollama is already running on your Windows PC, use `-OllamaHost` to point Open
 
 `host.docker.internal` is a special hostname that Docker containers use to reach services on the Windows host. Ollama listens on port `11434` by default.
 
-> **Note:** If Ollama is bound only to `127.0.0.1`, set `OLLAMA_HOST=0.0.0.0` in your local Ollama environment so it accepts connections from the Docker bridge network. Start/restart Ollama manually after changing this.
+> **Note:** If Ollama is bound only to `127.0.0.1`, Docker containers cannot reach it ("Connection refused" error). The script automatically kills any existing Ollama process and restarts it with `OLLAMA_HOST=0.0.0.0:11434` to accept Docker bridge network connections. If auto-start fails, manually run in WSL: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`
 
-When using `-OllamaHost`, the script skips the Ollama sidecar container and model pulling entirely — you manage models on the external instance yourself.
+When using `-OllamaHost`, the script skips the Ollama sidecar container and model pulling entirely — you manage models on the external instance yourself. For external Ollama startup automation, use `start-ollama-qwen.ps1` (WSL 2), `start-ollama-windows.ps1` (native Windows), `start-ollama-aca.ps1` (Azure Container Apps), `start-ollama-aks.ps1` (Kubernetes), or `start-ollama-gha.ps1` (GitHub Actions).
 
 **Ollama management commands** (when sidecar is running):
 
@@ -454,6 +454,8 @@ flowchart TB
 ```
 
 The WSL stack always includes OpenClaw, Redis, SearXNG, and CRW. Ollama is opt-in: pass `-Ollama` to add a sidecar container, or `-OllamaWindows` / `-OllamaWsl` / `-OllamaHost <url>` to reuse an existing Ollama instance.
+
+**Python ML Stack:** The Docker image includes PyTorch (CPU), scipy, statsmodels, huggingface_hub, langgraph, langchain, and 20+ scientific packages. Installation order is carefully sequenced to prevent numpy version conflicts: scipy/statsmodels install first (strict numpy requirements), then PyTorch last (adapts to the existing numpy environment). This prevents `numpy.testing` broken and torch library import failures.
 
 This deployment uses `github-copilot/claude-opus-4.6` (the `default` model). GitHub Copilot provides access to models from Anthropic, OpenAI, and Google through a single subscription. Switch models after deployment with `node openclaw.mjs models set <model>`.
 

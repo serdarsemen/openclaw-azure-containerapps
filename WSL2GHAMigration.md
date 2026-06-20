@@ -178,6 +178,6 @@ To return to WSL, your `openclaw-data/` directory is unchanged. Just redeploy:
 .\deploy-openclaw-wsl.ps1 -OllamaWindows
 ```
 
-If you use `-OllamaWindows`, make sure Ollama is already running on Windows and listening on `0.0.0.0:11434` (the script does not auto-start native Ollama).
+If you use `-OllamaWindows`, use `start-ollama-windows.ps1` to start Ollama on the host with proper `0.0.0.0:11434` binding. The WSL deploy script will not auto-start native Ollama.
 
 Then disable the schedule by removing the `schedule:` trigger from the workflow (or deleting `.github/workflows/openclaw-runtime.yml`).
