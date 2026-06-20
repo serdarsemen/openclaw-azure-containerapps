@@ -774,7 +774,7 @@ $envBlock
       - CRW_EXTRACTION__LLM__PROVIDER=openai-compatible
       - CRW_EXTRACTION__LLM__BASE_URL=$ollamaBaseUrl
       - CRW_EXTRACTION__LLM__API_KEY=key
-      - CRW_EXTRACTION__LLM__MODEL=qwen3.5
+      - CRW_EXTRACTION__LLM__MODEL=qwen3:8b
       # Search via SearXNG
       - CRW_SEARCH__SEARXNG_URL=$searxngUrl
     # CRW (Code Ready Workspace) — collaborative development environment.
