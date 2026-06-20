@@ -298,7 +298,19 @@ function Start-OllamaWindows {
                     Write-Host "    Ollama started successfully" -ForegroundColor Green
                     return $true
                 }
-            } catch {}
+            } catch {
+                # Check for port already in use error
+                if ($_.Exception.Message -match "bind.*address already in use" -or $_.Exception.Message -match "11434.*already in use") {
+                    Write-Host "`n" -ForegroundColor Red
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+                    Write-Host "⚠️  OLLAMA IS RUNNING ON WINDOWS" -ForegroundColor Red
+                    Write-Host "PORT 11434 IS ALREADY IN USE BY AN EXISTING OLLAMA INSTANCE" -ForegroundColor Red
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+                    Write-Host "Fix: Stop the existing Ollama process or use -OllamaWSL to run in WSL instead" -ForegroundColor Yellow
+                    Write-Host "`n"
+                    return $false
+                }
+            }
             Start-Sleep -Seconds 1
         }
         Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
@@ -349,7 +361,20 @@ function Start-OllamaWsl {
         $startCmd += '  nohup ollama serve >/dev/null 2>&1 &; '
         $startCmd += 'fi'
 
-        wsl -- bash -c $startCmd 2>&1 | Out-Null
+        $startOutput = wsl -- bash -c $startCmd 2>&1
+
+        # Check for port already in use error
+        if ($startOutput -match "bind.*address already in use" -or $startOutput -match "11434.*already in use") {
+            Write-Host "`n" -ForegroundColor Red
+            Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+            Write-Host "⚠️  OLLAMA IS RUNNING ON WINDOWS" -ForegroundColor Red
+            Write-Host "STOP THE WINDOWS OLLAMA SERVICE TO RUN OLLAMA IN WSL" -ForegroundColor Red
+            Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+            Write-Host "Port 11434 is already in use (likely from Windows Ollama instance)" -ForegroundColor Yellow
+            Write-Host "Fix: Stop Windows Ollama, then try again" -ForegroundColor Yellow
+            Write-Host "`n"
+            return $false
+        }
 
         # Wait for Ollama to become reachable from Docker containers (via 0.0.0.0 binding)
         Write-Host "    Waiting for Ollama to respond on 0.0.0.0:11434 (up to 20 seconds)..." -ForegroundColor Gray
