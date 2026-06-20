@@ -82,7 +82,7 @@ RUN set -eux \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
     # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade pytesseract scipy==1.14.1 statsmodels==0.14.6 \
+    && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown scipy==1.14.1 statsmodels==0.14.6 \
         langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
         langchain-openai langchain-anthropic langchain-google-genai \
         langchain-experimental stockstats backtrader parsel \

@@ -89,7 +89,7 @@ RUN set -eux \
 RUN set -eux \
      # Python validation + pip packages
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-     && python3 -m pip install --no-cache-dir redis freqtrade pytesseract \
+     && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown \
          einops safetensors huggingface_hub yfinance openbb scipy==1.14.1 statsmodels==0.14.6 \
          langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
          langchain-openai langchain-anthropic langchain-google-genai \
