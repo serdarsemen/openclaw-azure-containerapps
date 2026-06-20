@@ -28,6 +28,7 @@
 #   - statsmodels      → statistical modeling     (installed via pip)
 #   - scikit-learn 1.9.0 → machine learning toolkit (installed via pip)
 #   - LightGBM 4.6.0   → gradient boosting framework (installed via pip)
+#   - skfolio 0.20.1   → portfolio optimization (installed via pip)
 #   - langgraph + langchain-* → TradingAgents framework deps (installed via pip)
 #   - stockstats, backtrader, parsel → TradingAgents framework deps (installed via pip)
 #
@@ -94,7 +95,7 @@ RUN set -eux \
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      # Core packages (scipy/statsmodels first — they have strict numpy requirements)
      && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown pymupdf \
-         scipy==1.14.1 statsmodels==0.14.6 scikit-learn==1.9.0 lightgbm==4.6.0 einops safetensors \
+         scipy==1.14.1 statsmodels==0.14.6 scikit-learn==1.9.0 lightgbm==4.6.0 skfolio==0.20.1 einops safetensors \
          huggingface_hub yfinance openbb \
          langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
          langchain-openai langchain-anthropic langchain-google-genai \
@@ -104,7 +105,7 @@ RUN set -eux \
             || python3 -m pip install --no-cache-dir torch ) \
      && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK'); import torch.utils.data" \
      # Verify ML packages are accessible (critical for ML inference)
-     && python3 -c "import lightgbm; import sklearn; print(f'LightGBM {lightgbm.__version__} OK'); print(f'scikit-learn {sklearn.__version__} OK')" \
+     && python3 -c "import lightgbm; import sklearn; import skfolio; print(f'LightGBM {lightgbm.__version__} OK'); print(f'scikit-learn {sklearn.__version__} OK'); print(f'skfolio {skfolio.__version__} OK')" \
      # OpenBB writes generated extension code into its package dir on first import;
      # make the directory world-writable so non-root container users can do this.
      && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/ \
