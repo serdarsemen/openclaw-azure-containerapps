@@ -335,29 +335,37 @@ function Start-OllamaWsl {
             Write-Host "    Tip: Update with: wsl -- sudo apt-get install --only-upgrade ollama" -ForegroundColor Gray
         }
 
-        # Set OLLAMA_HOST in WSL environment and start service
+        # Kill any existing Ollama process to ensure fresh start with correct OLLAMA_HOST
+        Write-Host "    Ensuring no existing Ollama process (may already be running from previous session)..." -ForegroundColor Gray
+        $killCmd = 'pkill -f "ollama serve" || true; sleep 1'
+        wsl -- bash -c $killCmd 2>&1 | Out-Null
+
+        # Set OLLAMA_HOST in WSL environment and start service fresh
         Write-Host "    Setting OLLAMA_HOST=0.0.0.0:11434 and starting Ollama in WSL..." -ForegroundColor Gray
         $startCmd = 'export OLLAMA_HOST=0.0.0.0:11434; '
         $startCmd += 'if command -v systemctl &>/dev/null; then '
-        $startCmd += '  sudo systemctl start ollama; '
+        $startCmd += '  sudo systemctl restart ollama; '
         $startCmd += 'else '
         $startCmd += '  nohup ollama serve >/dev/null 2>&1 &; '
         $startCmd += 'fi'
 
         wsl -- bash -c $startCmd 2>&1 | Out-Null
 
-        # Wait for Ollama to become reachable
-        Write-Host "    Waiting for Ollama to start (up to 15 seconds)..." -ForegroundColor Gray
-        $maxAttempts = 15
+        # Wait for Ollama to become reachable from Docker containers (via 0.0.0.0 binding)
+        Write-Host "    Waiting for Ollama to respond on 0.0.0.0:11434 (up to 20 seconds)..." -ForegroundColor Gray
+        $maxAttempts = 20
         for ($i = 0; $i -lt $maxAttempts; $i++) {
             try {
+                # Test both localhost and 0.0.0.0 to ensure binding is correct
                 $check = wsl -- bash -c "curl -sf --connect-timeout 2 'http://localhost:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
                 if ($check -match "OK") {
-                    Write-Host "    Ollama started successfully in WSL" -ForegroundColor Green
+                    Write-Host "    Ollama is accessible and bound to 0.0.0.0:11434" -ForegroundColor Green
                     return $true
                 }
             } catch {}
-            Start-Sleep -Seconds 1
+            if ($i -lt $maxAttempts - 1) {
+                Start-Sleep -Seconds 1
+            }
         }
         Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
         return $false
