@@ -337,6 +337,41 @@ wsl docker compose -f docker-compose-wsl.yaml up -d
 
 Use a Linux-side WSL path (ext4). Avoid `/mnt/c/...` for this mount, because Windows DrvFS permissions can appear as `0777` in containers and trigger OpenClaw security checks.
 
+### Working with Books (book-to-skill)
+
+Copy PDF or EPUB files into the OpenClaw container's books directory so the `book-to-skill` feature can process them into learning materials and skills.
+
+#### For WSL Docker deployments
+
+Use `wsl docker cp` to copy files from your Windows machine into the running container:
+
+```powershell
+# Copy a single EPUB file
+wsl docker cp "C:\Users\YourUsername\Downloads\BookTitle.epub" "openclaw:/home/node/.openclaw/book-to-skill/books/"
+
+# Copy a PDF file
+wsl docker cp "C:\Users\YourUsername\Downloads\BookTitle.pdf" "openclaw:/home/node/.openclaw/book-to-skill/books/"
+
+# Example: "Trading Price Action Trends" EPUB (full path, handle spaces with quotes)
+wsl docker cp "C:\Users\serdsem\Downloads\Trading Price Action Trends Technical Analysis of Price Charts Bar by Bar for the Serious Trader by Al Brooks.epub" "openclaw:/home/node/.openclaw/book-to-skill/books/"
+
+# Create the books directory first if it doesn't exist
+wsl docker exec openclaw mkdir -p /home/node/.openclaw/book-to-skill/books
+```
+
+After copying, the file will be available for the book-to-skill pipeline to process. Inside the container, book files are stored at `/home/node/.openclaw/book-to-skill/books/` and persist across container restarts.
+
+#### For Azure Container Apps / AKS deployments
+
+Mount books via the NFS share before deployment, or use `az containerapp exec` / `kubectl cp`:
+
+```powershell
+# AKS: copy directly into the pod
+kubectl cp "C:\Users\YourUsername\Downloads\BookTitle.epub" \
+  openclaw/openclaw:/home/node/.openclaw/book-to-skill/books/ \
+  -c openclaw
+```
+
 ---
 
 ## Run (GitHub Actions — serverless)

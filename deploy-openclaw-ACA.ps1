@@ -701,6 +701,12 @@ Write-Host ""
 Write-Host "OpenClaw ($variantLabel) URL: https://$fqdn"
 Write-Host "Control UI:   https://$fqdn/#token=$GatewayToken"
 Write-Host ""
+Write-Host "=== Working with books (book-to-skill) ===" -ForegroundColor Cyan
+Write-Host "  Copy PDF or EPUB files to OpenClaw for processing into skills:" -ForegroundColor Gray
+Write-Host "  Use kubectl cp (for AKS) or mount via NFS share (for ACA/File Share)" -ForegroundColor Gray
+Write-Host "  Files persist at: /home/node/.openclaw/book-to-skill/books/" -ForegroundColor Gray
+Write-Host "  See README.md for detailed copy instructions" -ForegroundColor White
+Write-Host ""
 Write-Host "=== One manual step remaining: GitHub Copilot auth ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "1. Connect to container:" -ForegroundColor Yellow

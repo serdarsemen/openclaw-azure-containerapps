@@ -14,6 +14,7 @@
 #   - Python 3.13.x    → /usr/local/bin/python3
 #   - redis-py         → Python redis client    (installed via pip)
 #   - pytesseract      → Python Tesseract bindings (installed via pip)
+#   - PyMuPDF          → Python PDF processing  (installed via pip)
 #   - sqlite-vec       → SQLite vector extension (native .so for QMD)
 #   - Freqtrade        → /usr/local/bin/freqtrade (crypto trading bot)
 #   - freqtrade-strategies → /opt/freqtrade-strategies (community strategies)
@@ -90,7 +91,7 @@ RUN set -eux \
      # Python validation
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
      # Core packages (scipy/statsmodels first — they have strict numpy requirements)
-     && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown \
+     && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown pymupdf \
          scipy==1.14.1 statsmodels==0.14.6 einops safetensors \
          huggingface_hub yfinance openbb \
          langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
