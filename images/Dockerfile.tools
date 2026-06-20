@@ -87,22 +87,27 @@ RUN set -eux \
      && npm install -g bun
 
 RUN set -eux \
-     # Python validation + pip packages
+     # Python validation
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
+     # Core packages (scipy/statsmodels first — they have strict numpy requirements)
      && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown \
-         einops safetensors huggingface_hub yfinance openbb scipy==1.14.1 statsmodels==0.14.6 \
+         scipy==1.14.1 statsmodels==0.14.6 einops safetensors \
+         huggingface_hub yfinance openbb \
          langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
          langchain-openai langchain-anthropic langchain-google-genai \
          langchain-experimental stockstats backtrader parsel \
-     # OpenBB writes generated extension code into its package dir on first import;
-     # make the directory world-writable so non-root container users can do this.
-     && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/
-
-RUN set -eux \
-    # PyTorch CPU — try CPU-only index first (smaller); fall back to main PyPI if needed
+     # PyTorch last (installs after scipy/statsmodels so it adapts to the numpy environment)
      && ( python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
             || python3 -m pip install --no-cache-dir torch ) \
-     && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK')" \
+     && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK'); import torch.utils.data" \
+     # OpenBB writes generated extension code into its package dir on first import;
+     # make the directory world-writable so non-root container users can do this.
+     && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/ \
+     # Verify torch libraries are accessible (critical for ML inference)
+     && python3 -c "import torch; print(f'PyTorch libraries: {torch.__file__}')" \
+     && ldconfig -p | grep -E "(libtorch|libc10)" | head -5
+
+RUN set -eux \
      # Freqtrade strategies — community strategy repository
      && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
      # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
@@ -113,7 +118,8 @@ RUN set -eux \
      && rm -rf /tmp/* /root/go /root/.cache/go-build /root/.cache/go /root/.cache/pip /root/.npm \
      && rm -rf /root/.bun/install /root/.bun/cache \
      && find /usr/local/lib/python${PYTHON_VERSION} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
-     && find /usr/local/lib/python${PYTHON_VERSION} -type d -name "test*" -prune -exec rm -rf {} + 2>/dev/null || true \
+     && find /usr/local/lib/python${PYTHON_VERSION}/site-packages -maxdepth 2 -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true \
+     && find /usr/local/lib/python${PYTHON_VERSION}/site-packages -maxdepth 2 -type d -name "test" -exec rm -rf {} + 2>/dev/null || true \
      && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
      && npm cache clean --force
 
