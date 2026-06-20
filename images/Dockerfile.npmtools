@@ -9,8 +9,10 @@
 #   - GitHub CLI 2.72.0  → /usr/local/bin/gh
 #   - Gemini CLI         → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI            → /usr/local/bin/gog     (built from source)
+#   - Tesseract OCR     → /usr/bin/tesseract (with eng,fra,deu,spa,ita,por,rus,chi-sim,jpn language packs)
 #   - Python 3.13.x     → /usr/local/bin/python3
 #   - redis-py           → Python redis client    (installed via pip)
+#   - pytesseract        → Python Tesseract bindings (installed via pip)
 #   - sqlite-vec         → SQLite vector extension (native .so for QMD)
 #   - Bun                → /usr/local/bin/bun
 #   - QMD                → /usr/local/bin/qmd     (installed via bun)
@@ -39,6 +41,24 @@ COPY --from=python-runtime /usr/local/bin/pip* /usr/local/bin/
 COPY --from=python-runtime /usr/local/lib/python${PYTHON_VERSION} /usr/local/lib/python${PYTHON_VERSION}
 COPY --from=python-runtime /usr/local/lib/libpython* /usr/local/lib/
 
+# ── System packages (Tesseract OCR + language data) ────────────────────────
+RUN set -eux \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       tesseract-ocr \
+       tesseract-ocr-eng \
+       tesseract-ocr-fra \
+       tesseract-ocr-deu \
+       tesseract-ocr-spa \
+       tesseract-ocr-ita \
+       tesseract-ocr-por \
+       tesseract-ocr-rus \
+       tesseract-ocr-chi-sim \
+       tesseract-ocr-jpn \
+       libtesseract5 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── All CLI tools in a single layer ─────────────────────────────────────────
 ENV GOROOT=/usr/local/go \
     PATH="/usr/local/go/bin:${PATH}"
@@ -62,7 +82,7 @@ RUN set -eux \
     && BUN_INSTALL=/usr/local bun install -g https://github.com/tobi/qmd 2>/dev/null || true \
     # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
-    && python3 -m pip install --no-cache-dir redis freqtrade scipy==1.14.1 statsmodels==0.14.6 \
+    && python3 -m pip install --no-cache-dir redis freqtrade pytesseract scipy==1.14.1 statsmodels==0.14.6 \
         langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
         langchain-openai langchain-anthropic langchain-google-genai \
         langchain-experimental stockstats backtrader parsel \
