@@ -23,6 +23,7 @@
 #   - statsmodels        → statistical modeling     (installed via pip)
 #   - scikit-learn 1.9.0 → machine learning toolkit (installed via pip)
 #   - LightGBM 4.6.0     → gradient boosting framework (installed via pip)
+#   - joblib             → model serialization/runtime helpers (installed via pip)
 #   - skfolio 0.20.1     → portfolio optimization (installed via pip)
 #   - langgraph + langchain-* → TradingAgents framework deps (installed via pip)
 #   - stockstats, backtrader, parsel → TradingAgents framework deps (installed via pip)
@@ -87,10 +88,11 @@ RUN set -eux \
     # Python validation + Python packages
     && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
     # Install core packages (scipy/statsmodels first — they have strict numpy requirements)
-    && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown pymupdf scipy==1.14.1 statsmodels==0.14.6 scikit-learn==1.9.0 lightgbm==4.6.0 skfolio==0.20.1 \
+    && python3 -m pip install --no-cache-dir redis freqtrade pytesseract markitdown pymupdf scipy==1.14.1 statsmodels==0.14.6 scikit-learn==1.9.0 lightgbm==4.6.0 joblib skfolio==0.20.1 \
         langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
         langchain-openai langchain-anthropic langchain-google-genai \
         langchain-experimental stockstats backtrader parsel \
+    && python3 -c "import joblib; import lightgbm; import sklearn; import skfolio; print(f'joblib {joblib.__version__} OK'); print(f'LightGBM {lightgbm.__version__} OK'); print(f'scikit-learn {sklearn.__version__} OK'); print(f'skfolio {skfolio.__version__} OK')" \
     # Freqtrade strategies — community strategy repository
     && git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git /opt/freqtrade-strategies \
     # Freqtrade config — dry-run paper trading on Binance (BTC/USDT, ETH/USDT)
