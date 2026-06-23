@@ -23,6 +23,17 @@ This repo provides four ways to run OpenClaw:
 
 The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch). The GitHub Actions runtime uses the npm install and carries Copilot auth over in its seed/cache.
 
+### Docker Python package pins
+
+The custom image build layers in both `images/Dockerfile.tools` and `images/Dockerfile.npmtools` pin key Python dependencies for reproducible behavior across ACA, AKS, and WSL deployments.
+
+- `scikit-learn==1.9.0`
+- `matplotlib==3.11.0`
+- `mplfinance==0.12.10b0`
+- `pytest-timeout==2.4.0`
+
+When updating Python dependencies, keep both Dockerfiles in sync.
+
 ## Prerequisites
 
 ### Azure Container Apps deployment
