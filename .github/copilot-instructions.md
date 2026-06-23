@@ -42,8 +42,9 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 
 - **Installation order is critical** to prevent numpy version conflicts:
   1. scipy/statsmodels install first (they have strict numpy requirements: scipy==1.14.1, statsmodels==0.14.6)
-  2. PyTorch installs last and adapts to the existing numpy environment
-  3. This ordering prevents `numpy.testing` broken and torch import failures
+  2. Keep pinned ML/test packages aligned across both Dockerfiles (scikit-learn==1.9.0, matplotlib==3.11.0, mplfinance==0.12.10b0, pytest-timeout==2.4.0)
+  3. PyTorch installs last and adapts to the existing numpy environment
+  4. This ordering prevents `numpy.testing` broken and torch import failures
 - **Library preservation**: Cleanup patterns are intentionally conservative (`-maxdepth 2 -type d -name "tests"`) to avoid removing torch shared objects
 - **Torch verification**: After install, verify with `python3 -c "import torch; import torch.utils.data"` to catch broken installations early
 

@@ -52,10 +52,10 @@ ACR Tasks uses the **classic Docker builder**, not BuildKit. The deploy scripts 
 
 ## Python ML Stack Installation Order (CRITICAL)
 
-The Dockerfiles include PyTorch, scipy, statsmodels, huggingface_hub, langgraph, and 20+ scientific packages. **Installation order must be strictly maintained** to prevent numpy version conflicts:
+The Dockerfiles include PyTorch, scipy, statsmodels, scikit-learn, matplotlib, mplfinance, huggingface_hub, langgraph, pytest-timeout, and 20+ scientific packages. **Installation order must be strictly maintained** to prevent numpy version conflicts:
 
 1. **scipy==1.14.1** and **statsmodels==0.14.6** install FIRST (they have strict numpy version requirements)
-2. All other packages install next
+2. Keep pinned package versions synchronized in both Dockerfiles (for example: **scikit-learn==1.9.0**, **matplotlib==3.11.0**, **mplfinance==0.12.10b0**, **pytest-timeout==2.4.0**)
 3. **PyTorch installs LAST** (it adapts to the existing numpy environment)
 
 **Why this matters:**
