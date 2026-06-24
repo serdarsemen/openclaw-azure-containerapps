@@ -244,6 +244,63 @@ function Get-LatestOllamaVersion {
     return $null
 }
 
+  # Upgrade Ollama inside WSL using the official installer script.
+  # Returns $true when Ollama is already current or upgraded successfully.
+  function Update-OllamaWsl {
+    param([switch] $Force)
+
+    Write-Host "  Checking whether Ollama upgrade is needed in WSL..." -ForegroundColor Gray
+
+    $ollamaPath = wsl -- bash -c "command -v ollama" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $ollamaPath) {
+      Write-Host "  Ollama not found in WSL. Install first: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh'" -ForegroundColor Yellow
+      return $false
+    }
+
+    $currentVersionRaw = wsl -- bash -c "ollama --version 2>/dev/null | head -n1" 2>$null
+    $currentVersion = ""
+    if ($currentVersionRaw -match '(\d+\.\d+\.\d+)') {
+      $currentVersion = $Matches[1]
+    }
+
+    $latestVersion = Get-LatestOllamaVersion
+    if (-not $Force -and $latestVersion -and $currentVersion -and $currentVersion -eq $latestVersion) {
+      Write-Host "  Ollama in WSL is already up to date ($currentVersion)" -ForegroundColor Green
+      return $true
+    }
+
+    # Avoid hanging on sudo password prompts in non-interactive runs.
+    wsl -- bash -c "sudo -n true" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "  Skipping auto-upgrade: passwordless sudo is required for unattended upgrade." -ForegroundColor Yellow
+      Write-Host "  Manual upgrade in WSL: curl -fsSL https://ollama.com/install.sh | sh" -ForegroundColor Gray
+      return $false
+    }
+
+    Write-Host "  Upgrading Ollama in WSL via official installer..." -ForegroundColor Gray
+    wsl -- bash -c "set -e; curl -fsSL https://ollama.com/install.sh | sudo -n sh" 2>&1 | ForEach-Object {
+      Write-Host "    $_" -ForegroundColor DarkGray
+    }
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "  Ollama upgrade failed in WSL" -ForegroundColor Yellow
+      return $false
+    }
+
+    $newVersionRaw = wsl -- bash -c "ollama --version 2>/dev/null | head -n1" 2>$null
+    $newVersion = ""
+    if ($newVersionRaw -match '(\d+\.\d+\.\d+)') {
+      $newVersion = $Matches[1]
+    }
+
+    if ($newVersion) {
+      Write-Host "  Ollama upgraded in WSL: $currentVersion -> $newVersion" -ForegroundColor Green
+    } else {
+      Write-Host "  Ollama upgrade completed in WSL" -ForegroundColor Green
+    }
+
+    return $true
+  }
+
 # Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWindows {
     try {
@@ -323,13 +380,15 @@ function Start-OllamaWindows {
 
 # Auto-start Ollama in WSL by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWsl {
+  param([switch] $Upgrade)
+
     try {
         Write-Host "  Attempting to auto-start Ollama in WSL..." -ForegroundColor Gray
 
         # Check if Ollama is installed in WSL
         $ollamaCheck = wsl -- which ollama 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  Ollama not found in WSL. Install with: wsl -- sudo apt-get install ollama" -ForegroundColor Yellow
+          Write-Host "  Ollama not found in WSL. Install with: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh'" -ForegroundColor Yellow
             return $false
         }
 
@@ -344,7 +403,11 @@ function Start-OllamaWsl {
         $latestVersion = Get-LatestOllamaVersion
         if ($latestVersion) {
             Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
-            Write-Host "    Tip: Update with: wsl -- sudo apt-get install --only-upgrade ollama" -ForegroundColor Gray
+          Write-Host "    Tip: upgrade with -UpgradeOllama (or run: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh')" -ForegroundColor Gray
+        }
+
+        if ($Upgrade) {
+          $null = Update-OllamaWsl
         }
 
         # Kill any existing Ollama process to ensure fresh start with correct OLLAMA_HOST
@@ -385,6 +448,16 @@ function Start-OllamaWsl {
                 $check = wsl -- bash -c "curl -sf --connect-timeout 2 'http://localhost:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
                 if ($check -match "OK") {
                     Write-Host "    Ollama is accessible and bound to 0.0.0.0:11434" -ForegroundColor Green
+
+                  $versionLine = wsl -- bash -c "ollama version 2>/dev/null | head -n1" 2>$null
+                  if ($versionLine) {
+                    Write-Host "    $versionLine" -ForegroundColor Gray
+                    if ($versionLine -match 'Warning:\s*client version') {
+                      Write-Host "    Client/server version mismatch detected in WSL Ollama." -ForegroundColor Yellow
+                      Write-Host "    Run with -UpgradeOllama to upgrade both binaries, then retry." -ForegroundColor Yellow
+                    }
+                  }
+
                     return $true
                 }
             } catch {}
@@ -407,7 +480,8 @@ function Resolve-OllamaHost {
     param(
         [switch] $OllamaWindows,
         [switch] $OllamaWsl,
-        [string] $OllamaHost = ""
+    [string] $OllamaHost = "",
+    [switch] $UpgradeOllamaWsl
     )
 
     if (-not ($OllamaWindows -or $OllamaWsl -or $OllamaHost)) {
@@ -462,7 +536,7 @@ function Resolve-OllamaHost {
             Write-Host "  Using host.docker.internal for WSL Ollama" -ForegroundColor Green
         }
         Write-Host "  Auto-starting Ollama in WSL..." -ForegroundColor Green
-        $null = Start-OllamaWsl
+        $null = Start-OllamaWsl -Upgrade:$UpgradeOllamaWsl
     }
 
     Write-Host "  Verifying Ollama connectivity at $OllamaHost ..." -ForegroundColor Gray

@@ -10,12 +10,19 @@ Useful for setting up the LLM backend for CRW before deploying OpenClaw.
 .EXAMPLE
 .\start-ollama-qwen.ps1
 
+.EXAMPLE
+.\start-ollama-qwen.ps1 -UpgradeOllama
+
 .NOTES
 Requires:
 - Windows Subsystem for Linux (WSL 2)
-- Ollama installed in WSL: wsl -- sudo apt-get install ollama
+- Ollama installed in WSL: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh'
 - Network connectivity to pull model from ollama.ai registry
 #>
+
+param(
+    [switch] $UpgradeOllama
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -35,7 +42,7 @@ Write-Host "╚═════════════════════�
 Write-Host "`n[1/3] Starting Ollama in WSL..." -ForegroundColor Cyan
 Write-Host "  Note: If Ollama is already running from a previous session, it will be killed and restarted." -ForegroundColor Gray
 Write-Host "  This ensures it binds to 0.0.0.0:11434 instead of 127.0.0.1 (required for Docker containers)." -ForegroundColor Gray
-$ollamaStarted = Start-OllamaWsl
+$ollamaStarted = Start-OllamaWsl -Upgrade:$UpgradeOllama
 if (-not $ollamaStarted) {
     Write-Host "`n❌ Auto-start failed. Try manual workaround:" -ForegroundColor Yellow
     Write-Host "  1. Open WSL terminal (or use: wsl)" -ForegroundColor Gray
@@ -44,7 +51,7 @@ if (-not $ollamaStarted) {
     Write-Host "  3. Rerun this script after Ollama is running" -ForegroundColor Gray
     Write-Host "`n  To verify Ollama is accessible, in another terminal run:" -ForegroundColor Gray
     Write-Host "     curl http://localhost:11434/api/tags" -ForegroundColor Cyan
-    Write-Host "`nFailed to start Ollama. Check WSL installation and try: wsl -- sudo apt-get install ollama" -ForegroundColor Red
+    Write-Host "`nFailed to start Ollama. Check WSL installation and try: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh'" -ForegroundColor Red
     exit 1
 }
 

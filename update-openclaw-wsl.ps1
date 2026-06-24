@@ -30,6 +30,7 @@
 #   .\update-openclaw-wsl.ps1 -Ollama                          # explicitly keep/start Ollama sidecar
 #   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
 #   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
+#   .\update-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # auto-upgrade + switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
 #   .\update-openclaw-wsl.ps1 -GroqApiKey gsk_...                # set/rotate the Groq API key
 #   .\update-openclaw-wsl.ps1 -LanAccess                       # expose gateway on the LAN (0.0.0.0)
@@ -42,6 +43,7 @@ param(
     [switch] $Ollama,
     [switch] $OllamaWindows,
     [switch] $OllamaWsl,
+    [switch] $UpgradeOllama,
     [string] $OllamaHost    = "",
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
@@ -247,7 +249,7 @@ Write-Host "  Compose file: found" -ForegroundColor Green
 # Resolve native/external Ollama usage to a concrete OLLAMA_HOST URL, or emit
 # a skip note when Ollama is not being changed for this update.
 # ---------------------------------------------------------------------------
-$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllamaWsl:$UpgradeOllama
 $OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------

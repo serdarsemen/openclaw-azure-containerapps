@@ -53,6 +53,7 @@
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
 #   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # auto-start Ollama in WSL
+#   .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # auto-upgrade + auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama
 #   .\deploy-openclaw-wsl.ps1 -Npm -Ollama -LanAccess          # all features: npm + sidecar + LAN access
 # ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ param(
     [switch] $Ollama,
     [switch] $OllamaWindows,
     [switch] $OllamaWsl,
+    [switch] $UpgradeOllama,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
     [string] $Tag           = "",
@@ -126,7 +128,7 @@ $null = Repair-WslDns
 # Resolve native/external Ollama usage to a concrete URL, or emit a skip note
 # when Ollama is not in use for this deployment.
 # ---------------------------------------------------------------------------
-$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllamaWsl:$UpgradeOllama
 $OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------
