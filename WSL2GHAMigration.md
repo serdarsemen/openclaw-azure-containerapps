@@ -2,6 +2,12 @@
 
 Migrate a running OpenClaw instance from a local **WSL Docker** deployment to a serverless **GitHub Actions** runtime, preserving configuration, skills, workspace files, memory, sessions, and cron jobs.
 
+## Recent changes (June 2026)
+
+- Runtime scripts now include dedicated deploy/update helpers: `deploy-openclaw-gha.ps1` and `update-openclaw-gha.ps1`.
+- Sidecar services in Actions mirror WSL defaults (Redis, SearXNG, CRW) and are controllable via repo variables.
+- Added `OPENCLAW_GHA_DRIVE` mode (`manual`/`scheduler`) for deterministic cron execution behavior.
+
 Instead of keeping a Gateway container running 24/7 on your machine, GitHub spins up a fresh Ubuntu runner **every 15 minutes**, restores the previous OpenClaw state from the Actions cache, fires any cron jobs that are due, saves the updated state back, and shuts down — typically in 2-3 minutes. Zero infrastructure cost, zero maintenance overhead.
 
 ## Architecture Comparison

@@ -2,6 +2,12 @@
 
 Migrate a running OpenClaw instance from Azure Container Apps (ACA) to a local WSL Docker deployment, preserving all configuration, skills, workspace files, memory, and sessions.
 
+## Recent changes (June 2026)
+
+- WSL native Ollama modes (`-OllamaWindows`, `-OllamaWsl`) now attempt automatic startup and connectivity validation.
+- Dedicated startup helpers are available per target runtime (`start-ollama-*.ps1`).
+- Default WSL runtime remains OpenClaw + Redis + SearXNG + CRW, with Ollama optional.
+
 ## Architecture Comparison
 
 | Aspect | ACA (Source) | WSL (Target) |
@@ -160,7 +166,7 @@ Write-Host "Updated Ollama URL in openclaw.json" -ForegroundColor Green
 
 > **Note:** If using the `-Ollama` sidecar flag in WSL, replace with `http://ollama:11434` instead.
 
-> **Important:** WSL scripts do not auto-install or auto-start native Ollama. If using `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`, start Ollama using one of the provided startup scripts:
+> **Important:** WSL scripts attempt native Ollama auto-start for `-OllamaWindows` and `-OllamaWsl`. If automatic startup fails, use one of the provided startup scripts:
 > - `start-ollama-qwen.ps1` — Automates Ollama startup on WSL 2, validates Docker connectivity, and pulls qwen3.5 model
 > - `start-ollama-windows.ps1` — Starts Ollama natively on Windows host
 > - Any native Ollama must listen on `0.0.0.0:11434` to accept Docker bridge network connections
@@ -191,13 +197,13 @@ The deploy script detects the existing `openclaw-data/` directory and preserves 
 wsl docker ps --filter name=openclaw
 
 # Verify config was loaded
-wsl docker exec openclaw-wsl openclaw config get gateway.controlUi
+wsl docker exec openclaw openclaw config get gateway.controlUi
 
 # Check workspace files are present
-wsl docker exec openclaw-wsl ls -la /home/node/.openclaw/workspace/
+wsl docker exec openclaw ls -la /home/node/.openclaw/workspace/
 
 # Verify skills
-wsl docker exec openclaw-wsl openclaw skills list
+wsl docker exec openclaw openclaw skills list
 
 # Open the Control UI
 Start-Process "http://localhost:18789"
@@ -254,6 +260,6 @@ After confirming everything works:
 | `openclaw.json` validation error on startup | ACA config may have fields the local version doesn't expect. Run `openclaw configure` inside the container to regenerate. |
 | Skills not loading | Check `openclaw-data/workspace/skills/` and `openclaw-data/skills/` exist and have content. |
 | Memory files missing | Verify `openclaw-data/workspace/memory/` contains `YYYY-MM-DD.md` files. |
-| Ollama connection refused | Ensure Ollama is running: `ollama serve` (host) or check `-Ollama` sidecar logs: `wsl docker logs openclaw-wsl-ollama`. |
+| Ollama connection refused | Ensure Ollama is running: `ollama serve` (host) or check `-Ollama` sidecar logs: `wsl docker logs openclaw-ollama`. |
 | Permission denied on data files | Fix ownership: `wsl sudo chown -R 1000:1000 openclaw-data/` (node user UID). |
 | Docker not starting in WSL | Run `wsl sudo service docker start` or re-run the deploy script (auto-starts Docker). |

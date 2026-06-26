@@ -1,5 +1,11 @@
 # MCP Server Validation Report
-**Generated:** 2026-06-20
+**Generated:** 2026-06-26
+
+## Recent changes validated
+
+- PowerShell and Bash validators are both maintained and in parity.
+- Runtime health checks now explicitly include CRW (`http://127.0.0.1:3000`) and OpenClaw gateway (`http://127.0.0.1:18789/healthz`).
+- Symlink remediation flow is available in both scripts.
 
 ## Overview
 This report validates all Model Context Protocol (MCP) servers configured in the openclaw-azure-containerapps project.

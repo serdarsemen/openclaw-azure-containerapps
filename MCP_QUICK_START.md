@@ -1,5 +1,13 @@
 # Quick Start: MCP Server Validation
 
+Last updated: 2026-06-26
+
+## Recent changes
+
+- Added cross-platform validators (`validate-mcp-servers.ps1` and `validate-mcp-servers.sh`).
+- Validation now checks CRW and OpenClaw gateway connectivity in addition to Redis/SearXNG.
+- Symlink repair mode (`-FixSymlinks` / `--fix-symlinks`) is documented and supported.
+
 ## TL;DR
 
 All MCP servers in the openclaw-azure-containerapps project are **valid and properly configured**. Use these quick commands to verify they're working:

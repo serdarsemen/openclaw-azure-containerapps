@@ -2,6 +2,12 @@
 
 Migrate a running OpenClaw instance from Azure Container Apps (ACA) to Azure Kubernetes Service (AKS), preserving all configuration, skills, workspace files, memory, and sessions. Ollama runs as a **separate pod** (its own `Deployment` + `Service`) in the same namespace so OpenClaw reaches it via in-cluster DNS (`http://ollama:11434`).
 
+## Recent changes (June 2026)
+
+- Preferred AKS path now uses `deploy-openclaw-aks.ps1` / `update-openclaw-aks.ps1` for day-0 and day-2 operations.
+- Ollama on AKS remains opt-in (`-Ollama`) and deploys as a dedicated pod/service instead of a sidecar.
+- Update workflow now rolls out OpenClaw by image digest for deterministic revisions.
+
 ## Architecture Comparison
 
 | Aspect | ACA (Source) | AKS (Target) |
