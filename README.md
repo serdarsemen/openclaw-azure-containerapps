@@ -23,6 +23,13 @@ This repo provides four ways to run OpenClaw:
 
 The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch). The GitHub Actions runtime uses the npm install and carries Copilot auth over in its seed/cache.
 
+## Recent changes (June 2026)
+
+- Added target-specific deploy/update scripts for ACA, AKS, WSL, and GitHub Actions runtimes.
+- WSL and AKS keep Ollama optional by default; enable explicitly with `-Ollama` or use native/external host modes.
+- Added dedicated Ollama startup helpers for each runtime (`start-ollama-qwen.ps1`, `start-ollama-windows.ps1`, `start-ollama-aca.ps1`, `start-ollama-aks.ps1`, `start-ollama-gha.ps1`).
+- Added cross-platform MCP validation scripts (`validate-mcp-servers.ps1`, `validate-mcp-servers.sh`) with Redis, SearXNG, CRW, and gateway checks.
+
 ### Docker Python package pins
 
 The custom image build layers in both `images/Dockerfile.tools` and `images/Dockerfile.npmtools` pin key Python dependencies for reproducible behavior across ACA, AKS, and WSL deployments.
@@ -217,7 +224,7 @@ wsl docker exec -it openclaw bash
 
 By default, the WSL deploy script does **not** include an Ollama sidecar — it deploys OpenClaw + Redis only. Use `-Ollama` to add the sidecar, or point at an existing instance with `-OllamaWindows` (Ollama on the Windows host), `-OllamaWsl` (Ollama in WSL), or `-OllamaHost <url>` (any URL). Only one Ollama mode may be used at a time.
 
-The script does **not** auto-install or auto-start native Ollama. Native Ollama is used only when you explicitly pass `-OllamaWindows`, `-OllamaWsl`, or `-OllamaHost`.
+For native modes (`-OllamaWindows`, `-OllamaWsl`), the script attempts to auto-start Ollama and validate connectivity. If auto-start fails, run the matching startup helper script and retry.
 
 ```powershell
 # Default: OpenClaw + Redis + SearXNG (no Ollama)
@@ -235,6 +242,9 @@ The script does **not** auto-install or auto-start native Ollama. Native Ollama 
 # Use Ollama running natively in WSL (auto-detects IP)
 .\deploy-openclaw-wsl.ps1 -OllamaWsl
 
+# Use Ollama in WSL and auto-upgrade before startup
+.\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama
+
 # Use an external Ollama instance at an explicit URL (no sidecar added)
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
 
@@ -242,7 +252,7 @@ The script does **not** auto-install or auto-start native Ollama. Native Ollama 
 .\deploy-openclaw-wsl.ps1 -LanAccess
 ```
 
-> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` and be started manually — set `OLLAMA_HOST=0.0.0.0` in the Ollama environment so it accepts connections from the WSL/Docker bridge network. Use `start-ollama-qwen.ps1` to automate this startup and model pull across all 5 deployment environments.
+> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` so it accepts connections from the WSL/Docker bridge network. If automatic startup does not succeed, use `start-ollama-windows.ps1` (or `start-ollama-qwen.ps1` for WSL-hosted flows) and retry.
 
 #### Using a local Ollama instance (no sidecar)
 
