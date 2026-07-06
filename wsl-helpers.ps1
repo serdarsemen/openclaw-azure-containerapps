@@ -6,13 +6,24 @@
 # ---------------------------------------------------------------------------
 
 # Run a WSL command, merge stderr into the return value, throw on non-zero exit.
+# Retries once automatically when a WSL service-level socket timeout is detected
+# (Wsl/Service/0x8007274c) — these are always transient and never indicate a real failure.
 function Invoke-Wsl {
-    param([string] $Command)
-    $result = wsl bash -c $Command 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "WSL command failed (exit $LASTEXITCODE): $Command`n$result"
+    param([string] $Command, [int] $ServiceRetries = 2)
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        $result = wsl bash -c $Command 2>&1
+        if ($LASTEXITCODE -eq 0) { return $result }
+        $output = ($result -join [Environment]::NewLine)
+        if ($attempt -lt $ServiceRetries -and (Test-WslTransientNetworkError -Output $output)) {
+            $delay = $attempt * 3
+            Write-Host "  WSL service error on attempt $attempt — retrying in ${delay}s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delay
+            continue
+        }
+        throw "WSL command failed (exit $LASTEXITCODE): $Command`n$output"
     }
-    return $result
 }
 
 # Heuristic for transient network failures seen during Docker/BuildKit dependency
@@ -33,7 +44,13 @@ function Test-WslTransientNetworkError {
     'context deadline exceeded',
     'lookup .*: no such host',
     'registry\.npmjs\.org',
-    'registry-1\.docker\.io'
+    'registry-1\.docker\.io',
+    # WSL service-level socket timeouts (Wsl/Service/0x8007274c et al.)
+    'Wsl/Service/',
+    'connected party did not properly respond',
+    'connected host has failed to respond',
+    '0x8007274c',
+    '0x80072746'
   )
 
   foreach ($pattern in $patterns) {
