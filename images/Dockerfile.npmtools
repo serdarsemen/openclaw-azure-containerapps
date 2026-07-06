@@ -10,6 +10,7 @@
 #   - Gemini CLI         → /usr/local/bin/gemini  (npm global)
 #   - GoG CLI            → /usr/local/bin/gog     (built from source)
 #   - Tesseract OCR     → /usr/bin/tesseract (with eng,fra,deu,spa,ita,por,rus,chi-sim,jpn language packs)
+#   - shellcheck         → /usr/bin/shellcheck (shell script static analysis)
 #   - ZeroMQ            → /usr/lib/*/libzmq.so (libzmq3-dev runtime + headers)
 #   - Python 3.13.x     → /usr/local/bin/python3
 #   - redis-py           → Python redis client    (installed via pip)
@@ -78,6 +79,7 @@ RUN set -eux \
        tesseract-ocr-jpn \
          libzmq3-dev \
        libtesseract5 \
+       shellcheck \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
