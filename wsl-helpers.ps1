@@ -692,6 +692,51 @@ function Resolve-OllamaHost {
 # Verify CRW (Code Ready Workspace) is running and healthy in Docker.
 # CRW typically starts quickly but this waits up to 30 seconds with TCP health checks.
 # Returns $true if healthy, $false if container doesn't exist or fails health check.
+function Normalize-OllamaHostForContainer {
+  param([string] $OllamaHost)
+
+  if (-not $OllamaHost) { return "" }
+
+  try {
+    $uri = [Uri]$OllamaHost
+    $loopbackHosts = @("127.0.0.1", "localhost", "::1", "0.0.0.0")
+    if ($loopbackHosts -contains $uri.Host) {
+      $builder = New-Object System.UriBuilder($uri)
+      $builder.Host = "host.docker.internal"
+      return $builder.Uri.AbsoluteUri.TrimEnd('/')
+    }
+  } catch {
+    # Keep original value if it cannot be parsed as absolute URI.
+  }
+
+  return $OllamaHost.TrimEnd('/')
+}
+
+function Get-OpenAiCompatBaseUrl {
+  param([string] $BaseHost)
+
+  if (-not $BaseHost) {
+    return "http://host.docker.internal:11434/v1"
+  }
+
+  try {
+    $uri = [Uri]$BaseHost
+    $path = if ($uri.AbsolutePath) { $uri.AbsolutePath.TrimEnd('/') } else { "" }
+
+    if (-not $path -or $path -eq "/") {
+      return ("{0}://{1}:{2}/v1" -f $uri.Scheme, $uri.Host, $uri.Port)
+    }
+
+    if ($path -match '/v1$') {
+      return ("{0}://{1}:{2}{3}" -f $uri.Scheme, $uri.Host, $uri.Port, $path)
+    }
+
+    return ("{0}://{1}:{2}{3}/v1" -f $uri.Scheme, $uri.Host, $uri.Port, $path)
+  } catch {
+    return "http://host.docker.internal:11434/v1"
+  }
+}
+
 function Test-WslCrwHealth {
     param(
         [string] $ContainerName = "openclaw-crw",
@@ -739,11 +784,20 @@ function New-OpenClawComposeYaml {
         [switch] $LanAccess
     )
 
-    # Determine Ollama base URL based on deployment mode
+    # Resolve an Ollama host value that is reachable from containers.
+    $effectiveOllamaHost = ""
+    if ($OllamaHost) {
+      $effectiveOllamaHost = Normalize-OllamaHostForContainer -OllamaHost $OllamaHost
+      if ($effectiveOllamaHost -ne $OllamaHost) {
+        Write-Host "  Rewriting container OLLAMA_HOST from $OllamaHost to $effectiveOllamaHost" -ForegroundColor Yellow
+      }
+    }
+
+    # Determine Ollama base URL based on deployment mode.
     $ollamaBaseUrl = if ($OllamaSidecar) {
-        "http://ollama:11434/v1"  # Docker sidecar on same network
+      "http://ollama:11434/v1"  # Docker sidecar on same network
     } else {
-        "http://host.docker.internal:11434/v1"  # Windows/WSL host
+      Get-OpenAiCompatBaseUrl -BaseHost $effectiveOllamaHost
     }
 
     # SearXNG always runs in Docker on openclaw-net
@@ -762,8 +816,8 @@ function New-OpenClawComposeYaml {
     if ($GroqApiKey) { $envVars += "GROQ_API_KEY=$GroqApiKey" }
     if ($OllamaSidecar) {
         $envVars += "OLLAMA_HOST=http://ollama:11434"
-    } elseif ($OllamaHost) {
-        $envVars += "OLLAMA_HOST=$OllamaHost"
+    } elseif ($effectiveOllamaHost) {
+      $envVars += "OLLAMA_HOST=$effectiveOllamaHost"
     }
     $envVars += "OPENCLAW_DISABLE_BONJOUR=true"
     $envVars += "NPM_CONFIG_RESOLUTION_MODE=highest"
