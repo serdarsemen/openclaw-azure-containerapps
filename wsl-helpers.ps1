@@ -490,6 +490,42 @@ function Start-OllamaWsl {
     }
 }
 
+# Return true when an Ollama endpoint is reachable from WSL.
+# Accepts either a root URL (http://ip:11434) or full URL.
+function Test-OllamaEndpointFromWsl {
+  param(
+    [Parameter(Mandatory)] [string] $Url,
+    [int] $TimeoutSeconds = 2
+  )
+
+  try {
+    $baseUrl = $Url.TrimEnd('/')
+    $check = wsl -- bash -c "curl -sf --connect-timeout $TimeoutSeconds '${baseUrl}/api/tags' >/dev/null 2>&1 && echo OK || (curl -sf --connect-timeout $TimeoutSeconds '${baseUrl}' >/dev/null 2>&1 && echo OK || echo FAIL)" 2>$null
+    return ($check -match "OK")
+  } catch {
+    return $false
+  }
+}
+
+# Wait for an Ollama endpoint to become reachable from WSL.
+function Wait-OllamaEndpointFromWsl {
+  param(
+    [Parameter(Mandatory)] [string] $Url,
+    [int] $MaxAttempts = 10,
+    [int] $DelaySeconds = 1
+  )
+
+  for ($i = 0; $i -lt $MaxAttempts; $i++) {
+    if (Test-OllamaEndpointFromWsl -Url $Url) {
+      return $true
+    }
+    if ($i -lt $MaxAttempts - 1) {
+      Start-Sleep -Seconds $DelaySeconds
+    }
+  }
+  return $false
+}
+
 # Resolve -OllamaWindows / -OllamaWsl / -OllamaHost into a concrete URL and
 # verify reachability. Returns @{ OllamaHost = '...'; Reachable = $bool }.
 # Passes the resolved OllamaHost through unchanged when an explicit URL is given.
@@ -506,7 +542,7 @@ function Resolve-OllamaHost {
     }
 
     Write-Host "`n=== Resolving Ollama host ===" -ForegroundColor Cyan
-    Write-Host "  Note: this script does not auto-install or auto-start Ollama." -ForegroundColor Gray
+    Write-Host "  Note: this script does not auto-install Ollama." -ForegroundColor Gray
     Write-Host "  Ollama runs only when explicitly requested via -Ollama / -OllamaWindows / -OllamaWsl / -OllamaHost." -ForegroundColor Gray
 
     $dockerOs = (Invoke-WslData "docker info --format '{{.OperatingSystem}}' 2>/dev/null").Trim()
@@ -522,22 +558,75 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Routing via host.docker.internal (Docker Desktop -> Windows)" -ForegroundColor Green
         } else {
-            # Primary: default route gateway (most reliable for WSL2 -> Windows)
-            $windowsIp = (Invoke-WslData "ip route show default 2>/dev/null | sed -n 's/.*via \([^ ]*\).*/\1/p'").Trim()
-            # Fallback: resolv.conf nameserver (works when DNS points at Windows host)
-            if (-not $windowsIp) {
-                $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()
-                $windowsIp = ($nsLine -split '\s+')[-1]
-            }
-            # Validate: must be a private/link-local IP, not a public DNS like 8.8.8.8
-            if (-not $windowsIp -or $windowsIp -notmatch '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)') {
-                throw "Detected IP '$windowsIp' does not look like a Windows host IP (got a public address). Use -OllamaHost http://<your-windows-lan-ip>:11434 instead."
-            }
-            $OllamaHost = "http://${windowsIp}:11434"
-            Write-Host "  Detected Windows host IP from WSL: $windowsIp" -ForegroundColor Green
+        $candidateIps = @()
+
+        # Best signal for classic WSL2 NAT mode: vEthernet (WSL) adapter on Windows.
+        try {
+          $wslVnetIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "vEthernet (WSL)" -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -match '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)' } |
+            Select-Object -ExpandProperty IPAddress -First 1
+          if ($wslVnetIp) { $candidateIps += $wslVnetIp }
+        } catch {}
+
+        # Mirrored networking can expose Windows via its LAN adapter IP.
+        try {
+          $activeWindowsIps = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
+            ForEach-Object { $_.IPv4Address.IPAddress } |
+            Where-Object { $_ -match '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' }
+          if ($activeWindowsIps) { $candidateIps += $activeWindowsIps }
+        } catch {}
+
+        # In mirrored networking, default route gateway can be the LAN router.
+        # Keep it as a candidate but don't trust it until connectivity is verified.
+        try {
+          $routeGateway = (Invoke-WslData "ip route show default 2>/dev/null | sed -n 's/.*via \([^ ]*\).*/\1/p' | head -n1").Trim()
+          if ($routeGateway) { $candidateIps += $routeGateway }
+        } catch {}
+
+        # In NAT mode this often points to the Windows host side of the WSL vSwitch.
+        try {
+          $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()
+          $nsIp = ($nsLine -split '\s+')[-1]
+          if ($nsIp) { $candidateIps += $nsIp }
+        } catch {}
+
+        $candidateIps = $candidateIps |
+          Where-Object { $_ -match '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)' } |
+          Select-Object -Unique
+
+        if (-not $candidateIps -or $candidateIps.Count -eq 0) {
+          throw "Could not determine a private Windows host IP from WSL. Use -OllamaHost http://<your-windows-ip>:11434 instead."
+        }
+
+        Write-Host "  Candidate Windows host IPs from WSL: $($candidateIps -join ', ')" -ForegroundColor Gray
+        $fallbackIp = [string]($candidateIps | Select-Object -First 1)
+        $OllamaHost = ('http://{0}:11434' -f $fallbackIp)
         }
         Write-Host "  Auto-starting Ollama on Windows..." -ForegroundColor Green
         $null = Start-OllamaWindows
+
+      # With WSL Docker Engine, probe candidate IPs and pick the one that is
+      # actually reachable from WSL. This avoids selecting a LAN router IP
+      # in mirrored mode (for example 192.168.1.1).
+      if (-not $isDockerDesktop) {
+        $selectedHost = ""
+        foreach ($ip in $candidateIps) {
+          $candidateUrl = "http://${ip}:11434"
+          Write-Host "  Probing candidate from WSL: $candidateUrl" -ForegroundColor Gray
+          if (Wait-OllamaEndpointFromWsl -Url $candidateUrl -MaxAttempts 3 -DelaySeconds 1) {
+            $selectedHost = $candidateUrl
+            break
+          }
+        }
+
+        if ($selectedHost) {
+          $OllamaHost = $selectedHost
+          Write-Host "  Selected reachable Windows Ollama endpoint: $OllamaHost" -ForegroundColor Green
+        } else {
+          Write-Host "  No candidate responded from WSL yet; keeping fallback endpoint: $OllamaHost" -ForegroundColor Yellow
+        }
+      }
     }
 
     if ($OllamaWsl) {
@@ -564,12 +653,10 @@ function Resolve-OllamaHost {
                 $resp = Invoke-WebRequest -Uri "http://localhost:11434" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
                 if ($resp.StatusCode -eq 200) { $ollamaReachable = $true }
             } else {
-                $check = wsl bash -c "curl -sf --connect-timeout 3 'http://localhost:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
-                if ($check -match "OK") { $ollamaReachable = $true }
+          $ollamaReachable = Wait-OllamaEndpointFromWsl -Url "http://localhost:11434" -MaxAttempts 5 -DelaySeconds 1
             }
         } else {
-            $check = wsl bash -c "curl -sf --connect-timeout 3 '$OllamaHost' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
-            if ($check -match "OK") { $ollamaReachable = $true }
+        $ollamaReachable = Wait-OllamaEndpointFromWsl -Url $OllamaHost -MaxAttempts 5 -DelaySeconds 1
         }
     } catch {}
 
