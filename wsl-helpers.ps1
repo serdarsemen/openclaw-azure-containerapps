@@ -674,7 +674,10 @@ function Resolve-OllamaHost {
     } catch {}
 
     if ($ollamaReachable) {
-        Write-Host "  Ollama connectivity verified" -ForegroundColor Green
+      Write-Host "  Ollama connectivity verified" -ForegroundColor Green
+      if ((-not $OllamaWindows) -and (-not $OllamaWsl) -and $OllamaHost) {
+        Write-Host "  External endpoint reachable; no resolver rewrite applied." -ForegroundColor Green
+      }
     } else {
         $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "the external host" }
         Write-Warning "Ollama not reachable at $OllamaHost"
@@ -790,6 +793,8 @@ function New-OpenClawComposeYaml {
       $effectiveOllamaHost = Normalize-OllamaHostForContainer -OllamaHost $OllamaHost
       if ($effectiveOllamaHost -ne $OllamaHost) {
         Write-Host "  Rewriting container OLLAMA_HOST from $OllamaHost to $effectiveOllamaHost" -ForegroundColor Yellow
+      } else {
+        Write-Host "  Container OLLAMA_HOST unchanged: $effectiveOllamaHost" -ForegroundColor Gray
       }
     }
 
