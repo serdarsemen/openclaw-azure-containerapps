@@ -342,12 +342,15 @@ function Start-OllamaWindows {
             Write-Host "    Tip: Visit https://ollama.ai to update to the latest version" -ForegroundColor Gray
         }
 
-        # Set OLLAMA_HOST to 0.0.0.0:11434 if not already set
+        # Ensure the current process and user profile both prefer non-loopback
+        # binding so WSL/Docker can reach Ollama over TCP.
+        $env:OLLAMA_HOST = '0.0.0.0:11434'
+
+        # Set OLLAMA_HOST to 0.0.0.0:11434 in user profile if not already set
         $currentHost = [System.Environment]::GetEnvironmentVariable('OLLAMA_HOST', 'User')
         if ($currentHost -ne '0.0.0.0:11434') {
             Write-Host "    Setting OLLAMA_HOST=0.0.0.0:11434 in user environment..." -ForegroundColor Gray
             [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST', '0.0.0.0:11434', 'User')
-            $env:OLLAMA_HOST = '0.0.0.0:11434'
         }
 
         # Try to start the Ollama service
@@ -359,7 +362,7 @@ function Start-OllamaWindows {
         # Alternative: start ollama CLI if service doesn't exist
         if (-not (Get-Service -Name "Ollama" -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) {
             Write-Host "    Ollama service not available, trying CLI start..." -ForegroundColor Gray
-            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
+          Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -Environment @{ OLLAMA_HOST = '0.0.0.0:11434' } -ErrorAction SilentlyContinue
         }
 
         # Wait for Ollama to become reachable
@@ -369,8 +372,17 @@ function Start-OllamaWindows {
             try {
                 $resp = Invoke-WebRequest -Uri "http://localhost:11434" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
                 if ($resp.StatusCode -eq 200) {
-                    Write-Host "    Ollama started successfully" -ForegroundColor Green
+                  # Confirm listener is not loopback-only.
+                  $listeners = Get-NetTCPConnection -State Listen -LocalPort 11434 -ErrorAction SilentlyContinue
+                  $nonLoopbackListener = $listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') } | Select-Object -First 1
+                  if ($nonLoopbackListener) {
+                    Write-Host "    Ollama started successfully (listening on $($nonLoopbackListener.LocalAddress):11434)" -ForegroundColor Green
                     return $true
+                  }
+
+                  Write-Host "    Ollama responded on localhost but appears loopback-only." -ForegroundColor Yellow
+                  Write-Host "    Ensure startup uses OLLAMA_HOST=0.0.0.0:11434 (current listener is not externally reachable)." -ForegroundColor Yellow
+                  return $false
                 }
             } catch {
                 # Check for port already in use error
