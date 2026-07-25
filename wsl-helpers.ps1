@@ -468,13 +468,14 @@ function Start-OllamaWsl {
             return $false
         }
 
-        # Wait for Ollama to become reachable from Docker containers (via 0.0.0.0 binding)
+        # Wait for Ollama to become reachable from Docker containers (via 0.0.0.0 binding).
+        # Require both HTTP responsiveness and a local listener in WSL to avoid
+        # false positives when localhost is forwarded to Windows Ollama.
         Write-Host "    Waiting for Ollama to respond on 0.0.0.0:11434 (up to 20 seconds)..." -ForegroundColor Gray
         $maxAttempts = 20
         for ($i = 0; $i -lt $maxAttempts; $i++) {
             try {
-                # Test both localhost and 0.0.0.0 to ensure binding is correct
-                $check = wsl -- bash -c "curl -sf --connect-timeout 2 'http://localhost:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
+            $check = wsl -- bash -c "ss -ltn '( sport = :11434 )' 2>/dev/null | grep -q ':11434' && curl -sf --connect-timeout 2 'http://127.0.0.1:11434' >/dev/null 2>&1 && echo OK || echo FAIL" 2>$null
                 if ($check -match "OK") {
                     Write-Host "    Ollama is accessible and bound to 0.0.0.0:11434" -ForegroundColor Green
 
