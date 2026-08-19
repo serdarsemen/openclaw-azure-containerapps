@@ -13,8 +13,8 @@ Describe "New-OpenClawComposeYaml Windows Ollama proxy" {
             -GatewayToken "test-token" `
             -OllamaHost "http://host.docker.internal:11435"
 
-        $yaml | Should Match '(?m)^  ollama-windows-proxy:$'
-        $yaml | Should Match '(?m)^    network_mode: host$'
+        $yaml | Should Match '(?m)^  ollama-windows-proxy:\r?$'
+        $yaml | Should Match '(?m)^    network_mode: host\r?$'
         $yaml | Should Match 'OLLAMA_HOST=http://host\.docker\.internal:11435'
     }
 }

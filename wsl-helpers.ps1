@@ -567,6 +567,7 @@ function Resolve-OllamaHost {
     }
 
     if ($OllamaWindows) {
+      $selectedHost = ""
         if ($isDockerDesktop) {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Routing via host.docker.internal (Docker Desktop -> Windows)" -ForegroundColor Green
@@ -623,7 +624,6 @@ function Resolve-OllamaHost {
       # actually reachable from WSL. This avoids selecting a LAN router IP
       # in mirrored mode (for example 192.168.1.1).
       if (-not $isDockerDesktop) {
-        $selectedHost = ""
         foreach ($ip in $candidateIps) {
           $candidateUrl = "http://${ip}:11434"
           Write-Host "  Probing candidate from WSL: $candidateUrl" -ForegroundColor Gray
@@ -639,6 +639,14 @@ function Resolve-OllamaHost {
         } else {
           Write-Host "  No candidate responded from WSL yet; keeping fallback endpoint: $OllamaHost" -ForegroundColor Yellow
         }
+      }
+
+      # WSL mirrored networking forwards its localhost to Windows, but Docker
+      # bridge containers do not inherit that forwarding. Use a compose-managed
+      # host-network relay when no private Windows address was proven reachable.
+      if ((-not $selectedHost) -and (Wait-OllamaEndpointFromWsl -Url "http://127.0.0.1:11434" -MaxAttempts 3 -DelaySeconds 1)) {
+        $OllamaHost = "http://host.docker.internal:11435"
+        Write-Host "  Windows Ollama is reachable through WSL localhost; enabling container relay on port 11435" -ForegroundColor Green
       }
     }
 
@@ -789,8 +797,13 @@ function New-OpenClawComposeYaml {
 
     # Resolve an Ollama host value that is reachable from containers.
     $effectiveOllamaHost = ""
+    $needsWindowsOllamaProxy = $false
     if ($OllamaHost) {
       $effectiveOllamaHost = Normalize-OllamaHostForContainer -OllamaHost $OllamaHost
+      try {
+        $ollamaUri = [Uri]$effectiveOllamaHost
+        $needsWindowsOllamaProxy = $ollamaUri.Host -eq "host.docker.internal" -and $ollamaUri.Port -eq 11435
+      } catch {}
       if ($effectiveOllamaHost -ne $OllamaHost) {
         Write-Host "  Rewriting container OLLAMA_HOST from $OllamaHost to $effectiveOllamaHost" -ForegroundColor Yellow
       } else {
@@ -1045,6 +1058,43 @@ $envBlock
       retries: 3
       start_period: 15s
 "@
+
+    if ($needsWindowsOllamaProxy) {
+        $composeYaml += @"
+
+  ollama-windows-proxy:
+    image: ${ImageName}:latest
+    container_name: ${ContainerName}-ollama-windows-proxy
+    network_mode: host
+    command:
+      - node
+      - -e
+      - >-
+        const net = require('node:net');
+        net.createServer((client) => {
+          const upstream = net.connect(11434, '127.0.0.1');
+          client.pipe(upstream);
+          upstream.pipe(client);
+          const close = () => { client.destroy(); upstream.destroy(); };
+          client.on('error', close);
+          upstream.on('error', close);
+        }).listen(11435, '0.0.0.0');
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:11435/api/tags').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+"@
+    }
 
     if ($OllamaSidecar) {
         $composeYaml += @"
