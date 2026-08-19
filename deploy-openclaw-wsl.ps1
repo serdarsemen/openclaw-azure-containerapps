@@ -653,14 +653,15 @@ Write-Host "  Gateway:    http://localhost:${GatewayPort}" -ForegroundColor Whit
 Write-Host "  Control UI: http://localhost:${GatewayPort}/#token=$GatewayToken" -ForegroundColor White
 Write-Host "  Data dir:   $DataDir" -ForegroundColor White
 Write-Host ""
+Get-OllamaSummaryLines `
+    -OllamaSidecar:$ollamaEnabled `
+    -OllamaWindows:$OllamaWindows `
+    -OllamaWsl:$OllamaWsl `
+    -OllamaHost $OllamaHost | ForEach-Object {
+    Write-Host $_ -ForegroundColor White
+}
 if ($ollamaEnabled) {
-    Write-Host "  Ollama:     http://localhost:11434 (Docker sidecar)" -ForegroundColor White
     Write-Host "  Models:     $(if ($OllamaModel) { $OllamaModel } else { 'qwen2.5-coder:7b, deepseek-r1:8b, qwen2.5:7b' })" -ForegroundColor White
-} elseif ($OllamaHost) {
-    $ollamaLabel = if ($OllamaWindows) { "Windows host" } elseif ($OllamaWsl) { "WSL native" } else { "external" }
-    Write-Host "  Ollama:     $OllamaHost ($ollamaLabel)" -ForegroundColor White
-} else {
-    Write-Host "  Ollama:     disabled" -ForegroundColor White
 }
 Write-Host ""
 Write-Host "=== Useful commands ===" -ForegroundColor Cyan

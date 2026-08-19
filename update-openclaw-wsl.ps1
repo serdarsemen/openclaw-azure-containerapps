@@ -626,11 +626,14 @@ $refLabel = if (-not $Npm -and $ref) { " to: $ref" } else { "" }
 Write-Host "  OpenClaw ($variantLabel) updated$refLabel — image: $containerImage" -ForegroundColor Green
 Write-Host "  Gateway:    http://localhost:${GatewayPort}" -ForegroundColor White
 Write-Host "  Control UI: http://localhost:${GatewayPort}/#token=$existingToken" -ForegroundColor White
-if ($ollamaContainerExists) {
-    Write-Host "  Ollama:     http://localhost:11434 (Docker sidecar)" -ForegroundColor White
-} elseif ($OllamaHost) {
-    $ollamaLabel = if ($OllamaWindows) { "Windows host" } elseif ($OllamaWsl) { "WSL native" } else { "external" }
-    Write-Host "  Ollama:     $OllamaHost ($ollamaLabel)" -ForegroundColor White
+if ($ollamaContainerExists -or $OllamaHost) {
+    Get-OllamaSummaryLines `
+        -OllamaSidecar:$ollamaContainerExists `
+        -OllamaWindows:$OllamaWindows `
+        -OllamaWsl:$OllamaWsl `
+        -OllamaHost $OllamaHost | ForEach-Object {
+        Write-Host $_ -ForegroundColor White
+    }
 }
 Write-Host ""
 if ($ollamaContainerExists) {
