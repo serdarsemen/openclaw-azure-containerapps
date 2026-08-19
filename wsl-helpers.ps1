@@ -700,6 +700,34 @@ function Resolve-OllamaHost {
     return @{ OllamaHost = $OllamaHost; Reachable = $ollamaReachable }
 }
 
+# Return the terminal summary lines for the selected Ollama mode.
+function Get-OllamaSummaryLines {
+  param(
+    [switch] $OllamaSidecar,
+    [switch] $OllamaWindows,
+    [switch] $OllamaWsl,
+    [string] $OllamaHost = ""
+  )
+
+  if ($OllamaSidecar) {
+    return "  Ollama:     http://localhost:11434 (Docker sidecar)"
+  }
+
+  if ($OllamaWindows -and $OllamaHost) {
+    return @(
+      "  Ollama:          http://localhost:11434 (Windows host)"
+      "  Container route: $OllamaHost (WSL relay)"
+    )
+  }
+
+  if ($OllamaHost) {
+    $ollamaLabel = if ($OllamaWsl) { "WSL native" } else { "external" }
+    return "  Ollama:     $OllamaHost ($ollamaLabel)"
+  }
+
+  return "  Ollama:     disabled"
+}
+
 # Verify CRW (Code Ready Workspace) is running and healthy in Docker.
 # CRW typically starts quickly but this waits up to 30 seconds with TCP health checks.
 # Returns $true if healthy, $false if container doesn't exist or fails health check.
