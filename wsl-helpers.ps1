@@ -905,6 +905,11 @@ function New-OpenClawComposeYaml {
     # Host port binding: loopback-only by default (gateway is token-protected but
     # not intended for LAN exposure). -LanAccess publishes on all interfaces (0.0.0.0).
     $bindPrefix = if ($LanAccess) { "" } else { "127.0.0.1:" }
+    $ollamaProxyDependency = if ($needsWindowsOllamaProxy) {
+      "      ollama-windows-proxy:`n        condition: service_healthy"
+    } else {
+      ""
+    }
 
     $composeYaml = @"
 networks:
@@ -965,6 +970,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+$ollamaProxyDependency
     environment:
 $envBlock
     volumes:
