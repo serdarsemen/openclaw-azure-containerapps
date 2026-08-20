@@ -453,7 +453,7 @@ function Start-OllamaWsl {
         $latestVersion = Get-LatestOllamaVersion
         if ($latestVersion) {
             Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
-          Write-Host "    Tip: upgrade with -UpgradeOllama (or run: wsl -- bash -lc 'curl -fsSL https://ollama.com/install.sh | sh')" -ForegroundColor Gray
+          Write-Host "    Tip: -UpgradeOllama forces a reinstall even when the current version is up to date." -ForegroundColor Gray
         }
 
         $upgradeRequired = $Upgrade -or (
