@@ -2,6 +2,8 @@
 
 Use `upgrade-ollama-wsl.ps1` from Windows PowerShell to install the latest Ollama release inside the default WSL distribution.
 
+The WSL deploy and update scripts also perform this check automatically when `-OllamaWsl` is selected. They upgrade Ollama only when the installed semantic version is older than the latest GitHub release. Pass `-UpgradeOllama` to force a reinstall.
+
 ## Prerequisites
 
 - WSL 2 is installed and available through `wsl.exe`.

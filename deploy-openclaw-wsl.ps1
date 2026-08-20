@@ -23,7 +23,7 @@
 #     * Latest Ollama version is checked and displayed
 #   - -OllamaWsl: use Ollama running natively in WSL (auto-detects IP)
 #     * Script will attempt to auto-start Ollama in WSL
-#     * Latest Ollama version is checked and displayed
+#     * Older Ollama versions are upgraded automatically before startup
 #   - -OllamaHost <url>: use an external Ollama instance at a custom URL
 #   - -OllamaModel <name>: pull only this model instead of the default set
 #
@@ -53,7 +53,7 @@
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
 #   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # auto-start Ollama in WSL
-#   .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # auto-upgrade + auto-start Ollama in WSL
+#   .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # force reinstall/upgrade + auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama
 #   .\deploy-openclaw-wsl.ps1 -Npm -Ollama -LanAccess          # all features: npm + sidecar + LAN access
 # ---------------------------------------------------------------------------

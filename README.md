@@ -242,7 +242,7 @@ For native modes (`-OllamaWindows`, `-OllamaWsl`), the script attempts to auto-s
 # Use Ollama running natively in WSL (auto-detects IP)
 .\deploy-openclaw-wsl.ps1 -OllamaWsl
 
-# Use Ollama in WSL and auto-upgrade before startup
+# Force reinstall/upgrade Ollama in WSL before startup
 .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama
 
 # Use an external Ollama instance at an explicit URL (no sidecar added)
@@ -252,7 +252,7 @@ For native modes (`-OllamaWindows`, `-OllamaWsl`), the script attempts to auto-s
 .\deploy-openclaw-wsl.ps1 -LanAccess
 ```
 
-> **Note:** For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` so it accepts connections from the WSL/Docker bridge network. If automatic startup does not succeed, use `start-ollama-windows.ps1` (or `start-ollama-qwen.ps1` for WSL-hosted flows) and retry.
+> **Note:** `-OllamaWsl` compares the installed Ollama version with the latest GitHub release and upgrades automatically only when the installed version is older. Use `-UpgradeOllama` to force a reinstall. For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` so it accepts connections from the WSL/Docker bridge network. If automatic startup does not succeed, use `start-ollama-windows.ps1` (or `start-ollama-qwen.ps1` for WSL-hosted flows) and retry.
 
 #### Using a local Ollama instance (no sidecar)
 
