@@ -1,6 +1,16 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repoRoot "wsl-helpers.ps1")
 
+Describe "Get-OllamaWindowsSetupLines" {
+    It "shows the commands required to expose Ollama to WSL" {
+        @(Get-OllamaWindowsSetupLines) | Should Be @(
+            '  taskkill /IM ollama.exe /F',
+            '  setx OLLAMA_HOST "0.0.0.0:11434"',
+            '  ollama serve'
+        )
+    }
+}
+
 Describe "Get-OllamaSummaryLines" {
     It "shows the Windows endpoint and internal WSL relay" {
         $lines = @(Get-OllamaSummaryLines `

@@ -585,6 +585,14 @@ function Wait-OllamaEndpointFromWsl {
 # Resolve -OllamaWindows / -OllamaWsl / -OllamaHost into a concrete URL and
 # verify reachability. Returns @{ OllamaHost = '...'; Reachable = $bool }.
 # Passes the resolved OllamaHost through unchanged when an explicit URL is given.
+function Get-OllamaWindowsSetupLines {
+  return @(
+    '  taskkill /IM ollama.exe /F',
+    '  setx OLLAMA_HOST "0.0.0.0:11434"',
+    '  ollama serve'
+  )
+}
+
 function Resolve-OllamaHost {
     param(
         [switch] $OllamaWindows,
@@ -600,6 +608,12 @@ function Resolve-OllamaHost {
     Write-Host "`n=== Resolving Ollama host ===" -ForegroundColor Cyan
     Write-Host "  Note: this script does not auto-install Ollama." -ForegroundColor Gray
     Write-Host "  Ollama runs only when explicitly requested via -Ollama / -OllamaWindows / -OllamaWsl / -OllamaHost." -ForegroundColor Gray
+
+    if ($OllamaWindows) {
+      Get-OllamaWindowsSetupLines | ForEach-Object {
+        Write-Host $_ -ForegroundColor Cyan
+      }
+    }
 
     $dockerOs = (Invoke-WslData "docker info --format '{{.OperatingSystem}}' 2>/dev/null").Trim()
     $isDockerDesktop = $dockerOs -match "Docker Desktop"
