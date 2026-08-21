@@ -11,6 +11,19 @@ Describe "Get-OllamaWindowsSetupLines" {
     }
 }
 
+Describe "Get-OllamaWindowsUpgradeLines" {
+    It "shows how to upgrade Ollama on Windows and restart with the required host binding" {
+        @(Get-OllamaWindowsUpgradeLines) | Should Be @(
+            '  Upgrade Ollama on Windows:',
+            '  winget upgrade --id Ollama.Ollama -e',
+            '  ollama --version',
+            '  taskkill /IM ollama.exe /F',
+            '  setx OLLAMA_HOST "0.0.0.0:11434"',
+            '  ollama serve'
+        )
+    }
+}
+
 Describe "Get-OllamaSummaryLines" {
     It "shows the Windows endpoint and internal WSL relay" {
         $lines = @(Get-OllamaSummaryLines `

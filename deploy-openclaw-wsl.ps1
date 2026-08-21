@@ -20,7 +20,7 @@
 #   - -Ollama: add Ollama sidecar container in Docker and pull models
 #   - -OllamaWindows: use Ollama running natively on the Windows host (auto-detects IP)
 #     * Script will attempt to auto-start Ollama on Windows
-#     * Latest Ollama version is checked and displayed
+#     * Older Ollama versions are upgraded automatically before startup
 #   - -OllamaWsl: use Ollama running natively in WSL (auto-detects IP)
 #     * Script will attempt to auto-start Ollama in WSL
 #     * Older Ollama versions are upgraded automatically before startup
@@ -52,6 +52,7 @@
 #   .\deploy-openclaw-wsl.ps1 -Ollama                          # add Ollama sidecar in Docker
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
 #   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host
+#   .\deploy-openclaw-wsl.ps1 -OllamaWindows -UpgradeOllama    # force reinstall/upgrade + auto-start Ollama on Windows host
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # force reinstall/upgrade + auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama
@@ -128,7 +129,7 @@ $null = Repair-WslDns
 # Resolve native/external Ollama usage to a concrete URL, or emit a skip note
 # when Ollama is not in use for this deployment.
 # ---------------------------------------------------------------------------
-$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllamaWsl:$UpgradeOllama
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllama:$UpgradeOllama
 $OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------

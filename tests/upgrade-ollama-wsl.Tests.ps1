@@ -5,6 +5,13 @@ function wsl {
     & wsl.exe @args
 }
 
+function ollama {
+    if ($args[0] -eq '--version') {
+        return $script:MockOllamaVersionOutput
+    }
+    return ""
+}
+
 . (Join-Path $repoRoot "wsl-helpers.ps1")
 
 Describe "Test-OllamaUpgradeRequired" {
@@ -57,6 +64,43 @@ Describe "Start-OllamaWsl automatic upgrade" {
         Mock Update-OllamaWsl { return $false }
 
         { Start-OllamaWsl } | Should Throw "Required Ollama upgrade failed in WSL."
+    }
+}
+
+Describe "Start-OllamaWindows automatic upgrade" {
+    BeforeEach {
+        $script:MockOllamaVersionOutput = "ollama version is 0.31.0"
+
+        Mock Get-Command {
+            [pscustomobject]@{ Source = "C:\\Tools\\$Name.exe" }
+        } -ParameterFilter {
+            $Name -in @('ollama', 'winget')
+        }
+        Mock Get-LatestOllamaVersion { return "0.32.14" }
+        Mock Update-OllamaWindows { return $true }
+        Mock Start-Service {}
+        Mock Get-Service { [pscustomobject]@{ Status = 'Running' } }
+        Mock Start-Process {}
+        Mock Invoke-WebRequest { [pscustomobject]@{ StatusCode = 200 } }
+        Mock Get-NetTCPConnection { [pscustomobject]@{ LocalAddress = '0.0.0.0' } }
+        Mock Start-Sleep {}
+        Mock Write-Host {}
+    }
+
+    It "upgrades an outdated Windows installation before startup" {
+        Start-OllamaWindows | Should Be $true
+
+        Assert-MockCalled Update-OllamaWindows 1 -ParameterFilter {
+            $CurrentVersion -eq "0.31.0" -and
+            $LatestVersion -eq "0.32.14" -and
+            -not $Force
+        }
+    }
+
+    It "stops when a required automatic Windows upgrade fails" {
+        Mock Update-OllamaWindows { return $false }
+
+        { Start-OllamaWindows } | Should Throw "Required Ollama upgrade failed on Windows."
     }
 }
 

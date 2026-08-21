@@ -11,11 +11,18 @@ running on Windows.
 .EXAMPLE
 .\start-ollama-windows.ps1
 
+.EXAMPLE
+.\start-ollama-windows.ps1 -UpgradeOllama
+
 .NOTES
 Requires:
 - Ollama installed natively on Windows: https://ollama.ai/download/windows
 - Network connectivity to pull model from ollama.ai registry
 #>
+
+param(
+    [switch] $UpgradeOllama
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -33,7 +40,7 @@ Write-Host "╚═════════════════════�
 
 # Step 1: Start Ollama service on Windows
 Write-Host "`n[1/3] Starting Ollama on Windows..." -ForegroundColor Cyan
-$ollamaStarted = Start-OllamaWindows
+$ollamaStarted = Start-OllamaWindows -Upgrade:$UpgradeOllama
 if (-not $ollamaStarted) {
     Write-Host "Failed to start Ollama. Download from: https://ollama.ai/download/windows" -ForegroundColor Red
     exit 1

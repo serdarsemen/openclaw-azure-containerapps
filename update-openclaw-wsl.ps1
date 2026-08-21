@@ -29,6 +29,7 @@
 #   .\update-openclaw-wsl.ps1 -PullOnly                        # skip rebuild, just restart
 #   .\update-openclaw-wsl.ps1 -Ollama                          # explicitly keep/start Ollama sidecar
 #   .\update-openclaw-wsl.ps1 -OllamaWindows                   # switch to Ollama on Windows
+#   .\update-openclaw-wsl.ps1 -OllamaWindows -UpgradeOllama    # force reinstall/upgrade + switch to Ollama on Windows
 #   .\update-openclaw-wsl.ps1 -OllamaWsl                       # switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # force reinstall/upgrade + switch to Ollama in WSL
 #   .\update-openclaw-wsl.ps1 -OllamaHost http://192.168.1.10:11434
@@ -59,7 +60,6 @@ $ollamaModeCount = @($Ollama, $OllamaWindows, $OllamaWsl, [bool]$OllamaHost).Whe
 if ($ollamaModeCount -gt 1) {
     throw "Only one Ollama mode allowed at a time: -Ollama, -OllamaWindows, -OllamaWsl, or -OllamaHost <url>"
 }
-$ollamaModeOverride = $OllamaWindows -or $OllamaWsl -or [bool]$OllamaHost
 
 # Load shared WSL helpers (Invoke-Wsl, Invoke-WslRetry, Invoke-WslData, Test-WslDocker,
 # Start-WslDocker, Repair-WslDns, New/Expand-WslTransferArchive,
@@ -249,7 +249,7 @@ Write-Host "  Compose file: found" -ForegroundColor Green
 # Resolve native/external Ollama usage to a concrete OLLAMA_HOST URL, or emit
 # a skip note when Ollama is not being changed for this update.
 # ---------------------------------------------------------------------------
-$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllamaWsl:$UpgradeOllama
+$resolved = Resolve-OllamaHost -OllamaWindows:$OllamaWindows -OllamaWsl:$OllamaWsl -OllamaHost $OllamaHost -UpgradeOllama:$UpgradeOllama
 $OllamaHost = $resolved.OllamaHost
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 
 VERBOSE=false
 FIX_SYMLINKS=false
+UPGRADE_OLLAMA_OLD=false
 FAILED_CHECKS=0
 PASSED_CHECKS=0
 
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --verbose) VERBOSE=true; shift ;;
     --fix-symlinks) FIX_SYMLINKS=true; shift ;;
+    --upgrade-ollama-old) UPGRADE_OLLAMA_OLD=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -55,6 +57,160 @@ print_info() {
 print_verbose() {
   if [ "$VERBOSE" = true ]; then
     echo "   $1"
+  fi
+}
+
+normalize_semver() {
+  local raw=${1:-}
+  raw=$(echo "$raw" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+  raw=${raw#v}
+  if [[ "$raw" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo ""
+  fi
+}
+
+version_lt() {
+  local left=$1
+  local right=$2
+  [ "$(printf '%s\n%s\n' "$left" "$right" | sort -V | head -n1)" != "$right" ]
+}
+
+get_latest_ollama_version() {
+  local payload tag
+  if ! payload=$(curl -fsSL --max-time 8 "https://api.github.com/repos/ollama/ollama/releases/latest" 2>/dev/null); then
+    echo ""
+    return 1
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    tag=$(echo "$payload" | jq -r '.tag_name // empty' 2>/dev/null || true)
+  else
+    tag=$(echo "$payload" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  fi
+
+  if [ -z "$tag" ]; then
+    echo ""
+    return 1
+  fi
+
+  normalize_semver "$tag"
+}
+
+get_wsl_ollama_version() {
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo ""
+    return 1
+  fi
+  local out
+  out=$(ollama --version 2>/dev/null | head -n1 || true)
+  normalize_semver "$out"
+}
+
+get_windows_ollama_version() {
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    echo ""
+    return 1
+  fi
+
+  local out
+  out=$(powershell.exe -NoProfile -Command "& {
+    if (Get-Command ollama -ErrorAction SilentlyContinue) {
+      (ollama --version | Select-Object -First 1)
+    }
+  }" 2>/dev/null | tr -d '\r' | head -n1 || true)
+  normalize_semver "$out"
+}
+
+print_wsl_ollama_upgrade_guidance() {
+  echo "  WSL Ollama upgrade steps:"
+  echo "    curl -fsSL https://ollama.com/install.sh | sh"
+  echo "    ollama --version"
+  echo "    pkill -f \"ollama serve\" || true"
+  echo "    export OLLAMA_HOST=0.0.0.0:11434"
+  echo "    nohup ollama serve >/dev/null 2>&1 &"
+}
+
+print_windows_ollama_upgrade_guidance() {
+  echo "  Windows Ollama upgrade steps:"
+  echo "    winget upgrade --id Ollama.Ollama -e"
+  echo "    ollama --version"
+  echo "    taskkill /IM ollama.exe /F"
+  echo "    setx OLLAMA_HOST \"0.0.0.0:11434\""
+  echo "    ollama serve"
+}
+
+upgrade_ollama_wsl() {
+  print_info "Triggering WSL Ollama upgrade..."
+  if bash -lc 'curl -fsSL https://ollama.com/install.sh | sh'; then
+    print_success "WSL Ollama upgrade completed"
+    return 0
+  fi
+  print_error "WSL Ollama upgrade failed"
+  return 1
+}
+
+upgrade_ollama_windows() {
+  print_info "Triggering Windows Ollama upgrade..."
+  if powershell.exe -NoProfile -Command "winget upgrade --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements" >/dev/null 2>&1; then
+    print_success "Windows Ollama upgrade completed"
+    return 0
+  fi
+  print_error "Windows Ollama upgrade failed"
+  return 1
+}
+
+check_ollama_versions() {
+  print_header "0. Ollama Version Health"
+
+  local latest wsl windows
+  latest=$(get_latest_ollama_version || true)
+  wsl=$(get_wsl_ollama_version || true)
+  windows=$(get_windows_ollama_version || true)
+
+  if [ -z "$latest" ]; then
+    print_warning "Could not determine latest Ollama version from GitHub API."
+    print_info "Network access to api.github.com is required for old-version detection."
+    return 0
+  fi
+
+  print_info "Latest Ollama release: $latest"
+
+  if [ -n "$wsl" ]; then
+    if version_lt "$wsl" "$latest"; then
+      print_warning "WSL Ollama is old ($wsl < $latest)."
+      print_wsl_ollama_upgrade_guidance
+      if [ "$UPGRADE_OLLAMA_OLD" = true ]; then
+        upgrade_ollama_wsl || true
+      fi
+    else
+      print_success "WSL Ollama is current ($wsl)"
+    fi
+  else
+    print_warning "WSL Ollama not found in PATH."
+    print_wsl_ollama_upgrade_guidance
+  fi
+
+  if [ -n "$windows" ]; then
+    if version_lt "$windows" "$latest"; then
+      print_warning "Windows Ollama is old ($windows < $latest)."
+      print_windows_ollama_upgrade_guidance
+      if [ "$UPGRADE_OLLAMA_OLD" = true ]; then
+        upgrade_ollama_windows || true
+      fi
+    else
+      print_success "Windows Ollama is current ($windows)"
+    fi
+  else
+    print_warning "Windows Ollama not detected via powershell.exe."
+    print_windows_ollama_upgrade_guidance
+  fi
+
+  if [ "$UPGRADE_OLLAMA_OLD" = true ]; then
+    print_info "Auto-upgrade trigger enabled via --upgrade-ollama-old"
+  else
+    print_info "Dry-run mode: no upgrades executed. Use --upgrade-ollama-old to trigger upgrades."
   fi
 }
 
@@ -160,6 +316,7 @@ check_docker_container() {
 # Main validation flow
 
 print_header "MCP Server Validation"
+check_ollama_versions
 
 echo ""
 print_header "1. Environment Setup"
@@ -238,5 +395,8 @@ else
   echo "1. Install MCP packages: npm install -g @microsoft/learn-cli @upstash/context7-mcp mcp-finance searxng-search devdocs-mcp"
   echo "2. Fix symlinks: bash validate-mcp-servers.sh --fix-symlinks"
   echo "3. Start Docker containers: docker-compose -f docker-compose-wsl.yaml up -d"
+  echo "4. WSL Ollama upgrade: curl -fsSL https://ollama.com/install.sh | sh"
+  echo "5. Windows Ollama upgrade: winget upgrade --id Ollama.Ollama -e"
+  echo "6. Auto-trigger old-version upgrades: bash validate-mcp-servers.sh --upgrade-ollama-old"
   exit 1
 fi

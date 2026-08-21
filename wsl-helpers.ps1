@@ -334,8 +334,74 @@ function Get-LatestOllamaVersion {
     return $true
   }
 
+  # Upgrade Ollama on Windows using winget.
+  # Returns $true when Ollama is already current or upgraded successfully.
+  function Update-OllamaWindows {
+    param(
+      [switch] $Force,
+      [string] $CurrentVersion = "",
+      [string] $LatestVersion = ""
+    )
+
+    Write-Host "  Checking whether Ollama upgrade is needed on Windows..." -ForegroundColor Gray
+
+    $ollamaPath = Get-Command ollama -ErrorAction SilentlyContinue
+    if (-not $ollamaPath) {
+      Write-Host "  Ollama not found in PATH. Install first: https://ollama.ai/download/windows" -ForegroundColor Yellow
+      return $false
+    }
+
+    if (-not $CurrentVersion) {
+      $currentVersionRaw = & ollama --version 2>$null | Select-Object -First 1
+      if ($currentVersionRaw -match '(\d+\.\d+\.\d+)') {
+        $CurrentVersion = $Matches[1]
+      }
+    }
+
+    if (-not $LatestVersion) {
+      $LatestVersion = Get-LatestOllamaVersion
+    }
+
+    if (-not $Force -and $LatestVersion -and $CurrentVersion -and `
+        -not (Test-OllamaUpgradeRequired -CurrentVersion $CurrentVersion -LatestVersion $LatestVersion)) {
+      Write-Host "  Ollama on Windows is already up to date ($CurrentVersion)" -ForegroundColor Green
+      return $true
+    }
+
+    $wingetPath = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $wingetPath) {
+      Write-Host "  winget not found. Install App Installer from Microsoft Store to enable upgrades." -ForegroundColor Yellow
+      return $false
+    }
+
+    Write-Host "  Upgrading Ollama on Windows via winget..." -ForegroundColor Gray
+    & winget upgrade --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "  Ollama upgrade failed on Windows" -ForegroundColor Yellow
+      return $false
+    }
+
+    $newVersionRaw = & ollama --version 2>$null | Select-Object -First 1
+    $newVersion = ""
+    if ($newVersionRaw -match '(\d+\.\d+\.\d+)') {
+      $newVersion = $Matches[1]
+    }
+
+    if ($newVersion) {
+      Write-Host "  Ollama upgraded on Windows: $CurrentVersion -> $newVersion" -ForegroundColor Green
+    } else {
+      Write-Host "  Ollama upgrade completed on Windows" -ForegroundColor Green
+    }
+
+    return $true
+  }
+
 # Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWindows {
+    param([switch] $Upgrade)
+
+    $upgradeRequired = $false
+
     try {
         Write-Host "  Attempting to auto-start Ollama on Windows..." -ForegroundColor Gray
 
@@ -350,12 +416,40 @@ function Start-OllamaWindows {
         Write-Host "  Checking Ollama version..." -ForegroundColor Gray
         $latestVersion = Get-LatestOllamaVersion
         try {
-            $currentVersion = & ollama --version 2>$null | Select-Object -First 1
-            Write-Host "    Current: $currentVersion" -ForegroundColor Gray
+            $currentVersionRaw = & ollama --version 2>$null | Select-Object -First 1
+            if ($currentVersionRaw) {
+              Write-Host "    Current: $currentVersionRaw" -ForegroundColor Gray
+              if ($currentVersionRaw -match '(\d+\.\d+\.\d+)') {
+                $currentVersion = $Matches[1]
+              }
+            }
         } catch {}
         if ($latestVersion) {
             Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
-            Write-Host "    Tip: Visit https://ollama.ai to update to the latest version" -ForegroundColor Gray
+            Write-Host "    Tip: -UpgradeOllama forces a reinstall even when the current version is up to date." -ForegroundColor Gray
+        }
+
+        $upgradeRequired = $Upgrade -or (
+          $currentVersion -and
+          $latestVersion -and
+          (Test-OllamaUpgradeRequired -CurrentVersion $currentVersion -LatestVersion $latestVersion)
+        )
+        if ($upgradeRequired) {
+            if ($Upgrade) {
+              Write-Host "    Forced Ollama upgrade requested on Windows." -ForegroundColor Yellow
+            } else {
+              Write-Host "    Older Ollama version detected on Windows ($currentVersion -> $latestVersion). Upgrading..." -ForegroundColor Yellow
+            }
+
+            $upgradeSucceeded = Update-OllamaWindows `
+              -Force:$Upgrade `
+              -CurrentVersion $currentVersion `
+              -LatestVersion $latestVersion
+            if (-not $upgradeSucceeded) {
+              throw "Required Ollama upgrade failed on Windows."
+            }
+        } elseif ($currentVersion -and $latestVersion) {
+            Write-Host "    Ollama on Windows is already up to date ($currentVersion)." -ForegroundColor Green
         }
 
         # Ensure the current process and user profile both prefer non-loopback
@@ -418,6 +512,9 @@ function Start-OllamaWindows {
         Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
         return $false
     } catch {
+      if ($upgradeRequired) {
+        throw
+      }
         Write-Host "    Error starting Ollama: $_" -ForegroundColor Yellow
         return $false
     }
@@ -593,12 +690,23 @@ function Get-OllamaWindowsSetupLines {
   )
 }
 
+function Get-OllamaWindowsUpgradeLines {
+  return @(
+    '  Upgrade Ollama on Windows:',
+    '  winget upgrade --id Ollama.Ollama -e',
+    '  ollama --version',
+    '  taskkill /IM ollama.exe /F',
+    '  setx OLLAMA_HOST "0.0.0.0:11434"',
+    '  ollama serve'
+  )
+}
+
 function Resolve-OllamaHost {
     param(
         [switch] $OllamaWindows,
         [switch] $OllamaWsl,
     [string] $OllamaHost = "",
-    [switch] $UpgradeOllamaWsl
+  [Alias('UpgradeOllamaWsl')] [switch] $UpgradeOllama
     )
 
     if (-not ($OllamaWindows -or $OllamaWsl -or $OllamaHost)) {
@@ -612,6 +720,9 @@ function Resolve-OllamaHost {
     if ($OllamaWindows) {
       Get-OllamaWindowsSetupLines | ForEach-Object {
         Write-Host $_ -ForegroundColor Cyan
+      }
+      Get-OllamaWindowsUpgradeLines | ForEach-Object {
+        Write-Host $_ -ForegroundColor Gray
       }
     }
 
@@ -675,7 +786,7 @@ function Resolve-OllamaHost {
         $OllamaHost = ('http://{0}:11434' -f $fallbackIp)
         }
         Write-Host "  Auto-starting Ollama on Windows..." -ForegroundColor Green
-        $null = Start-OllamaWindows
+        $null = Start-OllamaWindows -Upgrade:$UpgradeOllama
 
       # With WSL Docker Engine, probe candidate IPs and pick the one that is
       # actually reachable from WSL. This avoids selecting a LAN router IP
@@ -720,7 +831,7 @@ function Resolve-OllamaHost {
             Write-Host "  Using host.docker.internal for WSL Ollama" -ForegroundColor Green
         }
         Write-Host "  Auto-starting Ollama in WSL..." -ForegroundColor Green
-        $null = Start-OllamaWsl -Upgrade:$UpgradeOllamaWsl
+        $null = Start-OllamaWsl -Upgrade:$UpgradeOllama
     }
 
     Write-Host "  Verifying Ollama connectivity at $OllamaHost ..." -ForegroundColor Gray
