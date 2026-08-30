@@ -1,6 +1,5 @@
 .env
 optillm.env
-.worktrees/
 openclaw-repo/
 openclaw-data/
 upstream/
