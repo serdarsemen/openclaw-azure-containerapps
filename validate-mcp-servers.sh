@@ -272,7 +272,7 @@ create_symlinks() {
 
   mkdir -p "$local_bin"
 
-  for cmd in mslearn context7-mcp mcp-finance-server searxng-search devdocs-mcp; do
+  for cmd in mslearn; do
     if [ -x "$npm_bin/$cmd" ]; then
       ln -sf "$npm_bin/$cmd" "$local_bin/$cmd"
       print_success "Created/updated symlink: $local_bin/$cmd"
@@ -327,31 +327,19 @@ print_info "NPM prefix: $(npm config get prefix)"
 
 echo ""
 print_header "2. NPM Packages"
-print_info "Checking if all MCP packages are installed globally..."
+print_info "Checking supported npm-based tooling..."
 check_npm_package "@microsoft/learn-cli" "microsoft/learn-cli" || true
-check_npm_package "@upstash/context7-mcp" "upstash/context7-mcp" || true
-check_npm_package "mcp-finance" "mcp-finance" || true
-check_npm_package "searxng-search" "searxng-search" || true
-check_npm_package "devdocs-mcp" "devdocs-mcp" || true
 
 echo ""
 print_header "3. Executables in PATH"
-print_info "Checking if all MCP executables are accessible..."
+print_info "Checking if supported tooling is accessible..."
 check_executable "mslearn" || true
-check_executable "context7-mcp" || true
-check_executable "mcp-finance-server" || true
-check_executable "searxng-search" || true
-check_executable "devdocs-mcp" || true
 
 echo ""
 print_header "4. Symlinks"
 print_info "Checking symlinks in $HOME/.local/node_modules/.bin/ ..."
 if [ -d "$HOME/.local/node_modules/.bin" ]; then
   check_symlink "$HOME/.openclaw/npm-global/bin/mslearn" "$HOME/.local/node_modules/.bin/mslearn" || true
-  check_symlink "$HOME/.openclaw/npm-global/bin/context7-mcp" "$HOME/.local/node_modules/.bin/context7-mcp" || true
-  check_symlink "$HOME/.openclaw/npm-global/bin/mcp-finance-server" "$HOME/.local/node_modules/.bin/mcp-finance-server" || true
-  check_symlink "$HOME/.openclaw/npm-global/bin/searxng-search" "$HOME/.local/node_modules/.bin/searxng-search" || true
-  check_symlink "$HOME/.openclaw/npm-global/bin/devdocs-mcp" "$HOME/.local/node_modules/.bin/devdocs-mcp" || true
 else
   print_warning "Directory $HOME/.local/node_modules/.bin does not exist"
 fi
@@ -385,14 +373,14 @@ echo -e "Failed checks: ${RED}$FAILED_CHECKS${NC}"
 
 if [ $FAILED_CHECKS -eq 0 ]; then
   echo ""
-  print_success "All MCP servers are valid and properly configured!"
+  print_success "Supported tooling and runtime services are properly configured!"
   exit 0
 else
   echo ""
   print_error "Some checks failed. Review output above and run with --verbose for details."
   echo ""
   echo "Common fixes:"
-  echo "1. Install MCP packages: npm install -g @microsoft/learn-cli @upstash/context7-mcp mcp-finance searxng-search devdocs-mcp"
+  echo "1. Install supported npm tooling: npm install -g @microsoft/learn-cli"
   echo "2. Fix symlinks: bash validate-mcp-servers.sh --fix-symlinks"
   echo "3. Start Docker containers: docker-compose -f docker-compose-wsl.yaml up -d"
   echo "4. WSL Ollama upgrade: curl -fsSL https://ollama.com/install.sh | sh"

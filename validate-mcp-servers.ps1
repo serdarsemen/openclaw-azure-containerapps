@@ -179,7 +179,7 @@ function New-MpcSymlinks {
     Write-Success "Created directory: $localBin"
   }
 
-  $commands = @("mslearn", "context7-mcp", "mcp-finance-server", "searxng-search", "devdocs-mcp")
+  $commands = @("mslearn")
 
   foreach ($cmd in $commands) {
     $source = Join-Path $npmBin $cmd
@@ -217,30 +217,18 @@ try {
 }
 
 Write-Header "2. NPM Packages"
-Write-Info "Checking if all MCP packages are installed globally..."
+Write-Info "Checking supported npm-based tooling..."
 Test-NpmPackage "@microsoft/learn-cli" "microsoft/learn-cli" | Out-Null
-Test-NpmPackage "@upstash/context7-mcp" "upstash/context7-mcp" | Out-Null
-Test-NpmPackage "mcp-finance" "mcp-finance" | Out-Null
-Test-NpmPackage "searxng-search" "searxng-search" | Out-Null
-Test-NpmPackage "devdocs-mcp" "devdocs-mcp" | Out-Null
 
 Write-Header "3. Executables in PATH"
-Write-Info "Checking if all MCP executables are accessible..."
+Write-Info "Checking if supported tooling is accessible..."
 Test-CommandExists "mslearn" | Out-Null
-Test-CommandExists "context7-mcp" | Out-Null
-Test-CommandExists "mcp-finance-server" | Out-Null
-Test-CommandExists "searxng-search" | Out-Null
-Test-CommandExists "devdocs-mcp" | Out-Null
 
 Write-Header "4. Symlinks"
 $localBinPath = Join-Path $HOME ".local" "node_modules" ".bin"
 Write-Info "Checking symlinks in $localBinPath ..."
 if (Test-Path $localBinPath) {
   Test-FilePath (Join-Path $localBinPath "mslearn") | Out-Null
-  Test-FilePath (Join-Path $localBinPath "context7-mcp") | Out-Null
-  Test-FilePath (Join-Path $localBinPath "mcp-finance-server") | Out-Null
-  Test-FilePath (Join-Path $localBinPath "searxng-search") | Out-Null
-  Test-FilePath (Join-Path $localBinPath "devdocs-mcp") | Out-Null
 } else {
   Write-Warning "Directory $localBinPath does not exist"
 }
@@ -274,14 +262,14 @@ Write-Host $FailedChecks -ForegroundColor Red
 
 Write-Host ""
 if ($FailedChecks -eq 0) {
-  Write-Host "✅ All MCP servers are valid and properly configured!" -ForegroundColor Green
+  Write-Host "✅ Supported tooling and runtime services are properly configured!" -ForegroundColor Green
   exit 0
 } else {
   Write-Host "❌ Some checks failed. Review output above and run with -Verbose for details." -ForegroundColor Red
   Write-Host ""
   Write-Host "Common fixes:" -ForegroundColor Yellow
-  Write-Host "1. Install MCP packages:"
-  Write-Host "   npm install -g @microsoft/learn-cli @upstash/context7-mcp mcp-finance searxng-search devdocs-mcp"
+  Write-Host "1. Install supported npm tooling:"
+  Write-Host "   npm install -g @microsoft/learn-cli"
   Write-Host "2. Fix symlinks:"
   Write-Host "   .\validate-mcp-servers.ps1 -FixSymlinks"
   Write-Host "3. Start Docker containers:"
