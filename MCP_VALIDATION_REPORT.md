@@ -8,9 +8,9 @@ The WSL compose generator and both active validators now distinguish supported n
 
 Container startup supports one npm-installed tool:
 
-| Tool | Package | Executable | Startup behavior |
-|------|---------|------------|------------------|
-| Microsoft Learn CLI | `@microsoft/learn-cli` | `mslearn` | Installed only when missing; symlinked for PATH discovery |
+| Tool                | Package                | Executable | Startup behavior                                               |
+| ------------------- | ---------------------- | ---------- | -------------------------------------------------------------- |
+| Microsoft Learn CLI | `@microsoft/learn-cli` | `mslearn`  | Installed only when missing; symlinked for PATH discovery      |
 
 ## Removed Boot-Time Installs
 

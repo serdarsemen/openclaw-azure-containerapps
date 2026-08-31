@@ -18,9 +18,9 @@ bash validate-mcp-servers.sh
 
 ## Supported npm Tooling
 
-| Tool | Package | Executable |
-|------|---------|------------|
-| Microsoft Learn CLI | `@microsoft/learn-cli` | `mslearn` |
+| Tool                | Package                | Executable |
+| ------------------- | ---------------------- | ---------- |
+| Microsoft Learn CLI | `@microsoft/learn-cli` | `mslearn`  |
 
 WSL container startup uses the persistent npm prefix at `$HOME/.openclaw/npm-global`. If `mslearn` is absent, startup installs it and creates a PATH-discovery symlink:
 
@@ -33,12 +33,10 @@ ln -sf "$HOME/.openclaw/npm-global/bin/mslearn" "$HOME/.local/node_modules/.bin/
 
 Do not install or validate these names as runtime MCP servers:
 
-| Name | Reason |
-|------|--------|
-| `mcp-finance` | The npm package is a placeholder and does not provide the expected server executable. |
-| `searxng-search` | SearXNG is a backend service, not an npm MCP server under this name. |
-| `devdocs-mcp` | DevDocs is not an npm MCP server under this name. |
-| `@upstash/context7-mcp` / `context7-mcp` | Not provisioned by this repository's container startup. Use an explicitly supported external integration instead. |
+- `mcp-finance`: The npm package is a placeholder and does not provide the expected server executable.
+- `searxng-search`: SearXNG is a backend service, not an npm MCP server under this name.
+- `devdocs-mcp`: DevDocs is not an npm MCP server under this name.
+- `@upstash/context7-mcp` / `context7-mcp`: Not provisioned by this repository's container startup. Use an explicitly supported external integration instead.
 
 Stale references to these names in persisted OpenClaw data do not make the npm packages installable. Remove or replace those configuration entries with supported integrations.
 

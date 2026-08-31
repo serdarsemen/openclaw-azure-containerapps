@@ -136,7 +136,7 @@ function Test-ServiceConnectivity {
   )
 
   try {
-    $response = Invoke-WebRequest -Uri $Url -TimeoutSec 5 -ErrorAction Stop
+    Invoke-WebRequest -Uri $Url -TimeoutSec 5 -ErrorAction Stop | Out-Null
     Write-Success "Service $ServiceName is reachable at $Url"
     Write-Verbose-Info "Invoke-WebRequest -Uri $Url"
     return $true
