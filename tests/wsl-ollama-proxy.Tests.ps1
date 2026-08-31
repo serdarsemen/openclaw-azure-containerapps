@@ -22,16 +22,22 @@ Describe "New-OpenClawComposeYaml Windows Ollama proxy" {
 
 Describe "New-OpenClawComposeYaml MCP startup" {
     It "does not install known-uninstallable MCP packages at boot" {
-        $yaml = New-OpenClawComposeYaml `
-            -ContainerName "openclaw-test" `
-            -ImageName "openclaw-source" `
-            -HomeDir "/home/node" `
-            -WslDataDir "/home/test/.openclaw-data" `
-            -GatewayPort 18789 `
-            -BridgePort 18790 `
-            -GatewayToken "test-token"
+        $parameters = @{
+            ContainerName = "openclaw-test"
+            ImageName = "openclaw-source"
+            HomeDir = "/home/node"
+            WslDataDir = "/home/test/.openclaw-data"
+            GatewayPort = 18789
+            BridgePort = 18790
+            GatewayToken = "test-token"
+        }
 
-        $yaml | Should Match 'npm install -g @microsoft/learn-cli'
-        $yaml | Should Not Match '@upstash/context7-mcp|mcp-finance|searxng-search|devdocs-mcp'
+        $sourceYaml = New-OpenClawComposeYaml @parameters
+        $npmYaml = New-OpenClawComposeYaml @parameters -Npm
+
+        $sourceYaml | Should Match 'npm install -g @microsoft/learn-cli'
+        $sourceYaml | Should Not Match '@upstash/context7-mcp|mcp-finance|searxng-search|devdocs-mcp'
+        $npmYaml | Should Match 'npm install -g @microsoft/learn-cli'
+        $npmYaml | Should Not Match '@upstash/context7-mcp|mcp-finance|searxng-search|devdocs-mcp'
     }
 }
