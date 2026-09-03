@@ -1020,6 +1020,7 @@ function New-OpenClawComposeYaml {
     $envVars = @(
         "OPENCLAW_GATEWAY_TOKEN=$GatewayToken",
         "NODE_ENV=production",
+        "NODE_OPTIONS=--max-old-space-size=6144",
         "HOME=$HomeDir",
         "TERM=xterm-256color",
         "REDIS_HOST=localhost",
@@ -1171,7 +1172,7 @@ $envBlock
       resources:
         limits:
           cpus: '4'
-          memory: 6G
+          memory: 12G
         reservations:
           cpus: '2'
           memory: 4G

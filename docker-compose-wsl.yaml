@@ -60,6 +60,7 @@ services:
     environment:
       - OPENCLAW_GATEWAY_TOKEN=7d7e3ec1422a7b0593842868113fed448b8d268715aa218d83dda37d97bf87ea
       - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=6144
       - HOME=/home/node
       - TERM=xterm-256color
       - REDIS_HOST=localhost
@@ -83,7 +84,7 @@ services:
       resources:
         limits:
           cpus: '4'
-          memory: 6G
+          memory: 12G
         reservations:
           cpus: '2'
           memory: 4G
