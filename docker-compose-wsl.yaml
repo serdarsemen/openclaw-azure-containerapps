@@ -84,6 +84,7 @@ services:
       - openclaw-compile-cache:/home/node/.openclaw/compile-cache
     init: true
     restart: unless-stopped
+    stop_grace_period: 90s
     pids_limit: 512
     deploy:
       resources:
@@ -128,6 +129,15 @@ services:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
     pids_limit: 256
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+          pids: 256
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 30s
@@ -181,6 +191,7 @@ services:
       - /home/serdar/.openclaw-data/firecrawl-mcp.env
     environment:
       - HTTP_STREAMABLE_SERVER=true
+      - HOST=0.0.0.0
       - PORT=3000
       - LOG_LEVEL=warn
     volumes:

@@ -55,6 +55,7 @@ Describe "New-OpenClawComposeYaml OpenClaw resources" {
 
         $openclawService = ($yaml -split '(?m)^  searxng:\r?$')[0]
         $openclawService | Should Match 'NODE_OPTIONS=--max-old-space-size=6144'
+        $openclawService | Should Match '(?m)^    stop_grace_period: 90s\r?$'
         $openclawService | Should Match '(?m)^    pids_limit: 512\r?$'
         $openclawService | Should Match "(?m)^          cpus: '6'\r?$"
         $openclawService | Should Match '(?m)^          memory: 12G\r?$'
@@ -74,7 +75,13 @@ Describe "New-OpenClawComposeYaml auxiliary safeguards" {
             -GatewayToken "test-token"
 
         $yaml | Should Match '(?ms)^  redis:.*?^    pids_limit: 128\r?$'
-        $yaml | Should Match '(?ms)^  searxng:.*?^    pids_limit: 256\r?$'
+        $searxngService = (($yaml -split '(?m)^  searxng:\r?$')[1] -split '(?m)^  crw:\r?$')[0]
+        $searxngService | Should Match '(?m)^    pids_limit: 256\r?$'
+        $searxngService | Should Match "(?m)^          cpus: '1'\r?$"
+        $searxngService | Should Match '(?m)^          memory: 1G\r?$'
+        $searxngService | Should Match '(?m)^          pids: 256\r?$'
+        $searxngService | Should Match "(?m)^          cpus: '0\.25'\r?$"
+        $searxngService | Should Match '(?m)^          memory: 256M\r?$'
         $yaml | Should Match '(?ms)^  crw:.*?^    pids_limit: 128\r?$'
         $yaml | Should Match "grep -qi ':0BB8 ' /proc/net/tcp /proc/net/tcp6"
         $yaml | Should Not Match '(?m)^      test: \["CMD", "wget", "-qO-", "http://localhost:3000/"\]\r?$'
@@ -95,6 +102,7 @@ Describe "New-OpenClawComposeYaml shared Firecrawl MCP" {
 
         $yaml | Should Match '(?m)^  firecrawl-mcp:\r?$'
         $yaml | Should Match 'HTTP_STREAMABLE_SERVER=true'
+        $yaml | Should Match 'HOST=0\.0\.0\.0'
         $yaml | Should Match '(?m)^    pids_limit: 128\r?$'
         $yaml | Should Match '/home/test/\.openclaw-data/firecrawl-mcp\.env'
         $yaml | Should Match "fetch\('http://127\.0\.0\.1:3000/mcp'\)"

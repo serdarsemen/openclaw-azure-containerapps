@@ -463,6 +463,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         Write-Host "  Applying cron concurrency limit (2)..." -ForegroundColor Gray
         Set-OpenClawCronConcurrencyLimit -WslSourceRoot $WslBuildContext.WslContextPath -MaxConcurrent 2
+        Write-Host "  Applying restart drain timeout (60 seconds)..." -ForegroundColor Gray
+        Set-OpenClawRestartDrainTimeout -WslSourceRoot $WslBuildContext.WslContextPath -DrainTimeoutMs 60000
 
         # Patch Dockerfile for local Docker compatibility (shared with deploy):
         # strips the '# syntax=...' directive but keeps BuildKit cache mounts.

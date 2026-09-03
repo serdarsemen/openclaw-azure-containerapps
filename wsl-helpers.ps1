@@ -265,6 +265,29 @@ grep -q 'DEFAULT_CRON_MAX_CONCURRENT_RUNS = ${MaxConcurrent};' '$limitsPath'
 "@
 }
 
+# Give work that outlives the normal restart deferral one final drain window
+# instead of converting the fallback restart into an immediate shutdown.
+function Set-OpenClawRestartDrainTimeout {
+    param(
+        [Parameter(Mandatory)] [string] $WslSourceRoot,
+        [int] $DrainTimeoutMs = 60000
+    )
+
+    if ($DrainTimeoutMs -lt 1000) {
+        throw "Restart drain timeout must be at least 1000 milliseconds."
+    }
+
+    $restartPath = "$WslSourceRoot/src/infra/restart.ts"
+    $reloadPath = "$WslSourceRoot/src/gateway/server-reload-restart.ts"
+    Invoke-Wsl @"
+test -f '$restartPath' &&
+test -f '$reloadPath' &&
+sed -i -E 's/timeoutIntent: \{ force: true,/timeoutIntent: { waitMs: ${DrainTimeoutMs},/' '$restartPath' '$reloadPath' &&
+grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$restartPath' &&
+grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$reloadPath'
+"@
+}
+
 # Remove a fixed-name container only when it is not owned by Docker Compose.
 function Remove-UnmanagedDockerContainer {
     param([Parameter(Mandatory)] [string] $ContainerName)
@@ -1209,6 +1232,7 @@ $envBlock
       - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
     init: true
     restart: unless-stopped
+    stop_grace_period: 90s
     pids_limit: 512
     deploy:
       resources:
@@ -1253,6 +1277,15 @@ $envBlock
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
     pids_limit: 256
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+          pids: 256
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 30s
@@ -1310,6 +1343,7 @@ $envBlock
       - $openclawDataMount/firecrawl-mcp.env
     environment:
       - HTTP_STREAMABLE_SERVER=true
+      - HOST=0.0.0.0
       - PORT=3000
       - LOG_LEVEL=warn
     volumes:
