@@ -1023,6 +1023,7 @@ function New-OpenClawComposeYaml {
         [string] $OllamaHost = "",
         [switch] $OllamaSidecar,
         [string] $GroqApiKey = "",
+        [switch] $FirecrawlHttp,
         [switch] $Npm,
         [switch] $LanAccess
     )
@@ -1148,6 +1149,8 @@ volumes:
   openclaw-runtime-deps:
     driver: local
   openclaw-compile-cache:
+    driver: local
+  firecrawl-mcp-cache:
     driver: local
 
 services:
@@ -1294,6 +1297,49 @@ $envBlock
       retries: 3
       start_period: 15s
 "@
+
+    if ($FirecrawlHttp) {
+        $composeYaml += @"
+
+  firecrawl-mcp:
+    image: node:22-slim
+    container_name: ${ContainerName}-firecrawl-mcp
+    networks:
+      - openclaw-net
+    env_file:
+      - $openclawDataMount/firecrawl-mcp.env
+    environment:
+      - HTTP_STREAMABLE_SERVER=true
+      - PORT=3000
+      - LOG_LEVEL=warn
+    volumes:
+      - firecrawl-mcp-cache:/root/.npm
+    command: ["npx", "-y", "firecrawl-mcp"]
+    restart: unless-stopped
+    pids_limit: 128
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+          pids: 128
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/mcp').then((r)=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+"@
+    }
 
     if ($needsWindowsOllamaProxy) {
         $composeYaml += @"

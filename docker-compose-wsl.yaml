@@ -12,6 +12,8 @@ volumes:
     driver: local
   openclaw-compile-cache:
     driver: local
+  firecrawl-mcp-cache:
+    driver: local
 
 services:
   redis:
@@ -169,3 +171,41 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  firecrawl-mcp:
+    image: node:22-slim
+    container_name: openclaw-firecrawl-mcp
+    networks:
+      - openclaw-net
+    env_file:
+      - /home/serdar/.openclaw-data/firecrawl-mcp.env
+    environment:
+      - HTTP_STREAMABLE_SERVER=true
+      - PORT=3000
+      - LOG_LEVEL=warn
+    volumes:
+      - firecrawl-mcp-cache:/root/.npm
+    command: ["npx", "-y", "firecrawl-mcp"]
+    restart: unless-stopped
+    pids_limit: 128
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+          pids: 128
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/mcp').then((r)=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s

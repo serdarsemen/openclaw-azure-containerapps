@@ -80,3 +80,23 @@ Describe "New-OpenClawComposeYaml auxiliary safeguards" {
         $yaml | Should Not Match '(?m)^      test: \["CMD", "wget", "-qO-", "http://localhost:3000/"\]\r?$'
     }
 }
+
+Describe "New-OpenClawComposeYaml shared Firecrawl MCP" {
+    It "adds one bounded streamable HTTP service when enabled" {
+        $yaml = New-OpenClawComposeYaml `
+            -ContainerName "openclaw-test" `
+            -ImageName "openclaw-source" `
+            -HomeDir "/home/node" `
+            -WslDataDir "/home/test/.openclaw-data" `
+            -GatewayPort 18789 `
+            -BridgePort 18790 `
+            -GatewayToken "test-token" `
+            -FirecrawlHttp
+
+        $yaml | Should Match '(?m)^  firecrawl-mcp:\r?$'
+        $yaml | Should Match 'HTTP_STREAMABLE_SERVER=true'
+        $yaml | Should Match '(?m)^    pids_limit: 128\r?$'
+        $yaml | Should Match '/home/test/\.openclaw-data/firecrawl-mcp\.env'
+        $yaml | Should Match "fetch\('http://127\.0\.0\.1:3000/mcp'\)"
+    }
+}

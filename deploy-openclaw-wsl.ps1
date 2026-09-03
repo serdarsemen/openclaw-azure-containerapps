@@ -366,6 +366,7 @@ Write-Host "  $GatewayToken" -ForegroundColor Yellow
 Write-Host "`n=== Step 4/${totalSteps}: Starting containers via docker-compose ===" -ForegroundColor Cyan
 
 $ollamaEnabled = $Ollama -and (-not $OllamaHost)
+$firecrawlHttpEnabled = ((Invoke-WslData "test -f '$WslDataDir/firecrawl-mcp.env' && echo true || echo false") -join "").Trim() -eq "true"
 if ($ollamaEnabled) {
     Write-Host "  Ollama sidecar: enabled" -ForegroundColor Green
 } else {
@@ -383,6 +384,7 @@ $composeYaml = New-OpenClawComposeYaml `
     -OllamaHost $OllamaHost `
     -OllamaSidecar:$ollamaEnabled `
     -GroqApiKey $GroqApiKey `
+    -FirecrawlHttp:$firecrawlHttpEnabled `
     -Npm:$Npm `
     -LanAccess:$LanAccess
 

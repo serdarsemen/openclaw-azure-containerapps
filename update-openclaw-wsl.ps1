@@ -295,6 +295,7 @@ if (-not $WslDataDir) {
 Write-Host "  Data dir (WSL): $WslDataDir" -ForegroundColor Gray
 Write-Host "  Bridge port:    $BridgePort" -ForegroundColor Gray
 Write-Host "  HomeDir:        $HomeDir" -ForegroundColor Gray
+$firecrawlHttpEnabled = ((Invoke-WslData "test -f '$WslDataDir/firecrawl-mcp.env' && echo true || echo false") -join "").Trim() -eq "true"
 
 # ---------------------------------------------------------------------------
 # Sidecar teardown: if the user did not explicitly request -Ollama, remove the
@@ -323,6 +324,7 @@ $composeYaml = New-OpenClawComposeYaml `
     -OllamaHost $OllamaHost `
     -OllamaSidecar:$newOllamaSidecar `
     -GroqApiKey $GroqApiKey `
+    -FirecrawlHttp:$firecrawlHttpEnabled `
     -Npm:$Npm `
     -LanAccess:$effectiveLanAccess
 
