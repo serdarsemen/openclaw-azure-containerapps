@@ -299,6 +299,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
     Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
+    Write-Host "  Applying cron concurrency limit (2)..." -ForegroundColor Gray
+    Set-OpenClawCronConcurrencyLimit -WslSourceRoot $WslBuildContext.WslContextPath -MaxConcurrent 2
+
     # Patch Dockerfile for local Docker compatibility:
     # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
     # - Keep --mount=type=cache directives — BuildKit is the default builder in Docker 23.0+ (WSL)
@@ -390,15 +393,11 @@ Write-Host "  docker-compose file written to: $composePath" -ForegroundColor Gra
 
 $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 
-# Stop any existing containers with the same name
-Write-Host "  Stopping any existing containers..." -ForegroundColor Gray
-try { Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans 2>/dev/null" } catch {}
-
 # Force-remove fixed-name auxiliary containers that may have been created outside
 # this compose project (e.g. a prior manual run). Compose only manages containers
 # carrying its own project label, so a stray 'searxng' would otherwise
 # cause a 'container name is already in use' conflict on 'up'.
-try { Invoke-Wsl "docker rm -f searxng 2>/dev/null || true" } catch {}
+Remove-UnmanagedDockerContainer -ContainerName "searxng"
 
 # Clean up stale plugin-runtime-deps locks from previous failed deployments
 Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
@@ -443,6 +442,7 @@ $config.gateway.controlUi | Add-Member -NotePropertyName dangerouslyAllowHostHea
 
 # Model
 $config.agents.defaults.model | Add-Member -NotePropertyName primary -NotePropertyValue "github-copilot/claude-opus-4.6" -Force
+$config.agents.defaults | Add-Member -NotePropertyName maxConcurrent -NotePropertyValue 2 -Force
 
 # Write back
 $config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
@@ -475,9 +475,9 @@ if ($OllamaWindows -or $OllamaWsl) {
     }
 }
 
-Write-Host "  Starting containers..." -ForegroundColor Gray
-Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
-Write-Host "  Containers started" -ForegroundColor Green
+Write-Host "  Reconciling containers without stopping unchanged services..." -ForegroundColor Gray
+Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
+Write-Host "  Containers reconciled" -ForegroundColor Green
 
 # Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.
 Write-Host "  Containers are starting — Docker healthcheck will verify readiness." -ForegroundColor Gray

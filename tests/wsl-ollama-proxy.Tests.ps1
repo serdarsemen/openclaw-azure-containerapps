@@ -41,3 +41,21 @@ Describe "New-OpenClawComposeYaml MCP startup" {
         $npmYaml | Should Not Match '@upstash/context7-mcp|mcp-finance|searxng-search|devdocs-mcp'
     }
 }
+
+Describe "New-OpenClawComposeYaml OpenClaw resources" {
+    It "allocates six CPUs, twelve GiB, and a six GiB Node heap" {
+        $yaml = New-OpenClawComposeYaml `
+            -ContainerName "openclaw-test" `
+            -ImageName "openclaw-source" `
+            -HomeDir "/home/node" `
+            -WslDataDir "/home/test/.openclaw-data" `
+            -GatewayPort 18789 `
+            -BridgePort 18790 `
+            -GatewayToken "test-token"
+
+        $openclawService = ($yaml -split '(?m)^  searxng:\r?$')[0]
+        $openclawService | Should Match 'NODE_OPTIONS=--max-old-space-size=6144'
+        $openclawService | Should Match "(?m)^          cpus: '6'\r?$"
+        $openclawService | Should Match '(?m)^          memory: 12G\r?$'
+    }
+}

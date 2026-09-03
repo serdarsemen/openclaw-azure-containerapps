@@ -459,6 +459,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
         Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
 
+        Write-Host "  Applying cron concurrency limit (2)..." -ForegroundColor Gray
+        Set-OpenClawCronConcurrencyLimit -WslSourceRoot $WslBuildContext.WslContextPath -MaxConcurrent 2
+
         # Patch Dockerfile for local Docker compatibility (shared with deploy):
         # strips the '# syntax=...' directive but keeps BuildKit cache mounts.
         Write-Host "  Step 1c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
@@ -494,16 +497,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 # ---------------------------------------------------------------------------
 # Step 2/3: Restart containers with the new image
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Step 2/3: Restarting containers ===" -ForegroundColor Cyan
-
-Write-Host "  Stopping existing containers..." -ForegroundColor Gray
-Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans"
+Write-Host "`n=== Step 2/3: Reconciling containers ===" -ForegroundColor Cyan
 
 # Force-remove fixed-name auxiliary containers that may have been created outside
 # this compose project (e.g. a prior manual run). Compose only manages containers
 # carrying its own project label, so a stray 'searxng' would otherwise
 # cause a 'container name is already in use' conflict on 'up'.
-try { Invoke-Wsl "docker rm -f searxng 2>/dev/null || true" } catch {}
+Remove-UnmanagedDockerContainer -ContainerName "searxng"
 
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {
@@ -543,9 +543,9 @@ if ($OllamaWindows -or $OllamaWsl) {
     }
 }
 
-Write-Host "  Starting containers with updated image..." -ForegroundColor Gray
-Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d"
-Write-Host "  Containers restarted" -ForegroundColor Green
+Write-Host "  Applying the updated image without stopping unchanged services..." -ForegroundColor Gray
+Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
+Write-Host "  Containers reconciled" -ForegroundColor Green
 
 # Wait for the gateway to become healthy
 Write-Host "`n  Waiting for gateway to become healthy..."

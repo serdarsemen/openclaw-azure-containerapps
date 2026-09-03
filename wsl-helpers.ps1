@@ -245,6 +245,42 @@ function Update-LocalBuildDockerfile {
     Invoke-Wsl "sed -i '1s|^# syntax=docker/dockerfile:.*||' '$WslDockerfilePath'"
 }
 
+# Apply the local cron admission limit to a disposable source-build context.
+# OpenClaw 2026.6 removed the old cron.maxConcurrentRuns config key.
+function Set-OpenClawCronConcurrencyLimit {
+    param(
+        [Parameter(Mandatory)] [string] $WslSourceRoot,
+        [int] $MaxConcurrent = 2
+    )
+
+    if ($MaxConcurrent -lt 1) {
+        throw "Cron concurrency must be at least 1."
+    }
+
+    $limitsPath = "$WslSourceRoot/src/config/cron-limits.ts"
+    Invoke-Wsl @"
+test -f '$limitsPath' &&
+sed -i -E 's/(DEFAULT_CRON_MAX_CONCURRENT_RUNS = )[0-9]+;/\1${MaxConcurrent};/' '$limitsPath' &&
+grep -q 'DEFAULT_CRON_MAX_CONCURRENT_RUNS = ${MaxConcurrent};' '$limitsPath'
+"@
+}
+
+# Remove a fixed-name container only when it is not owned by Docker Compose.
+function Remove-UnmanagedDockerContainer {
+    param([Parameter(Mandatory)] [string] $ContainerName)
+
+    $labelsJson = ((Invoke-WslData "docker inspect --format '{{json .Config.Labels}}' '$ContainerName' 2>/dev/null || true") -join "").Trim()
+    if (-not $labelsJson) {
+        return
+    }
+
+    $labels = $labelsJson | ConvertFrom-Json
+    if (-not $labels.'com.docker.compose.project') {
+        Write-Host "  Removing unmanaged container '$ContainerName'..." -ForegroundColor Yellow
+        Invoke-Wsl "docker rm -f '$ContainerName'"
+    }
+}
+
 # Get the latest Ollama version from GitHub releases.
 function Get-LatestOllamaVersion {
     try {
@@ -1171,7 +1207,7 @@ $envBlock
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '6'
           memory: 12G
         reservations:
           cpus: '2'
