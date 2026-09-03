@@ -43,7 +43,7 @@ Describe "New-OpenClawComposeYaml MCP startup" {
 }
 
 Describe "New-OpenClawComposeYaml OpenClaw resources" {
-    It "allocates six CPUs, twelve GiB, and a six GiB Node heap" {
+    It "allocates bounded CPU, memory, heap, and process resources" {
         $yaml = New-OpenClawComposeYaml `
             -ContainerName "openclaw-test" `
             -ImageName "openclaw-source" `
@@ -55,7 +55,28 @@ Describe "New-OpenClawComposeYaml OpenClaw resources" {
 
         $openclawService = ($yaml -split '(?m)^  searxng:\r?$')[0]
         $openclawService | Should Match 'NODE_OPTIONS=--max-old-space-size=6144'
+        $openclawService | Should Match '(?m)^    pids_limit: 512\r?$'
         $openclawService | Should Match "(?m)^          cpus: '6'\r?$"
         $openclawService | Should Match '(?m)^          memory: 12G\r?$'
+        $openclawService | Should Match '(?m)^          pids: 512\r?$'
+    }
+}
+
+Describe "New-OpenClawComposeYaml auxiliary safeguards" {
+    It "sets PID limits and uses an available CRW socket health check" {
+        $yaml = New-OpenClawComposeYaml `
+            -ContainerName "openclaw-test" `
+            -ImageName "openclaw-source" `
+            -HomeDir "/home/node" `
+            -WslDataDir "/home/test/.openclaw-data" `
+            -GatewayPort 18789 `
+            -BridgePort 18790 `
+            -GatewayToken "test-token"
+
+        $yaml | Should Match '(?ms)^  redis:.*?^    pids_limit: 128\r?$'
+        $yaml | Should Match '(?ms)^  searxng:.*?^    pids_limit: 256\r?$'
+        $yaml | Should Match '(?ms)^  crw:.*?^    pids_limit: 128\r?$'
+        $yaml | Should Match "grep -qi ':0BB8 ' /proc/net/tcp /proc/net/tcp6"
+        $yaml | Should Not Match '(?m)^      test: \["CMD", "wget", "-qO-", "http://localhost:3000/"\]\r?$'
     }
 }

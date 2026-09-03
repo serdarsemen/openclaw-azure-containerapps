@@ -1171,11 +1171,13 @@ services:
       - --dir
       - /data
     restart: unless-stopped
+    pids_limit: 128
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 512M
+          pids: 128
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -1204,11 +1206,13 @@ $envBlock
       - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
     init: true
     restart: unless-stopped
+    pids_limit: 512
     deploy:
       resources:
         limits:
           cpus: '6'
           memory: 12G
+          pids: 512
         reservations:
           cpus: '2'
           memory: 4G
@@ -1245,6 +1249,7 @@ $envBlock
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
+    pids_limit: 256
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 30s
@@ -1272,16 +1277,18 @@ $envBlock
     # CRW (Code Ready Workspace) — collaborative development environment.
     # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
     restart: unless-stopped
+    pids_limit: 128
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 1G
+          pids: 128
         reservations:
           cpus: '0.25'
           memory: 512M
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: ["CMD-SHELL", "grep -qi ':0BB8 ' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -1310,6 +1317,7 @@ $envBlock
         }).listen(11435, '0.0.0.0');
     init: true
     restart: unless-stopped
+    pids_limit: 128
     healthcheck:
       test:
         [
@@ -1340,11 +1348,13 @@ $envBlock
     ports:
       - "11434:11434"
     restart: unless-stopped
+    pids_limit: 512
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 4G
+          pids: 512
         reservations:
           cpus: '1'
           memory: 2G
