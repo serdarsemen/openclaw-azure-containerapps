@@ -328,15 +328,16 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 
 By default, the WSL update script now leaves Ollama disabled unless you pass `-Ollama` or choose one of the host-based Ollama modes.
 
-WSL deployments build a candidate image first and validate the persisted
-`openclaw.json` before replacing the running image. The heavy tools foundation is
+WSL deployments build a candidate image first and validate both the persisted
+`openclaw.json` and an isolated writable copy of the SQLite state before replacing
+the running image. The heavy tools foundation is
 kept as `openclaw-source:tools`, while the OpenClaw application is overlaid as a
 small rebuild. Healthy releases are tagged `openclaw-source:known-good`; failed
-health checks restore that tag automatically. Before updates, the scripts create
+container, state-audit, or schema-error checks restore that tag automatically. Before updates, the scripts create
 retained SQLite/configuration backups under `~/.openclaw-data/backups`, prune
 terminal task history older than 30 days, compact the database, and install a
-weekly online maintenance job. Restart diagnostics are written under
-`~/.openclaw-data/logs/restarts`.
+weekly online maintenance job. A bounded Docker sidecar monitors restart events
+and writes diagnostics under `~/.openclaw-data/logs/restarts`.
 
 ### WSL useful commands
 

@@ -310,13 +310,17 @@ function Test-OpenClawCandidateConfig {
         [Parameter(Mandatory)] [string] $HomeDir
     )
 
-    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --entrypoint node '$CandidateImage' /app/openclaw.mjs config validate"
-
+    $configCommand = if ($HomeDir -eq "/home/node") {
+        "node /app/openclaw.mjs config validate"
+    } else {
+        "openclaw config validate"
+    }
     $candidateCommand = if ($HomeDir -eq "/home/node") {
         "node /app/openclaw.mjs security audit --json >/dev/null"
     } else {
         "openclaw security audit --json >/dev/null"
     }
+    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --entrypoint sh '$CandidateImage' -lc '$configCommand'"
     Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; $candidateCommand'"
 }
 
@@ -336,7 +340,7 @@ function Test-OpenClawRuntimeState {
         return $false
     }
 
-    $runtimeCheck = "if [ -f /app/openclaw.mjs ]; then node /app/openclaw.mjs security audit --json >/dev/null && node /app/openclaw.mjs gateway status --json --require-rpc --timeout 60000 --token ""`$OPENCLAW_GATEWAY_TOKEN"" >/dev/null; else openclaw security audit --json >/dev/null && openclaw gateway status --json --require-rpc --timeout 60000 --token ""`$OPENCLAW_GATEWAY_TOKEN"" >/dev/null; fi"
+    $runtimeCheck = "if [ -f /app/openclaw.mjs ]; then node /app/openclaw.mjs security audit --json >/dev/null; else openclaw security audit --json >/dev/null; fi"
     try {
         $null = Invoke-Wsl "docker exec '$ContainerName' sh -lc '$runtimeCheck'"
         return $true
@@ -412,7 +416,12 @@ function Start-OpenClawRestartMonitor {
     )
 
     $outputDir = "$WslDataDir/logs/restarts"
-    Invoke-Wsl "mkdir -p '$outputDir'; sed -i 's/\r$//' '$WslMonitorScript'; chmod +x '$WslMonitorScript'; nohup '$WslMonitorScript' '$ContainerName' '$outputDir' </dev/null >'$outputDir/monitor.log' 2>&1 &"
+    $monitorContainer = "${ContainerName}-restart-monitor"
+    $running = ((Invoke-WslData "docker inspect -f '{{.State.Running}}' '$monitorContainer' 2>/dev/null || true") -join "").Trim()
+    if ($running -eq "true") {
+        return
+    }
+    Invoke-Wsl "mkdir -p '$outputDir'; sed -i 's/\r$//' '$WslMonitorScript'; chmod +x '$WslMonitorScript'; setsid -f '$WslMonitorScript' '$ContainerName' '$outputDir' </dev/null >'$outputDir/monitor.log' 2>&1"
 }
 
 function Install-OpenClawStateMaintenanceSchedule {
@@ -1520,6 +1529,33 @@ $envBlock
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  restart-monitor:
+    image: docker:27-cli
+    container_name: ${ContainerName}-restart-monitor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/openclaw-restart-monitor.sh:/usr/local/bin/openclaw-restart-monitor.sh:ro
+      - $($openclawDataMount):/diagnostics
+    command:
+      - sh
+      - -c
+      - >-
+        rm -f /diagnostics/logs/restarts/monitor.pid &&
+        exec /bin/sh /usr/local/bin/openclaw-restart-monitor.sh
+        '${ContainerName}' /diagnostics/logs/restarts
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 32
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+          pids: 32
+        reservations:
+          cpus: '0.02'
+          memory: 32M
 "@
 
     if ($FirecrawlHttp) {

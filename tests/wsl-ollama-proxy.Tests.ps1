@@ -91,6 +91,9 @@ Describe "New-OpenClawComposeYaml auxiliary safeguards" {
         $yaml | Should Match '(?ms)^  crw:.*?^    pids_limit: 128\r?$'
         $yaml | Should Match "grep -qi ':0BB8 ' /proc/net/tcp /proc/net/tcp6"
         $yaml | Should Not Match '(?m)^      test: \["CMD", "wget", "-qO-", "http://localhost:3000/"\]\r?$'
+        $yaml | Should Match '(?ms)^  restart-monitor:.*?^    image: docker:27-cli\r?$'
+        $yaml | Should Match '/var/run/docker\.sock:/var/run/docker\.sock'
+        $yaml | Should Match '(?ms)^  restart-monitor:.*?^    pids_limit: 32\r?$'
     }
 }
 
@@ -113,7 +116,7 @@ Describe "OpenClaw deployment safeguards" {
         $monitor | Should Match 'cron status --json'
         $helpers | Should Match 'uses newer schema version'
         $helpers | Should Match 'security audit --json'
-        $helpers | Should Match 'gateway status --json --require-rpc'
+        $helpers | Should Match 'state database\.\*\(error\|failed\)'
     }
 }
 

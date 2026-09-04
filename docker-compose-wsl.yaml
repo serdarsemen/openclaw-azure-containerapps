@@ -194,6 +194,34 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  restart-monitor:
+    image: docker:27-cli
+    container_name: openclaw-restart-monitor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/openclaw-restart-monitor.sh:/usr/local/bin/openclaw-restart-monitor.sh:ro
+      - /home/serdar/.openclaw-data:/diagnostics
+    command:
+      - sh
+      - -c
+      - >-
+        rm -f /diagnostics/logs/restarts/monitor.pid &&
+        exec /bin/sh /usr/local/bin/openclaw-restart-monitor.sh
+        'openclaw' /diagnostics/logs/restarts
+    restart: unless-stopped
+    logging: *default-logging
+    pids_limit: 32
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+          pids: 32
+        reservations:
+          cpus: '0.02'
+          memory: 32M
+
   firecrawl-mcp:
     image: node:22-slim
     container_name: openclaw-firecrawl-mcp
