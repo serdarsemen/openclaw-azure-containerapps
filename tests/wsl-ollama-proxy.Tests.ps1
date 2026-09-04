@@ -64,7 +64,7 @@ Describe "New-OpenClawComposeYaml OpenClaw resources" {
 }
 
 Describe "New-OpenClawComposeYaml auxiliary safeguards" {
-    It "sets PID limits and uses an available CRW socket health check" {
+    It "sets resource, Redis eviction, logging, and CRW health safeguards" {
         $yaml = New-OpenClawComposeYaml `
             -ContainerName "openclaw-test" `
             -ImageName "openclaw-source" `
@@ -75,6 +75,12 @@ Describe "New-OpenClawComposeYaml auxiliary safeguards" {
             -GatewayToken "test-token"
 
         $yaml | Should Match '(?ms)^  redis:.*?^    pids_limit: 128\r?$'
+        $yaml | Should Match '(?m)^x-logging: &default-logging\r?$'
+        $yaml | Should Match '(?m)^    max-size: 10m\r?$'
+        $yaml | Should Match '(?m)^    max-file: "5"\r?$'
+        $yaml | Should Match '(?ms)^  redis:.*?^      - --maxmemory\r?$.*?^      - 384mb\r?$'
+        $yaml | Should Match '(?ms)^  redis:.*?^      - --maxmemory-policy\r?$.*?^      - volatile-lru\r?$'
+        $yaml | Should Match '(?ms)^  redis:.*?^    logging: \*default-logging\r?$'
         $searxngService = (($yaml -split '(?m)^  searxng:\r?$')[1] -split '(?m)^  crw:\r?$')[0]
         $searxngService | Should Match '(?m)^    pids_limit: 256\r?$'
         $searxngService | Should Match "(?m)^          cpus: '1'\r?$"
@@ -85,6 +91,29 @@ Describe "New-OpenClawComposeYaml auxiliary safeguards" {
         $yaml | Should Match '(?ms)^  crw:.*?^    pids_limit: 128\r?$'
         $yaml | Should Match "grep -qi ':0BB8 ' /proc/net/tcp /proc/net/tcp6"
         $yaml | Should Not Match '(?m)^      test: \["CMD", "wget", "-qO-", "http://localhost:3000/"\]\r?$'
+    }
+}
+
+Describe "OpenClaw deployment safeguards" {
+    It "provides a reusable app overlay and retained state maintenance" {
+        $overlay = Get-Content (Join-Path $repoRoot "images/Dockerfile.app-overlay") -Raw
+        $maintenance = Get-Content (Join-Path $repoRoot "scripts/openclaw-state-maintenance.py") -Raw
+        $downgrade = Get-Content (Join-Path $repoRoot "scripts/openclaw-state-downgrade.py") -Raw
+        $monitor = Get-Content (Join-Path $repoRoot "scripts/openclaw-restart-monitor.sh") -Raw
+        $helpers = Get-Content (Join-Path $repoRoot "wsl-helpers.ps1") -Raw
+
+        $overlay | Should Match 'ARG TOOLS_IMAGE='
+        $overlay | Should Match 'COPY --from=app --chown=node:node /app /app'
+        $maintenance | Should Match 'source\.backup\(destination'
+        $maintenance | Should Match 'DELETE FROM task_runs'
+        $maintenance | Should Match 'PRAGMA wal_checkpoint\(TRUNCATE\)'
+        $downgrade | Should Match 'replace_cron_jobs'
+        $downgrade | Should Match 'payload\.get\("kind"\) == "command"'
+        $monitor | Should Match 'docker events'
+        $monitor | Should Match 'cron status --json'
+        $helpers | Should Match 'uses newer schema version'
+        $helpers | Should Match 'security audit --json'
+        $helpers | Should Match 'gateway status --json --require-rpc'
     }
 }
 

@@ -40,6 +40,7 @@
 param(
     [switch] $Npm,
     [switch] $NoCache,
+    [switch] $RebuildTools,
     [switch] $PullOnly,
     [switch] $Ollama,
     [switch] $OllamaWindows,
@@ -48,7 +49,7 @@ param(
     [string] $OllamaHost    = "",
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
-    [string] $Tag           = "",
+    [string] $Tag           = "v2026.6.8",
     [string] $GroqApiKey    = "",   # if set, overrides the GROQ_API_KEY preserved from the running container
     [switch] $LanAccess
 )
@@ -238,6 +239,9 @@ if ($effectiveLanAccess) {
 $WslScriptRoot = (Invoke-WslData "wslpath -u '$($PSScriptRoot -replace '\\','/')'")
 $WslScriptRoot = $WslScriptRoot.Trim()
 $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
+$WslMaintenanceScript = "$WslScriptRoot/scripts/openclaw-state-maintenance.py"
+$WslMonitorScript = "$WslScriptRoot/scripts/openclaw-restart-monitor.sh"
+$WslOverlayDockerfile = "$WslScriptRoot/images/Dockerfile.app-overlay"
 $composePath = Join-Path $PSScriptRoot "docker-compose-wsl.yaml"
 
 if (-not (Test-Path $composePath)) {
@@ -331,9 +335,19 @@ $composeYaml = New-OpenClawComposeYaml `
 $composeYaml | Set-Content $composePath -Encoding utf8
 Write-Host "  Compose file regenerated" -ForegroundColor Green
 
+$knownGoodSaved = Save-OpenClawKnownGoodImage -ContainerName $ContainerName -ImageName $ImageName
+if ($knownGoodSaved) {
+    Write-Host "  Saved current healthy image as ${ImageName}:known-good" -ForegroundColor Green
+} else {
+    Write-Host "  Current container is not healthy; preserving any existing known-good image" -ForegroundColor Yellow
+}
+Write-Host "  Backing up OpenClaw configuration and SQLite state..." -ForegroundColor Gray
+Invoke-OpenClawStateBackup -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -KeepBackups 5
+
 # ---------------------------------------------------------------------------
 # Step 1/3: Rebuild image (unless -PullOnly)
 # ---------------------------------------------------------------------------
+$CandidateImage = "${ImageName}:latest"
 if ($PullOnly) {
     Write-Host "`n=== Step 1/3: Skipping rebuild (-PullOnly) ===" -ForegroundColor Yellow
 } else {
@@ -349,7 +363,7 @@ if ($PullOnly) {
         if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
         New-Item -ItemType Directory -Path $buildDir | Out-Null
 
-        $npmTag = if ($Tag) { $Tag } else { "latest" }
+        $npmTag = if ($Tag) { $Tag.TrimStart('v') } else { "2026.6.8" }
 
         $dockerfile = @"
 FROM node:22-slim
@@ -395,20 +409,10 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         try {
             Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
-            Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
+            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:candidate -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+            Write-Host "  Candidate image rebuilt: ${ImageName}:candidate" -ForegroundColor Green
 
-            $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
-            $WslToolsContext    = "$WslScriptRoot/images"
-
-            Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-            Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
-
-            # Remove intermediate base image — only the final :latest image should remain
-            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
-            Write-Host "  Intermediate image removed" -ForegroundColor Green
+            $CandidateImage = "${ImageName}:candidate"
         } finally {
             Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -417,18 +421,22 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         # ===== Source-build variant: pull/checkout and rebuild =====
         Write-Host "`n=== Step 1/3: Updating source and rebuilding image ===" -ForegroundColor Cyan
 
-        if (-not (Test-Path $SourcePath)) {
+        $ResolvedSourcePath = if ([System.IO.Path]::IsPathRooted($SourcePath)) { $SourcePath } else { Join-Path $PSScriptRoot $SourcePath }
+        if (-not (Test-Path $ResolvedSourcePath)) {
             Write-Host "  Source not found — cloning..."
-            git clone https://github.com/openclaw/openclaw.git $SourcePath
+            git clone https://github.com/openclaw/openclaw.git $ResolvedSourcePath
             if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
         }
 
-        Push-Location $SourcePath
+        Push-Location $ResolvedSourcePath
         try {
             if ($Tag) {
-                Write-Host "  Fetching tags and checking out: $Tag"
-                git fetch --tags
-                if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
+                Write-Host "  Checking out pinned tag: $Tag"
+                git rev-parse --verify --quiet "refs/tags/$Tag" | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    git fetch origin "refs/tags/${Tag}:refs/tags/${Tag}"
+                    if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
+                }
                 git checkout $Tag
                 if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
             } else {
@@ -447,7 +455,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $ref = if ($Tag) { $Tag } else { "latest (main)" }
         Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
-        $WslSourcePath = (Invoke-WslData "wslpath -u '$($SourcePath -replace '\\','/')'")
+        $WslSourcePath = (Invoke-WslData "wslpath -u '$($ResolvedSourcePath -replace '\\','/')'")
         if ($WslSourcePath -notmatch '^/') {
             $WslSourcePath = "$WslScriptRoot/$SourcePath"
         }
@@ -473,21 +481,19 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
 
         try {
-            Write-Host "  Step 1d: Rebuilding base image from source..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
-            Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
-
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
-            Write-Host "  Step 1e: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
-            Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
-
-            # Remove intermediate base image — only the final :latest image should remain
-            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
-            Write-Host "  Intermediate image removed" -ForegroundColor Green
+            Write-Host "  Step 1d: Building candidate app and reusable tools overlay..." -ForegroundColor Gray
+            $CandidateImage = Build-OpenClawSourceCandidate `
+                -WslBuildContext $WslBuildContext.WslContextPath `
+                -ImageName $ImageName `
+                -WslToolsDockerfile $WslToolsDockerfile `
+                -WslToolsContext $WslToolsContext `
+                -WslOverlayDockerfile $WslOverlayDockerfile `
+                -NoCache:$NoCache `
+                -RebuildTools:$RebuildTools
+            Write-Host "  Candidate image built: $CandidateImage" -ForegroundColor Green
         } finally {
             try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
         }
@@ -496,6 +502,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     # Prune old dangling images to save disk space
     Write-Host "  Pruning dangling images..." -ForegroundColor Gray
     try { Invoke-Wsl "docker image prune -f 2>/dev/null" } catch {}
+}
+
+if (-not $PullOnly) {
+    Write-Host "  Validating persisted configuration with candidate image..." -ForegroundColor Gray
+    Test-OpenClawCandidateConfig -CandidateImage $CandidateImage -WslDataDir $WslDataDir -HomeDir $HomeDir
+    Invoke-Wsl "docker tag '$CandidateImage' '${ImageName}:latest'"
+    Write-Host "  Candidate passed configuration validation" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
@@ -548,46 +561,31 @@ if ($OllamaWindows -or $OllamaWsl) {
 }
 
 Write-Host "  Applying the updated image without stopping unchanged services..." -ForegroundColor Gray
+try { Invoke-Wsl "docker stop -t 90 '$ContainerName' >/dev/null 2>&1 || true" } catch {}
+Write-Host "  Pruning terminal task history and compacting SQLite..." -ForegroundColor Gray
+Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact
 Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
 Write-Host "  Containers reconciled" -ForegroundColor Green
 
-# Wait for the gateway to become healthy
-Write-Host "`n  Waiting for gateway to become healthy..."
 $maxAttempts = 30
-$attempt = 0
-$healthy = $false
-while ($attempt -lt $maxAttempts) {
-    $attempt++
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:${GatewayPort}/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            Write-Host "  Gateway is healthy (attempt $attempt/$maxAttempts)" -ForegroundColor Green
-            $healthy = $true
-            break
-        }
-    } catch {}
-
-    # Fallback: trust container health status when host-side checks are blocked/delayed.
-    try {
-        $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim()
-        if ($dockerHealth -eq 'healthy') {
-            Write-Host "  Gateway is healthy via Docker status (attempt $attempt/$maxAttempts, health=$dockerHealth)" -ForegroundColor Green
-            $healthy = $true
-            break
-        }
-    } catch {}
-
-    if ($attempt -lt $maxAttempts) {
-        Write-Host "  Not ready yet — retrying in 5s ($attempt/$maxAttempts)..." -ForegroundColor Gray
-        Start-Sleep -Seconds 5
-    }
-}
+Write-Host "`n  Waiting for gateway and state-backed subsystems to become healthy..."
+$healthy = Wait-OpenClawContainerHealthy -ContainerName $ContainerName -MaxAttempts $maxAttempts -DelaySeconds 5
 if (-not $healthy) {
     $dockerState = "unknown"
     $dockerHealth = "unknown"
     try { $dockerState = (Invoke-WslData "docker inspect -f '{{.State.Status}}' $ContainerName 2>/dev/null").Trim() } catch {}
     try { $dockerHealth = (Invoke-WslData "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $ContainerName 2>/dev/null").Trim() } catch {}
-    Write-Warning "Gateway did not become healthy after $maxAttempts attempts (container state: $dockerState, health: $dockerHealth) — check logs: wsl docker logs $ContainerName"
+    Write-Warning "Gateway or state-backed subsystems did not become healthy after $maxAttempts attempts (container state: $dockerState, health: $dockerHealth). Rolling back."
+    Start-OpenClawRestartMonitor -ContainerName $ContainerName -WslDataDir $WslDataDir -WslMonitorScript $WslMonitorScript
+    Restore-OpenClawKnownGoodImage -ContainerName $ContainerName -ImageName $ImageName -WslComposePath $WslComposePath -WslDataDir $WslDataDir
+    $healthy = $true
+    Write-Host "  Known-good image restored successfully" -ForegroundColor Green
+}
+
+Start-OpenClawRestartMonitor -ContainerName $ContainerName -WslDataDir $WslDataDir -WslMonitorScript $WslMonitorScript
+Install-OpenClawStateMaintenanceSchedule -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript
+if ($healthy) {
+    Invoke-Wsl "docker tag '${ImageName}:latest' '${ImageName}:known-good'"
 }
 
 # Run a non-fatal security audit with a short timeout to avoid update stalls.

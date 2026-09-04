@@ -307,7 +307,7 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 ### WSL update
 
 ```powershell
-# Update to latest (rebuilds image, preserves config and gateway token)
+# Update to the tested default release (currently v2026.6.8)
 .\update-openclaw-wsl.ps1
 
 # Update npm variant
@@ -315,6 +315,9 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 
 # Pin to a specific tag
 .\update-openclaw-wsl.ps1 -Tag v2026.3.2
+
+# Rebuild the large Python/ML tools foundation when its dependencies change
+.\update-openclaw-wsl.ps1 -RebuildTools
 
 # Keep/start the Ollama sidecar during update
 .\update-openclaw-wsl.ps1 -Ollama
@@ -324,6 +327,16 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 ```
 
 By default, the WSL update script now leaves Ollama disabled unless you pass `-Ollama` or choose one of the host-based Ollama modes.
+
+WSL deployments build a candidate image first and validate the persisted
+`openclaw.json` before replacing the running image. The heavy tools foundation is
+kept as `openclaw-source:tools`, while the OpenClaw application is overlaid as a
+small rebuild. Healthy releases are tagged `openclaw-source:known-good`; failed
+health checks restore that tag automatically. Before updates, the scripts create
+retained SQLite/configuration backups under `~/.openclaw-data/backups`, prune
+terminal task history older than 30 days, compact the database, and install a
+weekly online maintenance job. Restart diagnostics are written under
+`~/.openclaw-data/logs/restarts`.
 
 ### WSL useful commands
 

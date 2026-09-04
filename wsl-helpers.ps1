@@ -285,6 +285,186 @@ function Set-OpenClawRestartDrainTimeout {
     Invoke-Wsl $command
 }
 
+function Save-OpenClawKnownGoodImage {
+    param(
+        [Parameter(Mandatory)] [string] $ContainerName,
+        [Parameter(Mandatory)] [string] $ImageName
+    )
+
+    if (-not (Test-OpenClawRuntimeState -ContainerName $ContainerName)) {
+        return $false
+    }
+
+    $imageId = ((Invoke-WslData "docker inspect -f '{{.Image}}' '$ContainerName'") -join "").Trim()
+    if (-not $imageId) {
+        return $false
+    }
+    Invoke-Wsl "docker tag '$imageId' '${ImageName}:known-good'"
+    return $true
+}
+
+function Test-OpenClawCandidateConfig {
+    param(
+        [Parameter(Mandatory)] [string] $CandidateImage,
+        [Parameter(Mandatory)] [string] $WslDataDir,
+        [Parameter(Mandatory)] [string] $HomeDir
+    )
+
+    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --entrypoint node '$CandidateImage' /app/openclaw.mjs config validate"
+
+    $candidateCommand = if ($HomeDir -eq "/home/node") {
+        "node /app/openclaw.mjs security audit --json >/dev/null"
+    } else {
+        "openclaw security audit --json >/dev/null"
+    }
+    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; $candidateCommand'"
+}
+
+function Test-OpenClawRuntimeState {
+    param(
+        [Parameter(Mandatory)] [string] $ContainerName
+    )
+
+    $state = ((Invoke-WslData "docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' '$ContainerName' 2>/dev/null || true") -join "").Trim()
+    if ($state -notmatch '^running healthy ') {
+        return $false
+    }
+
+    $startedAt = ((Invoke-WslData "docker inspect -f '{{.State.StartedAt}}' '$ContainerName'") -join "").Trim()
+    $fatalLogs = ((Invoke-WslData "docker logs --since '$startedAt' '$ContainerName' 2>&1 | grep -Ei 'uses newer schema version|no such column|state database.*(error|failed)|cron.*failed to start|delivery recovery failed|task registry.*failed' || true") -join "`n").Trim()
+    if ($fatalLogs) {
+        return $false
+    }
+
+    $runtimeCheck = "if [ -f /app/openclaw.mjs ]; then node /app/openclaw.mjs security audit --json >/dev/null && node /app/openclaw.mjs gateway status --json --require-rpc --timeout 60000 --token ""`$OPENCLAW_GATEWAY_TOKEN"" >/dev/null; else openclaw security audit --json >/dev/null && openclaw gateway status --json --require-rpc --timeout 60000 --token ""`$OPENCLAW_GATEWAY_TOKEN"" >/dev/null; fi"
+    try {
+        $null = Invoke-Wsl "docker exec '$ContainerName' sh -lc '$runtimeCheck'"
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Wait-OpenClawContainerHealthy {
+    param(
+        [Parameter(Mandatory)] [string] $ContainerName,
+        [int] $MaxAttempts = 36,
+        [int] $DelaySeconds = 5
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (Test-OpenClawRuntimeState -ContainerName $ContainerName) {
+            return $true
+        }
+        if ($attempt -lt $MaxAttempts) {
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+    return $false
+}
+
+function Restore-OpenClawKnownGoodImage {
+    param(
+        [Parameter(Mandatory)] [string] $ContainerName,
+        [Parameter(Mandatory)] [string] $ImageName,
+        [Parameter(Mandatory)] [string] $WslComposePath,
+        [Parameter(Mandatory)] [string] $WslDataDir
+    )
+
+    $knownGood = ((Invoke-WslData "docker image inspect '${ImageName}:known-good' --format '{{.Id}}' 2>/dev/null || true") -join "").Trim()
+    if (-not $knownGood) {
+        throw "Candidate failed and no ${ImageName}:known-good rollback image is available."
+    }
+    Invoke-Wsl "docker tag '${ImageName}:known-good' '${ImageName}:latest'"
+    Invoke-WslWithNetworkPoolRecovery -Context "OpenClaw rollback" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --no-deps --force-recreate openclaw"
+    if (-not (Wait-OpenClawContainerHealthy -ContainerName $ContainerName)) {
+        throw "Rollback image was restored but the OpenClaw container did not become healthy."
+    }
+}
+
+function Invoke-OpenClawStateBackup {
+    param(
+        [Parameter(Mandatory)] [string] $WslDataDir,
+        [Parameter(Mandatory)] [string] $WslMaintenanceScript,
+        [int] $KeepBackups = 5
+    )
+
+    Invoke-Wsl "python3 '$WslMaintenanceScript' --data-dir '$WslDataDir' --backup --keep-backups $KeepBackups"
+}
+
+function Invoke-OpenClawStateMaintenance {
+    param(
+        [Parameter(Mandatory)] [string] $WslDataDir,
+        [Parameter(Mandatory)] [string] $WslMaintenanceScript,
+        [int] $RetentionDays = 30,
+        [switch] $Compact
+    )
+
+    $compactArg = if ($Compact) { " --compact" } else { "" }
+    Invoke-Wsl "python3 '$WslMaintenanceScript' --data-dir '$WslDataDir' --maintain --retention-days $RetentionDays$compactArg"
+}
+
+function Start-OpenClawRestartMonitor {
+    param(
+        [Parameter(Mandatory)] [string] $ContainerName,
+        [Parameter(Mandatory)] [string] $WslDataDir,
+        [Parameter(Mandatory)] [string] $WslMonitorScript
+    )
+
+    $outputDir = "$WslDataDir/logs/restarts"
+    Invoke-Wsl "mkdir -p '$outputDir'; sed -i 's/\r$//' '$WslMonitorScript'; chmod +x '$WslMonitorScript'; nohup '$WslMonitorScript' '$ContainerName' '$outputDir' </dev/null >'$outputDir/monitor.log' 2>&1 &"
+}
+
+function Install-OpenClawStateMaintenanceSchedule {
+    param(
+        [Parameter(Mandatory)] [string] $WslDataDir,
+        [Parameter(Mandatory)] [string] $WslMaintenanceScript
+    )
+
+    $logPath = "$WslDataDir/logs/state-maintenance.log"
+    $entry = "17 3 * * 0 python3 '$WslMaintenanceScript' --data-dir '$WslDataDir' --maintain --retention-days 30 >>'$logPath' 2>&1 # openclaw-state-maintenance"
+    Invoke-Wsl "mkdir -p '$WslDataDir/logs'; { crontab -l 2>/dev/null | grep -v 'openclaw-state-maintenance' || true; echo `"$entry`"; } | crontab -"
+}
+
+function Build-OpenClawSourceCandidate {
+    param(
+        [Parameter(Mandatory)] [string] $WslBuildContext,
+        [Parameter(Mandatory)] [string] $ImageName,
+        [Parameter(Mandatory)] [string] $WslToolsDockerfile,
+        [Parameter(Mandatory)] [string] $WslToolsContext,
+        [Parameter(Mandatory)] [string] $WslOverlayDockerfile,
+        [switch] $NoCache,
+        [switch] $RebuildTools
+    )
+
+    $cacheArg = if ($NoCache) { "--no-cache " } else { "" }
+    $candidateApp = "${ImageName}:candidate-app"
+    $toolsImage = "${ImageName}:tools"
+    $candidateImage = "${ImageName}:candidate"
+
+    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateApp' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
+
+    $toolsExist = ((Invoke-WslData "docker image inspect '$toolsImage' --format '{{.Id}}' 2>/dev/null || true") -join "").Trim()
+    if (-not $toolsExist -and -not $RebuildTools) {
+        $latestHasTools = $false
+        try {
+            $null = Invoke-Wsl "docker run --rm --entrypoint python3 '${ImageName}:latest' -c 'import sklearn, skfolio, torch'"
+            $latestHasTools = $true
+        } catch {}
+        if ($latestHasTools) {
+            $null = Invoke-Wsl "docker tag '${ImageName}:latest' '$toolsImage'"
+            $toolsExist = "seeded"
+        }
+    }
+
+    if ($RebuildTools -or -not $toolsExist) {
+        $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$toolsImage' --build-arg BASE_IMAGE='$candidateApp' -f '$WslToolsDockerfile' '$WslToolsContext'"
+    }
+
+    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg TOOLS_IMAGE='$toolsImage' --build-arg APP_IMAGE='$candidateApp' -f '$WslOverlayDockerfile' '$WslToolsContext'"
+    return $candidateImage
+}
+
 # Remove a fixed-name container only when it is not owned by Docker Compose.
 function Remove-UnmanagedDockerContainer {
     param([Parameter(Mandatory)] [string] $ContainerName)
@@ -1156,6 +1336,12 @@ function New-OpenClawComposeYaml {
     }
 
     $composeYaml = @"
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
 networks:
   openclaw-net:
     driver: bridge
@@ -1191,9 +1377,14 @@ services:
       - redis-server
       - --appendonly
       - "yes"
+      - --maxmemory
+      - 384mb
+      - --maxmemory-policy
+      - volatile-lru
       - --dir
       - /data
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 128
     deploy:
       resources:
@@ -1229,6 +1420,7 @@ $envBlock
       - openclaw-compile-cache:${HomeDir}/.openclaw/compile-cache
     init: true
     restart: unless-stopped
+    logging: *default-logging
     stop_grace_period: 90s
     pids_limit: 512
     deploy:
@@ -1273,6 +1465,7 @@ $envBlock
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 256
     deploy:
       resources:
@@ -1310,6 +1503,7 @@ $envBlock
     # CRW (Code Ready Workspace) — collaborative development environment.
     # Reachable from openclaw at http://crw:3000 via the openclaw-net bridge.
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 128
     deploy:
       resources:
@@ -1347,6 +1541,7 @@ $envBlock
       - firecrawl-mcp-cache:/root/.npm
     command: ["npx", "-y", "firecrawl-mcp"]
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 128
     deploy:
       resources:
@@ -1394,6 +1589,7 @@ $envBlock
         }).listen(11435, '0.0.0.0');
     init: true
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 128
     healthcheck:
       test:
@@ -1425,6 +1621,7 @@ $envBlock
     ports:
       - "11434:11434"
     restart: unless-stopped
+    logging: *default-logging
     pids_limit: 512
     deploy:
       resources:

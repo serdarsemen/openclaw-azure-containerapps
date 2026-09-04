@@ -1,0 +1,11 @@
+ARG TOOLS_IMAGE=openclaw-source:tools
+ARG APP_IMAGE=openclaw-source:candidate-app
+
+FROM ${APP_IMAGE} AS app
+FROM ${TOOLS_IMAGE}
+
+USER root
+RUN rm -rf /app && mkdir -p /app
+COPY --from=app --chown=node:node /app /app
+RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw
+USER node
