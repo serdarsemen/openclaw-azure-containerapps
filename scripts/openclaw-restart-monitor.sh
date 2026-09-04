@@ -25,6 +25,9 @@ while IFS= read -r event; do
   docker inspect "$container" > "$target/inspect.json" 2>&1 || true
   docker stats --no-stream "$container" > "$target/stats.txt" 2>&1 || true
   docker logs --tail 250 "$container" > "$target/container.log" 2>&1 || true
+  if [ -f /diagnostics/gateway-restart-request.json ]; then
+    cp /diagnostics/gateway-restart-request.json "$target/gateway-restart-request.json" || true
+  fi
   docker exec "$container" node openclaw.mjs cron status --json \
     > "$target/cron-status.json" 2>&1 || true
   docker exec "$container" sh -lc 'ps -eo pid,etime,pcpu,pmem,args --sort=-pcpu | head -40' \

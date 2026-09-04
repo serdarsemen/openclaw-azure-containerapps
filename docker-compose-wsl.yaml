@@ -82,6 +82,7 @@ services:
       - REDIS_PORT=6379
       - CRW_HOST=localhost
       - CRW_PORT=3000
+      - OLLAMA_HOST=http://192.168.1.190:11434
       - OPENCLAW_DISABLE_BONJOUR=true
       - NPM_CONFIG_RESOLUTION_MODE=highest
       - npm_config_resolution_mode=highest
@@ -169,7 +170,7 @@ services:
     environment:
       # LLM extraction via Ollama
       - CRW_EXTRACTION__LLM__PROVIDER=openai-compatible
-      - CRW_EXTRACTION__LLM__BASE_URL=http://host.docker.internal:11434/v1
+      - CRW_EXTRACTION__LLM__BASE_URL=http://192.168.1.190:11434/v1
       - CRW_EXTRACTION__LLM__API_KEY=key
       - CRW_EXTRACTION__LLM__MODEL=qwen3:8b
       # Search via SearXNG
@@ -221,7 +222,6 @@ services:
         reservations:
           cpus: '0.02'
           memory: 32M
-
   firecrawl-mcp:
     image: node:22-slim
     container_name: openclaw-firecrawl-mcp

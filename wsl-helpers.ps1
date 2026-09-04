@@ -5,11 +5,17 @@
 #   . "$PSScriptRoot/wsl-helpers.ps1"
 # ---------------------------------------------------------------------------
 
+function ConvertTo-WslCommand {
+    param([Parameter(Mandatory)] [string] $Command)
+    return $Command -replace "`r`n?", "`n"
+}
+
 # Run a WSL command, merge stderr into the return value, throw on non-zero exit.
 # Retries once automatically when a WSL service-level socket timeout is detected
 # (Wsl/Service/0x8007274c) — these are always transient and never indicate a real failure.
 function Invoke-Wsl {
     param([string] $Command, [int] $ServiceRetries = 2)
+  $Command = ConvertTo-WslCommand -Command $Command
     $attempt = 0
     while ($true) {
         $attempt++
@@ -67,6 +73,7 @@ function Invoke-WslRetry {
     [int] $InitialDelaySeconds = 5
   )
 
+  $Command = ConvertTo-WslCommand -Command $Command
   $attempt = 1
   $delaySeconds = $InitialDelaySeconds
   $lastResult = ""
@@ -99,6 +106,7 @@ function Invoke-WslRetry {
 # Run a WSL command, discard stderr (use for value capture), throw on non-zero exit.
 function Invoke-WslData {
     param([string] $Command)
+  $Command = ConvertTo-WslCommand -Command $Command
     $result = wsl bash -c $Command 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "WSL command failed (exit $LASTEXITCODE): $Command"
@@ -110,6 +118,7 @@ function Invoke-WslData {
 # Use for long-running commands like 'docker pull' where progress should be shown.
 function Invoke-WslStream {
     param([string] $Command)
+  $Command = ConvertTo-WslCommand -Command $Command
     wsl bash -c $Command
     if ($LASTEXITCODE -ne 0) {
         throw "WSL command failed (exit $LASTEXITCODE): $Command"
@@ -320,7 +329,7 @@ function Test-OpenClawCandidateConfig {
     } else {
         "openclaw security audit --json >/dev/null"
     }
-    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --entrypoint sh '$CandidateImage' -lc '$configCommand'"
+    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --tmpfs '${HomeDir}/.openclaw/logs:uid=1000,gid=1000' --entrypoint sh '$CandidateImage' -lc '$configCommand'"
     Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; $candidateCommand'"
 }
 
