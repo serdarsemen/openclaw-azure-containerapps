@@ -279,13 +279,10 @@ function Set-OpenClawRestartDrainTimeout {
 
     $restartPath = "$WslSourceRoot/src/infra/restart.ts"
     $reloadPath = "$WslSourceRoot/src/gateway/server-reload-restart.ts"
-    Invoke-Wsl @"
-test -f '$restartPath' &&
-test -f '$reloadPath' &&
-sed -i -E 's/timeoutIntent: \{ force: true,/timeoutIntent: { waitMs: ${DrainTimeoutMs},/' '$restartPath' '$reloadPath' &&
-grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$restartPath' &&
-grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$reloadPath'
-"@
+    $legacyReloadPath = "$WslSourceRoot/src/gateway/server-reload-handlers.ts"
+    $replacement = "s/timeoutIntent: { force: true,/timeoutIntent: { waitMs: ${DrainTimeoutMs},/"
+    $command = "set -e; test -f '$restartPath'; sed -i '$replacement' '$restartPath'; grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$restartPath'; if [ -f '$reloadPath' ]; then sed -i '$replacement' '$reloadPath'; grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$reloadPath'; else test -f '$legacyReloadPath'; sed -i '$replacement' '$legacyReloadPath'; grep -q 'timeoutIntent: { waitMs: ${DrainTimeoutMs},' '$legacyReloadPath'; fi"
+    Invoke-Wsl $command
 }
 
 # Remove a fixed-name container only when it is not owned by Docker Compose.
