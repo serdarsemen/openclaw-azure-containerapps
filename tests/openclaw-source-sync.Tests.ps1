@@ -101,6 +101,28 @@ Describe 'Clean origin/main source checkout' {
         try { $null = Sync-OpenClawSource -SourcePath $repoRoot } catch { $failure = $_.Exception.Message }
         $failure | Should Match 'deployment scripts themselves'
     }
+
+    It 'rejects Windows aliases before trying to clone or move a checkout' {
+        foreach ($alias in @("$checkout.", "\\?\$checkout")) {
+            $failure = ''
+            try { $null = Sync-OpenClawSource -SourcePath $alias } catch { $failure = $_.Exception.Message }
+            $failure | Should Match 'canonical filesystem path'
+        }
+    }
+
+    It 'refuses to move a checkout that owns linked worktrees' {
+        $linked = Join-Path $fixture 'linked'
+        $null = Invoke-SourceFixtureGit -C $checkout worktree add --detach $linked
+        try {
+            $failure = ''
+            try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
+            $failure | Should Match 'linked worktrees'
+            (Invoke-SourceFixtureGit -C $linked rev-parse --is-inside-work-tree) | Should Be 'true'
+            @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-backup-*').Count | Should Be 0
+        } finally {
+            if (Test-Path -LiteralPath $linked) { Remove-Item -LiteralPath $linked -Recurse -Force }
+        }
+    }
 }
 
 Describe 'Source deployment integration' {

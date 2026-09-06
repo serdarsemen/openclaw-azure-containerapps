@@ -4,7 +4,25 @@ function Sync-OpenClawSource {
         [string] $RepositoryUrl = 'https://github.com/openclaw/openclaw.git'
     )
 
+    $pathText = $SourcePath.Replace('/', '\')
+    $aliasedComponents = @($pathText -split '\\' | Where-Object { $_ -notin '.', '..' -and ($_ -match '[. ]$') })
+    if ($pathText -match '^\\\\[?.]\\' -or $aliasedComponents.Count -gt 0) {
+        throw 'SourcePath must use a canonical filesystem path without device prefixes or trailing dots/spaces.'
+    }
     $SourcePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourcePath).TrimEnd('\', '/')
+    if ($SourcePath -eq [IO.Path]::GetPathRoot($SourcePath).TrimEnd('\', '/')) {
+        throw 'SourcePath must be a checkout directory, not a filesystem root.'
+    }
+    $ancestorPath = $SourcePath
+    while ($ancestorPath) {
+        if (Test-Path -LiteralPath $ancestorPath) {
+            $ancestor = Get-Item -LiteralPath $ancestorPath -Force
+            if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw 'SourcePath must use a canonical filesystem path without symlinks or junctions.'
+            }
+        }
+        $ancestorPath = Split-Path $ancestorPath -Parent
+    }
     $scriptRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\', '/')
     if ($scriptRoot -eq $SourcePath -or $scriptRoot.StartsWith($SourcePath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'SourcePath cannot contain the deployment scripts themselves.'
@@ -15,6 +33,15 @@ function Sync-OpenClawSource {
         $source = Get-Item -LiteralPath $SourcePath -Force
         if (-not $source.PSIsContainer -or ($source.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not (Test-Path -LiteralPath (Join-Path $SourcePath '.git') -PathType Container)) {
             throw 'SourcePath must be a standalone Git checkout, not a linked worktree, symlink, or other directory.'
+        }
+        $gitDirectory = Get-Item -LiteralPath (Join-Path $SourcePath '.git') -Force
+        if ($gitDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw 'SourcePath must use a standalone Git directory, not a symlink or junction.'
+        }
+        $worktrees = git -C $SourcePath worktree list --porcelain
+        if ($LASTEXITCODE -ne 0) { throw 'Could not inspect linked worktrees; existing files were not changed.' }
+        if (@($worktrees | Where-Object { $_ -match '^worktree ' }).Count -gt 1) {
+            throw 'SourcePath owns linked worktrees. Use a separate standalone checkout; existing files were not changed.'
         }
         $origin = git -C $SourcePath remote get-url origin 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $origin) { throw 'Could not read the source checkout origin remote; existing files were not changed.' }

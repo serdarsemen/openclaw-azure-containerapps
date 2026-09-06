@@ -515,20 +515,50 @@ function Install-OpenClawStateMaintenanceSchedule {
     Invoke-Wsl "mkdir -p '$WslDataDir/logs'; { crontab -l 2>/dev/null | grep -v 'openclaw-state-maintenance' || true; echo `"$entry`"; } | crontab -"
 }
 
+function Get-OpenClawBuildFingerprint {
+  param([Parameter(Mandatory)] [string[]] $Inputs)
+
+  $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $Inputs -Compress))
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    return [BitConverter]::ToString($algorithm.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
+  } finally { $algorithm.Dispose() }
+}
+
+function Test-OpenClawImageFresh {
+  param(
+    [Parameter(Mandatory)] [string] $ImageName,
+    [Parameter(Mandatory)] [ValidatePattern('^[0-9a-f]{64}$')] [string] $Fingerprint,
+    [ValidateSet('latest', 'tools')] [string] $Tag = 'latest',
+    [switch] $ForceRefresh
+  )
+
+  if ($ForceRefresh) { return $false }
+  try {
+    $labelsJson = (Invoke-WslData "docker image inspect '${ImageName}:$Tag' --format '{{json .Config.Labels}}'") -join "`n"
+    $labels = $labelsJson | ConvertFrom-Json -ErrorAction Stop
+    return $null -ne $labels -and $labels.'io.openclaw.build-fingerprint' -ceq $Fingerprint
+  } catch { return $false }
+}
+
 function Build-OpenClawNpmCandidate {
   param(
     [Parameter(Mandatory)] [string] $WslBuildContext,
     [Parameter(Mandatory)] [string] $ImageName,
     [Parameter(Mandatory)] [string] $WslToolsDockerfile,
     [Parameter(Mandatory)] [string] $WslToolsContext,
-    [switch] $RebuildTools
+    [switch] $RebuildTools,
+    [ValidatePattern('^([0-9a-f]{64})?$')] [string] $Fingerprint = '',
+    [switch] $ForceRefresh
   )
 
   $baseImage = "${ImageName}:candidate-base"
   $candidateImage = "${ImageName}:candidate"
-  $cacheArg = if ($RebuildTools) { '--no-cache ' } else { '' }
-  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t '$baseImage' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
-  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg BASE_IMAGE='$baseImage' -f '$WslToolsDockerfile' '$WslToolsContext'"
+  $cacheArg = if ($RebuildTools -or $ForceRefresh) { '--no-cache ' } else { '' }
+  $refreshArg = if ($ForceRefresh) { '--pull --no-cache ' } else { '' }
+  $toolsPullArg = if ($ForceRefresh) { '--pull ' } else { '' }
+  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${refreshArg}-t '$baseImage' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
+  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}${toolsPullArg}-t '$candidateImage' --build-arg BASE_IMAGE='$baseImage' --label 'io.openclaw.build-fingerprint=$Fingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
   return $candidateImage
 }
 
@@ -540,18 +570,26 @@ function Build-OpenClawSourceCandidate {
         [Parameter(Mandatory)] [string] $WslToolsContext,
         [Parameter(Mandatory)] [string] $WslOverlayDockerfile,
         [switch] $NoCache,
-        [switch] $RebuildTools
+        [switch] $RebuildTools,
+        [ValidatePattern('^([0-9a-f]{64})?$')] [string] $Fingerprint = '',
+        [ValidatePattern('^([0-9a-f]{64})?$')] [string] $ToolsFingerprint = '',
+        [switch] $ForceRefresh
     )
 
-    $cacheArg = if ($NoCache) { "--no-cache " } else { "" }
+    $cacheArg = if ($NoCache -or $ForceRefresh) { "--no-cache " } else { "" }
+    $pullArg = if ($ForceRefresh) { '--pull ' } else { '' }
     $candidateApp = "${ImageName}:candidate-app"
     $toolsImage = "${ImageName}:tools"
     $candidateImage = "${ImageName}:candidate"
 
-    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateApp' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
+    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}${pullArg}-t '$candidateApp' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
 
-    $toolsExist = ((Invoke-WslData "docker image inspect '$toolsImage' --format '{{.Id}}' 2>/dev/null || true") -join "").Trim()
-    if (-not $toolsExist -and -not $RebuildTools) {
+    $toolsExist = if ($ToolsFingerprint) {
+      Test-OpenClawImageFresh -ImageName $ImageName -Tag 'tools' -Fingerprint $ToolsFingerprint
+    } else {
+      ((Invoke-WslData "docker image inspect '$toolsImage' --format '{{.Id}}' 2>/dev/null || true") -join "").Trim()
+    }
+    if (-not $toolsExist -and -not $RebuildTools -and -not $ForceRefresh -and -not $ToolsFingerprint) {
         $latestHasTools = $false
         try {
             $null = Invoke-Wsl "docker run --rm --entrypoint python3 '${ImageName}:latest' -c 'import sklearn, skfolio, torch'"
@@ -563,11 +601,11 @@ function Build-OpenClawSourceCandidate {
         }
     }
 
-    if ($RebuildTools -or -not $toolsExist) {
-        $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$toolsImage' --build-arg BASE_IMAGE='$candidateApp' -f '$WslToolsDockerfile' '$WslToolsContext'"
+    if ($RebuildTools -or $ForceRefresh -or -not $toolsExist) {
+      $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}${pullArg}-t '$toolsImage' --build-arg BASE_IMAGE='$candidateApp' --label 'io.openclaw.build-fingerprint=$ToolsFingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
     }
 
-    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg TOOLS_IMAGE='$toolsImage' --build-arg APP_IMAGE='$candidateApp' -f '$WslOverlayDockerfile' '$WslToolsContext'"
+    $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg TOOLS_IMAGE='$toolsImage' --build-arg APP_IMAGE='$candidateApp' --label 'io.openclaw.build-fingerprint=$Fingerprint' -f '$WslOverlayDockerfile' '$WslToolsContext'"
     return $candidateImage
 }
 

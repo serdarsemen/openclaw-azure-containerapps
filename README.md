@@ -344,7 +344,10 @@ Git configuration. No local code is merged into the fresh checkout. If cloning f
 the existing checkout is not moved. Backup/staging folders are gitignored; backups
 are never automatically deleted and can consume significant disk space. Save editor
 buffers before deploying and avoid editing the checkout during replacement. Custom
-`-SourcePath` values must refer to standalone checkouts, not linked worktrees.
+`-SourcePath` values must refer to standalone checkouts, not linked worktrees or
+checkouts that own linked worktrees. Symlinks, junctions, Windows device-path
+prefixes, and path components ending in dots or spaces are rejected before cloning
+or moving source directories.
 Without an existing checkout, the scripts clone the official OpenClaw repository.
 `-Tag` applies only to npm deployments; source deployments ignore it with a warning.
 Update scripts and the AKS/GitHub Actions deployment paths are unchanged.
