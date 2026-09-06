@@ -95,6 +95,7 @@ if ($ollamaModeCount -gt 1) {
 # Resolve-OllamaHost, New-OpenClawComposeYaml).
 . "$PSScriptRoot/wsl-helpers.ps1"
 . "$PSScriptRoot/wsl-deploy-helpers.ps1"
+. "$PSScriptRoot/source-helpers.ps1"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -250,33 +251,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "`n=== Step 1/${totalSteps}: Cloning/updating OpenClaw source ===" -ForegroundColor Cyan
 
     $ResolvedSourcePath = if ([System.IO.Path]::IsPathRooted($SourcePath)) { $SourcePath } else { Join-Path $PSScriptRoot $SourcePath }
-    if (-not (Test-Path $ResolvedSourcePath)) {
-        Write-Host "  Source not found — cloning..."
-        git clone --branch main --single-branch https://github.com/openclaw/openclaw.git $ResolvedSourcePath
-        if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
-    }
+    if ($Tag) { Write-Warning '-Tag applies only to -Npm; source builds always use the latest origin/main.' }
+    $sourceSync = Sync-OpenClawSource -SourcePath $ResolvedSourcePath
+    $ResolvedSourcePath = $sourceSync.SourcePath
+    $sourceCommit = $sourceSync.Commit
 
-    Push-Location $ResolvedSourcePath
-    try {
-        $sourceChanges = git status --porcelain
-        if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source checkout' }
-        if ($sourceChanges) {
-            Write-Host '  Local source changes are ignored; only the fetched origin/main commit will be built. Local files are unchanged.' -ForegroundColor Yellow
-        }
-        $sourceRemote = 'origin'
-        $sourceRef = "$sourceRemote/main"
-        if ($Tag) { Write-Warning "-Tag applies only to -Npm; source builds always use the latest $sourceRef." }
-        Write-Host "  Fetching latest $sourceRef (single-branch, pruning stale refs)..."
-        git fetch --prune $sourceRemote "+refs/heads/main:refs/remotes/$sourceRef"
-        if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-        $sourceCommit = git rev-parse --verify "refs/remotes/$sourceRef^{commit}"
-        if ($LASTEXITCODE -ne 0) { throw "Could not resolve the fetched $sourceRef commit" }
-    } finally {
-        Pop-Location
-    }
-
-    $ref = "latest ($sourceRef @ $sourceCommit)"
-    Write-Host "  Build source: $ref (local checkout unchanged)" -ForegroundColor Green
+    $ref = "latest (origin/main @ $sourceCommit)"
+    Write-Host "  Build source and VS Code checkout: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 

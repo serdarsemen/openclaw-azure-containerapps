@@ -332,14 +332,22 @@ SQLite snapshot, and image. Concurrent configuration edits cause deployment to a
 instead of overwriting them. Existing containers require their saved Compose file
 for rollback. Fresh installations do not require an existing SQLite database.
 
-The deploy script always fetches `origin/main` for source builds, resolves its exact
-commit, and exports that commit into a disposable build directory. It does not check
-out, merge, or reset the local branch, regardless of whether local `main` tracks
-`upstream/main`. Detached checkouts and local-only commits are preserved and do not
-affect the build. Modified, staged, and untracked files in the checkout are ignored
-and left untouched; they are not merged or copied into the build context. `-Tag`
-applies only to the npm deploy variant; source deployments ignore it with a warning.
-The update script's release-selection options are unchanged.
+WSL and ACA source-build deploy scripts refresh the checkout visible in VS Code
+on every deployment. They clone `main` from the existing checkout's `origin` remote
+(not `upstream`), verify it matches `origin/main`, then move the entire old checkout
+to a timestamped sibling such as `openclaw-repo.openclaw-backup-<timestamp>-<id>`.
+The verified clone takes its place as `openclaw-repo`, on branch `main` tracking
+`origin/main`. The build exports that verified commit rather than local edits.
+
+Backups preserve local commits, staged and unstaged changes, untracked files, and
+Git configuration. No local code is merged into the fresh checkout. If cloning fails,
+the existing checkout is not moved. Backup/staging folders are gitignored; backups
+are never automatically deleted and can consume significant disk space. Save editor
+buffers before deploying and avoid editing the checkout during replacement. Custom
+`-SourcePath` values must refer to standalone checkouts, not linked worktrees.
+Without an existing checkout, the scripts clone the official OpenClaw repository.
+`-Tag` applies only to npm deployments; source deployments ignore it with a warning.
+Update scripts and the AKS/GitHub Actions deployment paths are unchanged.
 The npm deploy variant builds both the base and tools layers; `-RebuildTools` forces
 its tools layer to rebuild. Both deploy and update accept `-CompactState` for explicit
 SQLite compaction during downtime; ordinary deployments skip compaction.

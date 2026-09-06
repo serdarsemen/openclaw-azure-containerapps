@@ -19,7 +19,7 @@
 #
 # Usage:
 #   .\deploy-openclaw-ACA.ps1                                  # source build
-#   .\deploy-openclaw-ACA.ps1 -Tag v2026.2.15                  # source build, pinned tag
+#   .\deploy-openclaw-ACA.ps1 -Npm -Tag v2026.2.15             # npm build, pinned package version
 #   .\deploy-openclaw-ACA.ps1 -Npm                             # npm install
 #   .\deploy-openclaw-ACA.ps1 -GroqApiKey gsk_...              # set the Groq API key secret
 #   .\deploy-openclaw-ACA.ps1 -Cpu 3 -Memory 6Gi              # override OpenClaw container size
@@ -41,6 +41,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/startup-helpers.ps1"
+. "$PSScriptRoot/source-helpers.ps1"
 
 # Azure Container Apps rejects secrets with empty values — use a placeholder
 if (-not $GroqApiKey) { $GroqApiKey = "REPLACE_ME" }
@@ -181,33 +182,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     # ===== Source-build variant: pull/checkout source and build =====
     Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
 
-    if (-not (Test-Path $SourcePath)) {
-        Write-Host "  Source not found — cloning..."
-        git clone https://github.com/openclaw/openclaw.git $SourcePath
-        if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
-    }
-
-    Push-Location $SourcePath
-    try {
-        if ($Tag) {
-            Write-Host "  Fetching tags and checking out: $Tag"
-            git fetch --tags
-            if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-            git checkout $Tag
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
-        } else {
-            Write-Host "  Pulling latest from main..."
-            git checkout main
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-            git pull origin main
-            if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
-        }
-    } finally {
-        Pop-Location
-    }
-
-    $ref = if ($Tag) { $Tag } else { "latest (main)" }
-    Write-Host "  Source updated to: $ref" -ForegroundColor Green
+    $ResolvedSourcePath = if ([System.IO.Path]::IsPathRooted($SourcePath)) { $SourcePath } else { Join-Path $PSScriptRoot $SourcePath }
+    if ($Tag) { Write-Warning '-Tag applies only to -Npm; source builds always use the latest origin/main.' }
+    $sourceSync = Sync-OpenClawSource -SourcePath $ResolvedSourcePath
+    $SourcePath = $sourceSync.SourcePath
+    $sourceCommit = $sourceSync.Commit
+    $ref = "latest (origin/main @ $sourceCommit)"
+    Write-Host "  Build source and VS Code checkout: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/6: Building OpenClaw image in ACR ===" -ForegroundColor Cyan
     Write-Host "This uploads source to Azure and builds remotely (~6 min)..."
@@ -220,7 +201,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     New-Item -ItemType Directory -Path $BuildContextDir | Out-Null
 
     try {
-        git -C $SourcePath archive --format=zip --output $ArchivePath HEAD
+        git -C $SourcePath archive --format=zip --output $ArchivePath $sourceCommit
         if ($LASTEXITCODE -ne 0) { throw "Failed to export source archive for ACR build context" }
 
         Expand-Archive -Path $ArchivePath -DestinationPath $BuildContextDir -Force

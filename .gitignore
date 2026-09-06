@@ -1,6 +1,8 @@
 .env
 optillm.env
 openclaw-repo/
+*.openclaw-backup-*/
+*.openclaw-staging-*/
 openclaw-data/
 upstream/
 SMOKE-TEST.md
