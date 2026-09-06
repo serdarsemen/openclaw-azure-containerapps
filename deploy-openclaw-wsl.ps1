@@ -62,6 +62,7 @@
 param(
     [switch] $Npm,
     [switch] $RebuildTools,
+    [switch] $CompactState,
     [switch] $Ollama,
     [switch] $OllamaWindows,
     [switch] $OllamaWsl,
@@ -235,7 +236,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2a: Building candidate image..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t '$CandidateImage' -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+        $CandidateImage = Build-OpenClawNpmCandidate -WslBuildContext $WslBuildDir -ImageName $ImageName -WslToolsDockerfile "$WslScriptRoot/$ToolsDockerfile" -WslToolsContext "$WslScriptRoot/images" -RebuildTools:$RebuildTools
         Write-Host "  Candidate image built: $CandidateImage" -ForegroundColor Green
     } finally {
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -254,6 +255,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Push-Location $ResolvedSourcePath
     try {
+        $sourceChanges = git status --porcelain
+        if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source checkout' }
+        if ($sourceChanges) { throw 'Source checkout has local changes. Commit or stash them, or use a separate -SourcePath.' }
         if ($Tag) {
             Write-Host "  Checking out pinned tag: $Tag"
             git rev-parse --verify --quiet "refs/tags/$Tag" | Out-Null
@@ -269,8 +273,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
             git checkout main
             if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-            git reset --hard origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Git reset failed" }
+            git merge --ff-only origin/main
+            if ($LASTEXITCODE -ne 0) { throw "Source branch cannot be fast-forwarded; use a separate -SourcePath or reconcile it manually." }
         }
     } finally {
         Pop-Location
@@ -480,7 +484,7 @@ if ($OllamaWindows -or $OllamaWsl) {
 
 Write-Host "  Reconciling containers without stopping unchanged services..." -ForegroundColor Gray
 try { Invoke-Wsl "docker stop -t 90 '$ContainerName' >/dev/null 2>&1 || true" } catch {}
-Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact
+Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact:$CompactState
 Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
 Write-Host "  Containers reconciled" -ForegroundColor Green
 
@@ -521,8 +525,8 @@ function Wait-OpenClawReady {
     $lastMsg   = ""
     $noiseNoticePrinted = $false
     while ((Get-Date) -lt $deadline) {
-        $check = wsl bash -c "docker exec $ContainerName bash -c 'timeout 3 bash -c ""</dev/tcp/localhost/18789"" 2>/dev/null && echo READY || echo NOT_READY'" 2>$null
-        if ($check -match "READY") {
+        $check = wsl bash -c "timeout -k 1 5 docker exec $ContainerName bash -c 'timeout 3 bash -c ""</dev/tcp/localhost/18789"" 2>/dev/null && echo READY || echo NOT_READY'" 2>$null
+        if ($LASTEXITCODE -eq 0 -and (($check -join "").Trim() -eq "READY")) {
             Write-Host "  OpenClaw gateway: ready" -ForegroundColor Green
             return $true
         }

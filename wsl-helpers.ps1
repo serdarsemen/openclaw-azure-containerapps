@@ -332,7 +332,7 @@ function Test-OpenClawCandidateConfig {
         "openclaw security audit --json >/dev/null"
     }
     Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --tmpfs '${HomeDir}/.openclaw/logs:uid=1000,gid=1000' --entrypoint sh '$CandidateImage' -lc '$configCommand'"
-    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; $candidateCommand'"
+    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; if [ -f /source/state/openclaw.sqlite ]; then cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; fi; $candidateCommand'"
 }
 
 function Test-OpenClawRuntimeState {
@@ -462,6 +462,23 @@ function Install-OpenClawStateMaintenanceSchedule {
     $logPath = "$WslDataDir/logs/state-maintenance.log"
     $entry = "17 3 * * 0 python3 '$WslMaintenanceScript' --data-dir '$WslDataDir' --maintain --retention-days 30 >>'$logPath' 2>&1 # openclaw-state-maintenance"
     Invoke-Wsl "mkdir -p '$WslDataDir/logs'; { crontab -l 2>/dev/null | grep -v 'openclaw-state-maintenance' || true; echo `"$entry`"; } | crontab -"
+}
+
+function Build-OpenClawNpmCandidate {
+  param(
+    [Parameter(Mandatory)] [string] $WslBuildContext,
+    [Parameter(Mandatory)] [string] $ImageName,
+    [Parameter(Mandatory)] [string] $WslToolsDockerfile,
+    [Parameter(Mandatory)] [string] $WslToolsContext,
+    [switch] $RebuildTools
+  )
+
+  $baseImage = "${ImageName}:candidate-base"
+  $candidateImage = "${ImageName}:candidate"
+  $cacheArg = if ($RebuildTools) { '--no-cache ' } else { '' }
+  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t '$baseImage' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
+  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg BASE_IMAGE='$baseImage' -f '$WslToolsDockerfile' '$WslToolsContext'"
+  return $candidateImage
 }
 
 function Build-OpenClawSourceCandidate {
