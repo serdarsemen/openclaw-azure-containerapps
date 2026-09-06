@@ -71,7 +71,7 @@ if ($Npm) {
 $TotalSteps = if ($Ollama) { 8 } else { 7 }
 
 # --- Discover source infra from ACA Bicep deployment ---
-Write-Host "`n=== Step 1/$TotalSteps: Discovering source infrastructure ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 1/${TotalSteps}: Discovering source infrastructure ===" -ForegroundColor Cyan
 
 $AcrName = az deployment group show --resource-group $SourceResourceGroup --name $SourceDeploymentName `
     --query "properties.outputs.acrName.value" -o tsv 2>$null
@@ -89,7 +89,7 @@ Write-Host "  ACR:       $AcrServer" -ForegroundColor Green
 Write-Host "  Storage:   $StorageAccount (rg: $StorageRg)" -ForegroundColor Green
 
 # --- Provision AKS (idempotent) ---
-Write-Host "`n=== Step 2/$TotalSteps: Provisioning AKS cluster ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 2/${TotalSteps}: Provisioning AKS cluster ===" -ForegroundColor Cyan
 
 az group create --name $AksResourceGroup --location $Location --only-show-errors | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to create resource group $AksResourceGroup" }
@@ -129,7 +129,7 @@ if ($LASTEXITCODE -ne 0) { throw "get-credentials failed" }
 kubectl get nodes --no-headers | Out-Host
 
 # --- Import CRW image to ACR ---
-Write-Host "`n=== Step 2.5/$TotalSteps: Importing CRW image to ACR ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 2.5/${TotalSteps}: Importing CRW image to ACR ===" -ForegroundColor Cyan
 try {
     Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
     az acr import `
@@ -144,7 +144,7 @@ try {
 }
 
 # --- Namespace + secrets ---
-Write-Host "`n=== Step 3/$TotalSteps: Creating namespace and secrets ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 3/${TotalSteps}: Creating namespace and secrets ===" -ForegroundColor Cyan
 
 kubectl get namespace $Namespace 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -169,7 +169,7 @@ kubectl -n $Namespace create secret generic openclaw-secrets `
 if ($LASTEXITCODE -ne 0) { throw "Failed to create openclaw-secrets" }
 
 # --- Persistent storage ---
-Write-Host "`n=== Step 4/$TotalSteps: Provisioning persistent storage ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 4/${TotalSteps}: Provisioning persistent storage ===" -ForegroundColor Cyan
 
 $stateManifest = @"
 apiVersion: v1
@@ -233,7 +233,7 @@ try {
 
 # --- Deploy Ollama as a separate pod (optional) ---
 if ($Ollama) {
-Write-Host "`n=== Step 5/$TotalSteps: Deploying Ollama (separate pod) ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 5/${TotalSteps}: Deploying Ollama (separate pod) ===" -ForegroundColor Cyan
 
 $ollamaManifest = @"
 apiVersion: apps/v1
@@ -319,12 +319,12 @@ if ($OllamaModels) {
     }
 }
 } else {
-    Write-Host "`n=== Step 5/$TotalSteps: Skipping Ollama deployment (use -Ollama to enable) ===" -ForegroundColor Gray
+    Write-Host "`n=== Step 5/${TotalSteps}: Skipping Ollama deployment (use -Ollama to enable) ===" -ForegroundColor Gray
 }
 
 # --- Deploy OpenClaw (with Redis sidecar) ---
 $openClawStep = if ($Ollama) { 6 } else { 5 }
-Write-Host "`n=== Step $openClawStep/$TotalSteps: Deploying OpenClaw ===" -ForegroundColor Cyan
+Write-Host "`n=== Step $openClawStep/${TotalSteps}: Deploying OpenClaw ===" -ForegroundColor Cyan
 
 if ($Npm) {
     $OpenClawCommand = @(
@@ -469,7 +469,7 @@ if ($LASTEXITCODE -ne 0) { Write-Warning "openclaw rollout did not complete with
 
 # --- Non-interactive onboarding ---
 $configStep = if ($Ollama) { 7 } else { 6 }
-Write-Host "`n=== Step $configStep/$TotalSteps: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
+Write-Host "`n=== Step $configStep/${TotalSteps}: Configuring OpenClaw (non-interactive) ===" -ForegroundColor Cyan
 
 function Invoke-PodExec {
     param([string] $Label, [string] $Command, [int] $MaxRetries = 3, [int] $DelaySec = 15)
@@ -499,7 +499,7 @@ Invoke-PodExec -Label "Security audit" -Command "$bin security audit"
 
 # --- Summary ---
 $summaryStep = if ($Ollama) { 8 } else { 7 }
-Write-Host "`n=== Step $summaryStep/$TotalSteps: Gateway configured ===" -ForegroundColor Green
+Write-Host "`n=== Step $summaryStep/${TotalSteps}: Gateway configured ===" -ForegroundColor Green
 
 $GatewayIp = ""
 for ($i = 0; $i -lt 30; $i++) {
