@@ -3,6 +3,12 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 $deploySource = Get-Content (Join-Path $repoRoot 'deploy-openclaw-wsl.ps1') -Raw
 
 Describe 'WSL deploy regressions' {
+    It 'creates the logs mountpoint before validating read-only staging data' {
+        $setup = "mkdir -p '`$WslStagePath/state' '`$WslStagePath/logs'"
+        $deploySource.Contains($setup) | Should Be $true
+        ($deploySource.IndexOf($setup) -lt $deploySource.IndexOf('Test-OpenClawCandidateConfig -CandidateImage')) | Should Be $true
+    }
+
     It 'can validate private staging data owned by a different WSL user' {
         $script:validationCommands = @()
         Mock Invoke-WslData { if ($Command -eq 'id -u') { '1001' } else { '1002' } }

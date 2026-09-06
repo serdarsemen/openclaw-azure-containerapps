@@ -406,7 +406,7 @@ $previousLatestImage = ((Invoke-WslData "docker image inspect '${ImageName}:late
 if ($previousImage -and -not (Test-Path $composePath)) {
     throw 'An existing container has no saved Compose file. Restore its Compose file before redeploying so rollback is possible.'
 }
-Invoke-Wsl "mkdir -p '$WslStagePath/state'; chmod 700 '$WslStagePath'"
+Invoke-Wsl "mkdir -p '$WslStagePath/state' '$WslStagePath/logs'; chmod 700 '$WslStagePath'"
 $deploymentSucceeded = $false
 try {
 $composeYaml | Set-Content $candidateComposePath -Encoding utf8
