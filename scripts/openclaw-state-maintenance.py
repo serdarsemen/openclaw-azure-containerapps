@@ -5,12 +5,13 @@ import json
 import os
 import shutil
 import sqlite3
+import uuid
 from pathlib import Path
 
 
 def backup_state(data_dir: Path, keep: int) -> Path:
-    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_dir = data_dir / "backups" / f"pre-update-{timestamp}"
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_dir = data_dir / "backups" / f"pre-update-{timestamp}-{uuid.uuid4().hex}"
     backup_dir.mkdir(parents=True, mode=0o700)
 
     config = data_dir / "openclaw.json"

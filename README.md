@@ -325,6 +325,19 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 
 ### WSL update
 
+Re-running `deploy-openclaw-wsl.ps1` stages configuration and Compose changes before
+validation. Existing model choices are preserved. The gateway is stopped only after
+validation succeeds; failed startup restores the prior configuration, Compose file,
+SQLite snapshot, and image. Concurrent configuration edits cause deployment to abort
+instead of overwriting them. Existing containers require their saved Compose file
+for rollback. Fresh installations do not require an existing SQLite database.
+
+The deploy script refuses dirty source checkouts and updates `main` by fast-forward
+only. Use a separate `-SourcePath` for deployment when maintaining local source edits.
+The npm deploy variant builds both the base and tools layers; `-RebuildTools` forces
+its tools layer to rebuild. Both deploy and update accept `-CompactState` for explicit
+SQLite compaction during downtime; ordinary deployments skip compaction.
+
 ```powershell
 # Update to the tested default release (currently v2026.6.8)
 .\update-openclaw-wsl.ps1

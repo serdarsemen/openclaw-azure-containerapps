@@ -39,10 +39,11 @@
 # Parameters:
 #   -ContainerName <name>: container/compose name (default: openclaw)
 #   -SourcePath <path>:    OpenClaw source checkout (default: openclaw-repo)
-#   -Tag <tag>:            pin a specific OpenClaw release tag (default: latest)
+#   -Tag <tag>:            pin a specific OpenClaw release tag (default: v2026.6.8)
 #   -GatewayPort <port>:   host port for the gateway (default: 18789)
 #   -BridgePort <port>:    host port for the bridge (default: 18790)
-#   -DataDir <path>:       persistent data dir (default: ./openclaw-data)
+#   -DataDir <path>:       persistent data dir (default: ~/.openclaw-data in WSL)
+#   -CompactState:         compact SQLite while stopped (optional maintenance)
 #   -GroqApiKey <key>:     set GROQ_API_KEY in the OpenClaw container
 #
 # Usage:
@@ -93,6 +94,7 @@ if ($ollamaModeCount -gt 1) {
 # Get-LatestOllamaVersion, Start-OllamaWindows, Start-OllamaWsl,
 # Resolve-OllamaHost, New-OpenClawComposeYaml).
 . "$PSScriptRoot/wsl-helpers.ps1"
+. "$PSScriptRoot/wsl-deploy-helpers.ps1"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -158,6 +160,7 @@ if (-not $DataDir) {
     $DataDir = (wsl -- bash -c "wslpath -w '$WslDataDir'").Trim()
     Write-Host "  Using default WSL data directory: $WslDataDir" -ForegroundColor Gray
 } else {
+    $DataDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataDir)
     if (-not (Test-Path $DataDir)) {
         New-Item -ItemType Directory -Path $DataDir | Out-Null
         Write-Host "  Created data directory: $DataDir" -ForegroundColor Gray
@@ -388,32 +391,25 @@ $composeYaml = New-OpenClawComposeYaml `
     -Npm:$Npm `
     -LanAccess:$LanAccess
 
-# Write compose file
 $composePath = Join-Path $PSScriptRoot "docker-compose-wsl.yaml"
-$composeYaml | Set-Content $composePath -Encoding utf8
-Write-Host "  docker-compose file written to: $composePath" -ForegroundColor Gray
-
 $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
-
-# Force-remove fixed-name auxiliary containers that may have been created outside
-# this compose project (e.g. a prior manual run). Compose only manages containers
-# carrying its own project label, so a stray 'searxng' would otherwise
-# cause a 'container name is already in use' conflict on 'up'.
-Remove-UnmanagedDockerContainer -ContainerName "searxng"
-
-# Clean up stale plugin-runtime-deps locks from previous failed deployments
-Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
-try {
-    # The lock is a directory; remove any version-named lock dirs entirely
-    Invoke-Wsl "find '$WslDataDir/plugin-runtime-deps' -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true"
-} catch {}
-
-# Write config directly to openclaw.json BEFORE starting containers.
-# This ensures the gateway reads correct auth/model settings on boot.
-# Writing via docker exec is impossible because the running gateway holds the
-# runtime-deps lock exclusively, causing any CLI command to deadlock.
 $configPath = Join-Path $DataDir "openclaw.json"
-Invoke-OpenClawStateBackup -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -KeepBackups 5
+$expectedConfigHash = if (Test-Path $configPath) { (Get-FileHash $configPath).Hash } else { '' }
+$deploymentId = [guid]::NewGuid().ToString('N')
+$stagePath = Join-Path $DataDir ".deploy-$deploymentId"
+$WslStagePath = "$WslDataDir/.deploy-$deploymentId"
+$candidateConfigPath = Join-Path $stagePath 'openclaw.json'
+$candidateComposePath = Join-Path $stagePath 'compose.yaml'
+$previousImage = ((Invoke-WslData "docker inspect -f '{{.Image}}' '$ContainerName' 2>/dev/null || true") -join '').Trim()
+$previousRunning = ((Invoke-WslData "docker inspect -f '{{.State.Running}}' '$ContainerName' 2>/dev/null || true") -join '').Trim() -eq 'true'
+$previousLatestImage = ((Invoke-WslData "docker image inspect '${ImageName}:latest' -f '{{.Id}}' 2>/dev/null || true") -join '').Trim()
+if ($previousImage -and -not (Test-Path $composePath)) {
+    throw 'An existing container has no saved Compose file. Restore its Compose file before redeploying so rollback is possible.'
+}
+Invoke-Wsl "mkdir -p '$WslStagePath/state'; chmod 700 '$WslStagePath'"
+$deploymentSucceeded = $false
+try {
+$composeYaml | Set-Content $candidateComposePath -Encoding utf8
 
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -428,7 +424,9 @@ if (-not $config.gateway.controlUi) { $config.gateway | Add-Member -NoteProperty
 if (-not $config.gateway.auth.rateLimit) { $config.gateway.auth | Add-Member -NotePropertyName rateLimit -NotePropertyValue ([pscustomobject]@{}) }
 if (-not $config.agents) { $config | Add-Member -NotePropertyName agents -NotePropertyValue ([pscustomobject]@{}) }
 if (-not $config.agents.defaults) { $config.agents | Add-Member -NotePropertyName defaults -NotePropertyValue ([pscustomobject]@{}) }
-if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -NotePropertyName model -NotePropertyValue ([pscustomobject]@{}) }
+if (-not $config.agents.defaults.model) {
+    $config.agents.defaults | Add-Member -NotePropertyName model -NotePropertyValue ([pscustomobject]@{ primary = 'github-copilot/claude-opus-4.6' }) -Force
+}
 
 # Gateway settings — use Add-Member -Force so properties are created or updated
 # regardless of whether they pre-exist on the deserialized PSCustomObject
@@ -444,16 +442,14 @@ $config.gateway.controlUi | Add-Member -NotePropertyName allowInsecureAuth      
 $config.gateway.controlUi | Add-Member -NotePropertyName dangerouslyAllowHostHeaderOriginFallback    -NotePropertyValue $true -Force
 
 # Model
-$config.agents.defaults.model | Add-Member -NotePropertyName primary -NotePropertyValue "github-copilot/claude-opus-4.6" -Force
-$config.agents.defaults | Add-Member -NotePropertyName maxConcurrent -NotePropertyValue 2 -Force
+if ($null -eq $config.agents.defaults.maxConcurrent) {
+    $config.agents.defaults | Add-Member -NotePropertyName maxConcurrent -NotePropertyValue 2 -Force
+}
 
 # Write back
-$config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
-Write-Host "  Config written to openclaw.json (token + model + gateway settings)" -ForegroundColor Green
-
-Test-OpenClawCandidateConfig -CandidateImage $CandidateImage -WslDataDir $WslDataDir -HomeDir $HomeDir
-Invoke-Wsl "docker tag '$CandidateImage' '${ImageName}:latest'"
-Write-Host "  Candidate passed configuration validation" -ForegroundColor Green
+$config | ConvertTo-Json -Depth 100 | Set-Content $candidateConfigPath -Encoding utf8
+Invoke-Wsl "chmod 600 '$WslStagePath/openclaw.json' '$WslStagePath/compose.yaml'"
+Write-Host "  Candidate configuration staged; live configuration is unchanged" -ForegroundColor Green
 
 # Always refresh auxiliary service images to their latest tags before startup.
 Write-Host "  Pulling latest redis, searxng, and crw images..." -ForegroundColor Gray
@@ -481,15 +477,6 @@ if ($OllamaWindows -or $OllamaWsl) {
         Write-Host "  Could not fetch latest Ollama version (network issue)" -ForegroundColor Yellow
     }
 }
-
-Write-Host "  Reconciling containers without stopping unchanged services..." -ForegroundColor Gray
-try { Invoke-Wsl "docker stop -t 90 '$ContainerName' >/dev/null 2>&1 || true" } catch {}
-Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact:$CompactState
-Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
-Write-Host "  Containers reconciled" -ForegroundColor Green
-
-# Docker Compose healthcheck handles readiness; no need to poll from Windows/WSL.
-Write-Host "  Containers are starting — Docker healthcheck will verify readiness." -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # Step 5/5: Configure OpenClaw (non-interactive)
@@ -531,7 +518,7 @@ function Wait-OpenClawReady {
             return $true
         }
         # Surface latest log line so user can see progress
-        $logLine = (wsl bash -c "docker logs --tail 1 $ContainerName 2>&1") -join ""
+        $logLine = (wsl bash -c "timeout -k 1 5 docker logs --tail 1 $ContainerName 2>&1") -join ""
         if ($logLine -and $logLine -ne $lastMsg) {
             if (Test-IgnorableUpdateNoiseLine -Line $logLine) {
                 if (-not $noiseNoticePrinted) {
@@ -584,13 +571,61 @@ function Invoke-DockerExec {
     throw "[$Label] failed after $MaxRetries attempts"
 }
 
-if (-not (Wait-OpenClawReady -TimeoutSec 600)) {
-    Restore-OpenClawKnownGoodImage -ContainerName $ContainerName -ImageName $ImageName -WslComposePath $WslComposePath -WslDataDir $WslDataDir
-    throw "Candidate failed readiness checks; the known-good image was restored."
-}
-if (-not (Wait-OpenClawContainerHealthy -ContainerName $ContainerName -MaxAttempts 30 -DelaySeconds 5)) {
-    Restore-OpenClawKnownGoodImage -ContainerName $ContainerName -ImageName $ImageName -WslComposePath $WslComposePath -WslDataDir $WslDataDir
-    throw "Candidate failed state-backed health checks; the known-good image was restored."
+Invoke-OpenClawDeploymentTransaction `
+    -ConfigPath $configPath -ComposePath $composePath `
+    -CandidateConfigPath $candidateConfigPath -CandidateComposePath $candidateComposePath `
+    -ExpectedConfigHash $expectedConfigHash `
+    -Validate {
+        $validationSnapshot = (Invoke-OpenClawStateBackup -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -KeepBackups 5 | Out-String | ConvertFrom-Json).backup
+        if (-not $validationSnapshot) { throw 'Could not resolve validation snapshot' }
+        Invoke-Wsl "if [ -f '$validationSnapshot/openclaw.sqlite' ]; then cp '$validationSnapshot/openclaw.sqlite' '$WslStagePath/state/openclaw.sqlite'; fi"
+        Test-OpenClawCandidateConfig -CandidateImage $CandidateImage -WslDataDir $WslStagePath -HomeDir $HomeDir -MatchHostUser
+        Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose --project-directory '$WslScriptRoot' -f '$WslStagePath/compose.yaml' config --quiet"
+    } `
+    -Stop {
+        $containerExists = ((Invoke-WslData "docker ps -a --filter 'name=^${ContainerName}$' --format '{{.Names}}'") -join '').Trim()
+        if ($containerExists) { $null = Invoke-Wsl "docker stop -t 90 '$ContainerName'" -ServiceRetries 1 }
+    } `
+    -BackupState {
+        $snapshot = (Invoke-OpenClawStateBackup -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -KeepBackups 5 | Out-String | ConvertFrom-Json).backup
+        if (-not $snapshot) { throw 'Could not resolve rollback snapshot' }
+        return $snapshot
+    } `
+    -RestoreState {
+        param($snapshot)
+        Invoke-Wsl "set -e; test -f '$snapshot/manifest.json'; if [ -f '$snapshot/openclaw.sqlite' ]; then mkdir -p '$WslDataDir/state'; cp -p '$snapshot/openclaw.sqlite' '$WslDataDir/state/openclaw.sqlite.restore'; cmp '$snapshot/openclaw.sqlite' '$WslDataDir/state/openclaw.sqlite.restore'; mv -f '$WslDataDir/state/openclaw.sqlite.restore' '$WslDataDir/state/openclaw.sqlite'; else rm -f '$WslDataDir/state/openclaw.sqlite'; fi; rm -f '$WslDataDir/state/openclaw.sqlite-wal' '$WslDataDir/state/openclaw.sqlite-shm'"
+    } `
+    -Start {
+        Invoke-Wsl "docker tag '$CandidateImage' '${ImageName}:latest'"
+        Remove-UnmanagedDockerContainer -ContainerName 'searxng'
+        Invoke-Wsl "find '$WslDataDir/plugin-runtime-deps' -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true"
+        Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact:$CompactState
+        Invoke-WslWithNetworkPoolRecovery -Context 'docker compose up' -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
+        if (-not (Wait-OpenClawReady -TimeoutSec 600)) { throw 'Candidate failed readiness checks' }
+        if (-not (Wait-OpenClawContainerHealthy -ContainerName $ContainerName -MaxAttempts 30 -DelaySeconds 5)) { throw 'Candidate failed state-backed health checks' }
+    } `
+    -Rollback {
+        if ($previousImage) {
+            Invoke-Wsl "docker tag '$previousImage' '${ImageName}:latest'"
+            if (Test-Path $composePath) {
+                Invoke-WslWithNetworkPoolRecovery -Context 'deployment rollback' -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
+                if (-not $previousRunning) { $null = Invoke-Wsl "docker stop -t 90 '$ContainerName'" }
+            } elseif ($previousRunning) {
+                $null = Invoke-Wsl "docker start '$ContainerName'"
+            }
+            if ($previousRunning -and -not (Wait-OpenClawContainerHealthy -ContainerName $ContainerName)) { throw 'Previous deployment did not recover' }
+        } else {
+            Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose --project-directory '$WslScriptRoot' -f '$WslStagePath/compose.yaml' down"
+            if ($previousLatestImage) { Invoke-Wsl "docker tag '$previousLatestImage' '${ImageName}:latest'" }
+        }
+    }
+$deploymentSucceeded = $true
+} finally {
+    if ($deploymentSucceeded -or -not (Test-Path (Join-Path $stagePath 'recovery'))) {
+        if (Test-Path $stagePath) { Remove-Item -LiteralPath $stagePath -Recurse -Force }
+    } else {
+        Write-Warning "Deployment recovery files retained at $stagePath"
+    }
 }
 
 Invoke-Wsl "docker tag '${ImageName}:latest' '${ImageName}:known-good'"

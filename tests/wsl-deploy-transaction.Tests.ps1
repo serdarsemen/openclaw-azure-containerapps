@@ -74,4 +74,28 @@ Describe 'WSL deployment transaction' {
         (Get-Content $configPath -Raw).Trim() | Should Be 'user changed config'
         ($script:events -contains 'start') | Should Be $false
     }
+
+    It 'restores files but leaves the gateway stopped if state restoration fails' {
+        $parameters.Start = { throw 'candidate unhealthy' }
+        $parameters.RestoreState = { throw 'state copy failed' }
+        $failure = $null
+        try { Invoke-OpenClawDeploymentTransaction @parameters } catch { $failure = $_ }
+        ($null -ne $failure) | Should Be $true
+        (Get-Content $configPath -Raw).Trim() | Should Be 'old config'
+        (Get-Content $composePath -Raw).Trim() | Should Be 'old compose'
+        ($script:events -contains 'rollback') | Should Be $false
+        Test-Path (Join-Path $TestDrive 'recovery/compose.yaml') | Should Be $true
+    }
+
+    It 'resolves relative paths using the PowerShell location' {
+        Push-Location $TestDrive
+        try {
+            $parameters.ConfigPath = 'openclaw.json'
+            $parameters.ComposePath = 'compose.yaml'
+            $parameters.CandidateConfigPath = 'candidate.json'
+            $parameters.CandidateComposePath = 'candidate.yaml'
+            Invoke-OpenClawDeploymentTransaction @parameters
+            (Get-Content 'openclaw.json' -Raw).Trim() | Should Be 'new config'
+        } finally { Pop-Location }
+    }
 }

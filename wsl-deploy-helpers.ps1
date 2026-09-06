@@ -1,6 +1,7 @@
 function Write-OpenClawAtomicFile {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [AllowEmptyCollection()] [byte[]] $Bytes)
 
+    $Path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     $temporaryPath = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
         [System.IO.File]::WriteAllBytes($temporaryPath, $Bytes)
@@ -29,6 +30,11 @@ function Invoke-OpenClawDeploymentTransaction {
         [Parameter(Mandatory)] [scriptblock] $Rollback
     )
 
+    $ConfigPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigPath)
+    $ComposePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ComposePath)
+    $CandidateConfigPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CandidateConfigPath)
+    $CandidateComposePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CandidateComposePath)
+    $recoveryPath = Join-Path (Split-Path $CandidateConfigPath -Parent) 'recovery'
     $originalFiles = @{}
     $originalHashes = @{}
     foreach ($path in @($ConfigPath, $ComposePath)) {
@@ -51,27 +57,39 @@ function Invoke-OpenClawDeploymentTransaction {
             if ($currentHash -ne $originalHashes[$path]) { throw "Deployment file changed during validation: $path" }
         }
         $snapshot = & $BackupState
+        $null = New-Item -ItemType Directory -Path $recoveryPath -Force
+        foreach ($path in @($ConfigPath, $ComposePath)) {
+            if ($null -ne $originalFiles[$path]) {
+                [System.IO.File]::WriteAllBytes((Join-Path $recoveryPath (Split-Path $path -Leaf)), $originalFiles[$path])
+            }
+        }
         $filesApplied = $true
         Write-OpenClawAtomicFile -Path $ConfigPath -Bytes ([System.IO.File]::ReadAllBytes($CandidateConfigPath))
         Write-OpenClawAtomicFile -Path $ComposePath -Bytes ([System.IO.File]::ReadAllBytes($CandidateComposePath))
         & $Start
     } catch {
         $deploymentFailure = $_
+        $recoveryErrors = @()
         try {
             if ($filesApplied) {
                 & $Stop
-                & $RestoreState $snapshot
+                try { & $RestoreState $snapshot } catch { $recoveryErrors += $_.Exception.Message }
                 foreach ($path in @($ConfigPath, $ComposePath)) {
+                    try {
                     if ($null -eq $originalFiles[$path]) {
                         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
                     } else {
                         Write-OpenClawAtomicFile -Path $path -Bytes $originalFiles[$path]
                     }
+                    } catch { $recoveryErrors += $_.Exception.Message }
                 }
             }
-            if ($stopped) { & $Rollback }
+            if ($stopped -and $recoveryErrors.Count -eq 0) { & $Rollback }
         } catch {
-            throw "Deployment failed: $($deploymentFailure.Exception.Message). Rollback also failed: $($_.Exception.Message). State snapshot: $snapshot"
+            $recoveryErrors += $_.Exception.Message
+        }
+        if ($recoveryErrors.Count -gt 0) {
+            throw "Deployment failed: $($deploymentFailure.Exception.Message). Rollback also failed: $($recoveryErrors -join '; '). State snapshot: $snapshot. Original files: $recoveryPath"
         }
         throw $deploymentFailure
     }

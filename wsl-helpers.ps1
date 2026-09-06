@@ -318,7 +318,8 @@ function Test-OpenClawCandidateConfig {
     param(
         [Parameter(Mandatory)] [string] $CandidateImage,
         [Parameter(Mandatory)] [string] $WslDataDir,
-        [Parameter(Mandatory)] [string] $HomeDir
+        [Parameter(Mandatory)] [string] $HomeDir,
+        [switch] $MatchHostUser
     )
 
     $configCommand = if ($HomeDir -eq "/home/node") {
@@ -331,8 +332,19 @@ function Test-OpenClawCandidateConfig {
     } else {
         "openclaw security audit --json >/dev/null"
     }
-    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --tmpfs '${HomeDir}/.openclaw/logs:uid=1000,gid=1000' --entrypoint sh '$CandidateImage' -lc '$configCommand'"
-    Invoke-Wsl "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; if [ -f /source/state/openclaw.sqlite ]; then cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; fi; $candidateCommand'"
+    $validationCommands = @(
+      "docker run --rm --network none -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw:ro' --tmpfs '${HomeDir}/.openclaw/logs:uid=1000,gid=1000' --entrypoint sh '$CandidateImage' -lc '$configCommand'",
+      "docker run --rm --network none -e HOME='$HomeDir' --tmpfs '${HomeDir}/.openclaw:uid=1000,gid=1000' -v '${WslDataDir}:/source:ro' --entrypoint sh '$CandidateImage' -lc 'set -e; mkdir -p ""${HomeDir}/.openclaw/state""; cp /source/openclaw.json ""${HomeDir}/.openclaw/openclaw.json""; if [ -f /source/state/openclaw.sqlite ]; then cp /source/state/openclaw.sqlite* ""${HomeDir}/.openclaw/state/""; fi; $candidateCommand'"
+    )
+    if ($MatchHostUser) {
+      $hostUid = ((Invoke-WslData 'id -u') -join '').Trim()
+      $hostGid = ((Invoke-WslData 'id -g') -join '').Trim()
+      if ($hostUid -notmatch '^\d+$' -or $hostGid -notmatch '^\d+$') { throw 'Could not determine staging user identity' }
+      $validationCommands = $validationCommands | ForEach-Object {
+        $_.Replace('docker run --rm', "docker run --rm --user ${hostUid}:${hostGid}").Replace('uid=1000,gid=1000', "uid=$hostUid,gid=$hostGid")
+      }
+    }
+    foreach ($command in $validationCommands) { Invoke-Wsl $command }
 }
 
 function Test-OpenClawRuntimeState {
