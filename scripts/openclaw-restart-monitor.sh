@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 
 container="${1:-openclaw}"
 output_dir="${2:-$HOME/.openclaw-data/logs/restarts}"

@@ -10,7 +10,8 @@ try {
     $dataDir = "$testHome/.openclaw"
     $testScript = @"
 set -eu
-mkdir -p '$dataDir/agents/test' '$dataDir/workspace'
+mkdir -p '$dataDir/agents/test' '$dataDir/workspace' '$dataDir/logs/restarts/monitor-owned'
+chmod 755 '$dataDir/logs/restarts' '$dataDir/logs/restarts/monitor-owned'
 touch '$dataDir/agents/test/auth-first.json'
 chmod 755 '$dataDir' '$dataDir/agents' '$dataDir/agents/test'
 chmod 644 '$dataDir/agents/test/auth-first.json'
@@ -18,6 +19,8 @@ chmod 644 '$dataDir/agents/test/auth-first.json'
 test -f '$dataDir/.permissions-v1'
 test "`$(stat -c %a '$dataDir')" = 700
 test "`$(stat -c %a '$dataDir/agents/test/auth-first.json')" = 600
+test "`$(stat -c %a '$dataDir/logs/restarts')" = 755
+test "`$(stat -c %a '$dataDir/logs/restarts/monitor-owned')" = 755
 mkdir '$dataDir/workspace/not-rescanned'
 chmod 755 '$dataDir/workspace/not-rescanned'
 touch '$dataDir/agents/test/auth-second.json'

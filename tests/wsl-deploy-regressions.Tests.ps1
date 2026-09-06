@@ -3,6 +3,15 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 $deploySource = Get-Content (Join-Path $repoRoot 'deploy-openclaw-wsl.ps1') -Raw
 
 Describe 'WSL deploy regressions' {
+    It 'always selects remote main for source deployments instead of a release tag' {
+        $deploySource.Contains('[string] $Tag           = ""') | Should Be $true
+        $deploySource.Contains('git checkout $Tag') | Should Be $false
+        $deploySource.Contains('git fetch --prune origin +refs/heads/main:refs/remotes/origin/main') | Should Be $true
+        $deploySource.Contains('git checkout main') | Should Be $true
+        $deploySource.Contains('git merge --ff-only origin/main') | Should Be $true
+        $deploySource.Contains('$sourceCommit -ne $remoteCommit') | Should Be $true
+    }
+
     It 'creates the logs mountpoint before validating read-only staging data' {
         $setup = "mkdir -p '`$WslStagePath/state' '`$WslStagePath/logs'"
         $deploySource.Contains($setup) | Should Be $true

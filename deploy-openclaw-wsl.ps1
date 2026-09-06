@@ -39,7 +39,7 @@
 # Parameters:
 #   -ContainerName <name>: container/compose name (default: openclaw)
 #   -SourcePath <path>:    OpenClaw source checkout (default: openclaw-repo)
-#   -Tag <tag>:            pin a specific OpenClaw release tag (default: v2026.6.8)
+#   -Tag <tag>:            npm package version only; source builds always use origin/main
 #   -GatewayPort <port>:   host port for the gateway (default: 18789)
 #   -BridgePort <port>:    host port for the bridge (default: 18790)
 #   -DataDir <path>:       persistent data dir (default: ~/.openclaw-data in WSL)
@@ -48,7 +48,7 @@
 #
 # Usage:
 #   .\deploy-openclaw-wsl.ps1                                  # source build, no Ollama
-#   .\deploy-openclaw-wsl.ps1 -Tag v2026.2.15                  # source build, pinned tag
+#   .\deploy-openclaw-wsl.ps1 -Npm -Tag v2026.2.15             # npm build, pinned package version
 #   .\deploy-openclaw-wsl.ps1 -Npm                             # npm install
 #   .\deploy-openclaw-wsl.ps1 -Ollama                          # add Ollama sidecar in Docker
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
@@ -70,7 +70,7 @@ param(
     [switch] $UpgradeOllama,
     [string] $ContainerName = "openclaw",
     [string] $SourcePath    = "openclaw-repo",
-    [string] $Tag           = "v2026.6.8",
+    [string] $Tag           = "",
     [int]    $GatewayPort   = 18789,
     [int]    $BridgePort    = 18790,
     [string] $DataDir       = "",
@@ -252,7 +252,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $ResolvedSourcePath = if ([System.IO.Path]::IsPathRooted($SourcePath)) { $SourcePath } else { Join-Path $PSScriptRoot $SourcePath }
     if (-not (Test-Path $ResolvedSourcePath)) {
         Write-Host "  Source not found — cloning..."
-        git clone https://github.com/openclaw/openclaw.git $ResolvedSourcePath
+        git clone --branch main --single-branch https://github.com/openclaw/openclaw.git $ResolvedSourcePath
         if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
     }
 
@@ -261,29 +261,24 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $sourceChanges = git status --porcelain
         if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source checkout' }
         if ($sourceChanges) { throw 'Source checkout has local changes. Commit or stash them, or use a separate -SourcePath.' }
-        if ($Tag) {
-            Write-Host "  Checking out pinned tag: $Tag"
-            git rev-parse --verify --quiet "refs/tags/$Tag" | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                git fetch origin "refs/tags/${Tag}:refs/tags/${Tag}"
-                if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-            }
-            git checkout $Tag
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
-        } else {
-            Write-Host "  Fetching latest main (single-branch, pruning stale refs)..."
-            git fetch --prune origin +refs/heads/main:refs/remotes/origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-            git checkout main
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-            git merge --ff-only origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Source branch cannot be fast-forwarded; use a separate -SourcePath or reconcile it manually." }
-        }
+        if ($Tag) { Write-Warning '-Tag applies only to -Npm; source builds always use the latest origin/main.' }
+        Write-Host "  Fetching latest main (single-branch, pruning stale refs)..."
+        git fetch --prune origin +refs/heads/main:refs/remotes/origin/main
+        if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
+        git checkout main
+        if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
+        git merge --ff-only origin/main
+        if ($LASTEXITCODE -ne 0) { throw "Source branch cannot be fast-forwarded; use a separate -SourcePath or reconcile it manually." }
+        $sourceCommit = git rev-parse HEAD
+        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve source commit' }
+        $remoteCommit = git rev-parse origin/main
+        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve remote main commit' }
+        if ($sourceCommit -ne $remoteCommit) { throw 'Local main contains commits not in origin/main; use a separate -SourcePath or reconcile it manually.' }
     } finally {
         Pop-Location
     }
 
-    $ref = if ($Tag) { $Tag } else { "latest (main)" }
+    $ref = "latest (main @ $sourceCommit)"
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan

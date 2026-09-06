@@ -3,6 +3,16 @@ $helperPath = Join-Path $repoRoot 'startup-helpers.ps1'
 if (Test-Path $helperPath) { . $helperPath }
 
 Describe 'Startup permissions' {
+    It 'excludes only the restart monitor diagnostics from the full migration' {
+        $command = New-OpenClawPermissionCommand -HomeDir '/home/node'
+        $command | Should Match "-path '/home/node/.openclaw/logs/restarts' -prune -o"
+    }
+
+    It 'creates restart diagnostics with private permissions' {
+        $monitor = Get-Content (Join-Path $repoRoot 'scripts/openclaw-restart-monitor.sh') -Raw
+        $monitor | Should Match '(?m)^umask 077$'
+    }
+
     It 'does not swallow failures or short-circuit the sensitive checks' {
         $command = New-OpenClawPermissionCommand -HomeDir '/home/node'
         $command.EndsWith('|| true') | Should Be $false

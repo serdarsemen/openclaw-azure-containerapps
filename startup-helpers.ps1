@@ -5,7 +5,7 @@ function New-OpenClawPermissionCommand {
     $marker = "$dataDir/.permissions-v1"
     $permissions = "\( -type d ! -perm 700 -exec chmod 700 {} + \) -o \( -type f \( -name 'auth-*.json' -o -name 'sessions.json' -o -name 'openclaw.json' \) ! -perm 600 -exec chmod 600 {} + \)"
     $commands = @(
-        "(if [ ! -f '$marker' ]; then find '$dataDir' $permissions && (touch '$marker' && chmod 600 '$marker' || printf 'Permission marker could not be saved\n' >&2); fi)",
+        "(if [ ! -f '$marker' ]; then find '$dataDir' -path '$dataDir/logs/restarts' -prune -o $permissions && (touch '$marker' && chmod 600 '$marker' || printf 'Permission marker could not be saved\n' >&2); fi)",
         "find '$dataDir' -maxdepth 1 $permissions"
     )
     foreach ($directory in @('credentials', 'identity', 'devices', 'agents')) {

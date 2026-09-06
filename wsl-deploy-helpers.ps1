@@ -5,7 +5,19 @@ function Write-OpenClawAtomicFile {
     $temporaryPath = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
         [System.IO.File]::WriteAllBytes($temporaryPath, $Bytes)
-        if (Test-Path -LiteralPath $Path) {
+        if ($Path -match '^\\\\(?:wsl\.localhost|wsl\$)\\(?<distribution>[^\\]+)\\(?<relativePath>.+)$') {
+            $distribution = $Matches.distribution
+            $linuxPath = '/' + $Matches.relativePath.Replace('\', '/')
+            $linuxTemporaryPath = $linuxPath + $temporaryPath.Substring($Path.Length)
+            if (Test-Path -LiteralPath $Path) {
+                wsl --distribution $distribution --exec chmod --reference=$linuxPath -- $linuxTemporaryPath
+            } else {
+                wsl --distribution $distribution --exec chmod 600 -- $linuxTemporaryPath
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'Could not set permissions on the staged WSL file' }
+            wsl --distribution $distribution --exec mv -f -T -- $linuxTemporaryPath $linuxPath
+            if ($LASTEXITCODE -ne 0) { throw 'Could not atomically rename the staged WSL file' }
+        } elseif (Test-Path -LiteralPath $Path) {
             [System.IO.File]::Replace($temporaryPath, $Path, [System.Management.Automation.Language.NullString]::Value)
         } else {
             [System.IO.File]::Move($temporaryPath, $Path)
