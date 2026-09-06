@@ -332,8 +332,10 @@ SQLite snapshot, and image. Concurrent configuration edits cause deployment to a
 instead of overwriting them. Existing containers require their saved Compose file
 for rollback. Fresh installations do not require an existing SQLite database.
 
-The deploy script always fetches the latest `origin/main` for source builds and
-switches back to `main` if the checkout was detached at an old release tag. It refuses
+The deploy script always fetches, merges, and verifies `origin/main` for source
+builds, regardless of whether local `main` tracks `upstream/main`. It does not change
+branch tracking configuration. It switches back to `main` if the checkout was
+detached at an old release tag. It refuses
 dirty checkouts and updates by fast-forward only, rejecting local-only commits rather
 than building a different revision. `-Tag` applies only to the npm deploy variant;
 source deployments ignore it with a warning. Use a separate `-SourcePath` when

@@ -6,9 +6,12 @@ Describe 'WSL deploy regressions' {
     It 'always selects remote main for source deployments instead of a release tag' {
         $deploySource.Contains('[string] $Tag           = ""') | Should Be $true
         $deploySource.Contains('git checkout $Tag') | Should Be $false
-        $deploySource.Contains('git fetch --prune origin +refs/heads/main:refs/remotes/origin/main') | Should Be $true
+        $deploySource.Contains("`$sourceRemote = 'origin'") | Should Be $true
+        $deploySource.Contains('git config --get branch.main.remote') | Should Be $false
+        $deploySource.Contains('git fetch --prune $sourceRemote "+refs/heads/main:refs/remotes/$sourceRef"') | Should Be $true
         $deploySource.Contains('git checkout main') | Should Be $true
-        $deploySource.Contains('git merge --ff-only origin/main') | Should Be $true
+        $deploySource.Contains('git merge --ff-only $sourceRef') | Should Be $true
+        $deploySource.Contains('git rev-parse $sourceRef') | Should Be $true
         $deploySource.Contains('$sourceCommit -ne $remoteCommit') | Should Be $true
     }
 
@@ -58,7 +61,7 @@ Describe 'WSL deploy regressions' {
 
     It 'never hard-resets the caller source checkout' {
         $deploySource.Contains('git reset --hard') | Should Be $false
-        $deploySource.Contains('git merge --ff-only origin/main') | Should Be $true
+        $deploySource.Contains('git merge --ff-only $sourceRef') | Should Be $true
     }
 
     It 'makes deploy-time compaction opt-in' {

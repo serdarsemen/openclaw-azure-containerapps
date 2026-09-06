@@ -261,24 +261,26 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $sourceChanges = git status --porcelain
         if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source checkout' }
         if ($sourceChanges) { throw 'Source checkout has local changes. Commit or stash them, or use a separate -SourcePath.' }
-        if ($Tag) { Write-Warning '-Tag applies only to -Npm; source builds always use the latest origin/main.' }
-        Write-Host "  Fetching latest main (single-branch, pruning stale refs)..."
-        git fetch --prune origin +refs/heads/main:refs/remotes/origin/main
+        $sourceRemote = 'origin'
+        $sourceRef = "$sourceRemote/main"
+        if ($Tag) { Write-Warning "-Tag applies only to -Npm; source builds always use the latest $sourceRef." }
+        Write-Host "  Fetching latest $sourceRef (single-branch, pruning stale refs)..."
+        git fetch --prune $sourceRemote "+refs/heads/main:refs/remotes/$sourceRef"
         if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
         git checkout main
         if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-        git merge --ff-only origin/main
+        git merge --ff-only $sourceRef
         if ($LASTEXITCODE -ne 0) { throw "Source branch cannot be fast-forwarded; use a separate -SourcePath or reconcile it manually." }
         $sourceCommit = git rev-parse HEAD
         if ($LASTEXITCODE -ne 0) { throw 'Could not resolve source commit' }
-        $remoteCommit = git rev-parse origin/main
+        $remoteCommit = git rev-parse $sourceRef
         if ($LASTEXITCODE -ne 0) { throw 'Could not resolve remote main commit' }
-        if ($sourceCommit -ne $remoteCommit) { throw 'Local main contains commits not in origin/main; use a separate -SourcePath or reconcile it manually.' }
+        if ($sourceCommit -ne $remoteCommit) { throw "Local main contains commits not in $sourceRef; use a separate -SourcePath or reconcile it manually." }
     } finally {
         Pop-Location
     }
 
-    $ref = "latest (main @ $sourceCommit)"
+    $ref = "latest ($sourceRef @ $sourceCommit)"
     Write-Host "  Source updated to: $ref" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
