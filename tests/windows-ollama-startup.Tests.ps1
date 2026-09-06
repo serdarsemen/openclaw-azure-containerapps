@@ -9,6 +9,7 @@ Describe 'Windows Ollama runtime startup' {
         $script:requests = @()
         Mock Get-Service { $null }
         Mock Start-Service {}
+        Mock Stop-OllamaWindowsServer {}
         Mock Invoke-RestMethod {
             $script:requests += @{ Uri = $Uri; NoProxy = $NoProxy }
             if (-not $script:apiReady) { throw 'not listening' }

@@ -780,7 +780,6 @@ function Stop-OllamaWindowsServer {
   param([Parameter(Mandatory)] [string] $ExecutablePath)
 
   $listenerIds = @(Get-NetTCPConnection -State Listen -LocalPort 11434 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
-  if ($listenerIds.Count -eq 0) { return }
   $serverProcesses = foreach ($listenerId in $listenerIds) {
     $process = Get-Process -Id $listenerId -ErrorAction Stop
     if (-not $process.Path -or -not [string]::Equals([IO.Path]::GetFullPath($process.Path), [IO.Path]::GetFullPath($ExecutablePath), [StringComparison]::OrdinalIgnoreCase)) {
@@ -788,13 +787,27 @@ function Stop-OllamaWindowsServer {
     }
     $process
   }
+  $trayPath = Join-Path (Split-Path $ExecutablePath -Parent) 'ollama app.exe'
+  $trayProcesses = @(Get-Process -Name 'ollama app' -ErrorAction SilentlyContinue | Where-Object { $null -ne $_ })
+  foreach ($tray in $trayProcesses) {
+    if (-not $tray.Path -or -not [string]::Equals([IO.Path]::GetFullPath($tray.Path), [IO.Path]::GetFullPath($trayPath), [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'The Ollama tray application belongs to a different installation or its path cannot be verified; it was not stopped.'
+    }
+  }
+  foreach ($tray in $trayProcesses) {
+    if (-not $tray.HasExited) { Stop-Process -Id $tray.Id -Force -ErrorAction Stop }
+    if (-not $tray.WaitForExit(5000)) { throw 'The Ollama tray application did not exit; the replacement server was not started.' }
+  }
   $service = Get-Service -Name 'Ollama' -ErrorAction SilentlyContinue
   if ($service -and $service.Status -eq 'Running') {
     Stop-Service -Name 'Ollama' -ErrorAction Stop
   } else {
     foreach ($process in $serverProcesses) {
-      Stop-Process -Id $process.Id -Force -ErrorAction Stop
+      if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction Stop }
     }
+  }
+  foreach ($process in $serverProcesses) {
+    if (-not $process.WaitForExit(5000)) { throw 'The old Ollama server did not exit; the replacement server was not started.' }
   }
 }
 
@@ -828,6 +841,7 @@ function Start-OllamaWindowsRuntime {
     if ($service.Status -ne 'Running') { Start-Service -Name 'Ollama' -ErrorAction Stop }
     $diagnostics = 'Check the Ollama service logs.'
   } else {
+    Stop-OllamaWindowsServer -ExecutablePath $ExecutablePath
     $null = New-Item -ItemType Directory -Path $LogDirectory -Force
     $logName = 'serve-' + [guid]::NewGuid().ToString('N')
     $stdoutPath = Join-Path $LogDirectory "$logName.stdout.log"
@@ -931,54 +945,7 @@ function Start-OllamaWindows {
             [System.Environment]::SetEnvironmentVariable('OLLAMA_HOST', '0.0.0.0:11434', 'User')
         }
 
-        # Try to start the Ollama service
-        Write-Host "    Starting Ollama service..." -ForegroundColor Gray
-        try {
-            Start-Service -Name "Ollama" -ErrorAction SilentlyContinue
-        } catch {}
-
-        # Alternative: start ollama CLI if service doesn't exist
-        if (-not (Get-Service -Name "Ollama" -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) {
-            Write-Host "    Ollama service not available, trying CLI start..." -ForegroundColor Gray
-          Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -Environment @{ OLLAMA_HOST = '0.0.0.0:11434' } -ErrorAction SilentlyContinue
-        }
-
-        # Wait for Ollama to become reachable
-        Write-Host "    Waiting for Ollama to start (up to 15 seconds)..." -ForegroundColor Gray
-        $maxAttempts = 15
-        for ($i = 0; $i -lt $maxAttempts; $i++) {
-            try {
-                $resp = Invoke-WebRequest -Uri "http://localhost:11434" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
-                if ($resp.StatusCode -eq 200) {
-                  # Confirm listener is not loopback-only.
-                  $listeners = Get-NetTCPConnection -State Listen -LocalPort 11434 -ErrorAction SilentlyContinue
-                  $nonLoopbackListener = $listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') } | Select-Object -First 1
-                  if ($nonLoopbackListener) {
-                    Write-Host "    Ollama started successfully (listening on $($nonLoopbackListener.LocalAddress):11434)" -ForegroundColor Green
-                    return $true
-                  }
-
-                  Write-Host "    Ollama responded on localhost but appears loopback-only." -ForegroundColor Yellow
-                  Write-Host "    Ensure startup uses OLLAMA_HOST=0.0.0.0:11434 (current listener is not externally reachable)." -ForegroundColor Yellow
-                  return $false
-                }
-            } catch {
-                # Check for port already in use error
-                if ($_.Exception.Message -match "bind.*address already in use" -or $_.Exception.Message -match "11434.*already in use") {
-                    Write-Host "`n" -ForegroundColor Red
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
-                    Write-Host "⚠️  OLLAMA IS RUNNING ON WINDOWS" -ForegroundColor Red
-                    Write-Host "PORT 11434 IS ALREADY IN USE BY AN EXISTING OLLAMA INSTANCE" -ForegroundColor Red
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
-                    Write-Host "Fix: Stop the existing Ollama process or use -OllamaWSL to run in WSL instead" -ForegroundColor Yellow
-                    Write-Host "`n"
-                    return $false
-                }
-            }
-            Start-Sleep -Seconds 1
-        }
-        Write-Host "    Ollama not responding after 15 seconds. Manual start may be required." -ForegroundColor Yellow
-        return $false
+        return (Start-OllamaWindowsRuntime -ExecutablePath $ollamaPath.Source -ExpectedVersion $versions.ClientVersion)
     } catch {
       if ($upgradeRequired) {
         throw

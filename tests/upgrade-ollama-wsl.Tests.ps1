@@ -78,6 +78,7 @@ Describe "Start-OllamaWindows automatic upgrade" {
         }
         Mock Get-LatestOllamaVersion { return "0.32.14" }
         Mock Update-OllamaWindows { return $true }
+        Mock Start-OllamaWindowsRuntime { return $true }
         Mock Start-Service {}
         Mock Get-Service { [pscustomobject]@{ Status = 'Running' } }
         Mock Start-Process {}
