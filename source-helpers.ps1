@@ -1,44 +1,23 @@
-function Move-OpenClawSourceEntry {
+function Copy-OpenClawSourceEntry {
     param([string] $Source, [string] $Destination)
 
-    $entry = Get-Item -LiteralPath $Source -Force -ErrorAction Stop
-    if ($entry.PSIsContainer) {
-        [IO.Directory]::Move($Source, $Destination)
-    } else {
-        [IO.File]::Move($Source, $Destination)
-    }
+    Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force -ErrorAction Stop
 }
 
 function Install-OpenClawSourceContents {
-    param([string] $SourcePath, [string] $StagingPath, [string] $BackupPath)
+    param([string] $SourcePath, [string] $StagingPath)
 
     $originalEntries = @(Get-ChildItem -LiteralPath $SourcePath -Force -ErrorAction Stop)
     $candidateEntries = @(Get-ChildItem -LiteralPath $StagingPath -Force -ErrorAction Stop)
-    $backedUp = [Collections.Generic.List[string]]::new()
-    $installed = [Collections.Generic.List[string]]::new()
-    $null = New-Item -ItemType Directory -Path $BackupPath -ErrorAction Stop
     try {
         foreach ($entry in $originalEntries) {
-            Move-OpenClawSourceEntry -Source $entry.FullName -Destination (Join-Path $BackupPath $entry.Name)
-            $backedUp.Add($entry.Name)
+            Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
         }
         foreach ($entry in $candidateEntries) {
-            Move-OpenClawSourceEntry -Source $entry.FullName -Destination (Join-Path $SourcePath $entry.Name)
-            $installed.Add($entry.Name)
+            Copy-OpenClawSourceEntry -Source $entry.FullName -Destination (Join-Path $SourcePath $entry.Name)
         }
     } catch {
-        $replacementFailure = $_.Exception.Message
-        $recoveryErrors = @()
-        for ($index = $installed.Count - 1; $index -ge 0; $index--) {
-            $name = $installed[$index]
-            try { Move-OpenClawSourceEntry -Source (Join-Path $SourcePath $name) -Destination (Join-Path $StagingPath $name) } catch { $recoveryErrors += $_.Exception.Message }
-        }
-        for ($index = $backedUp.Count - 1; $index -ge 0; $index--) {
-            $name = $backedUp[$index]
-            try { Move-OpenClawSourceEntry -Source (Join-Path $BackupPath $name) -Destination (Join-Path $SourcePath $name) } catch { $recoveryErrors += $_.Exception.Message }
-        }
-        $recoveryStatus = if ($recoveryErrors.Count) { "Recovery incomplete: $($recoveryErrors -join '; ')" } else { 'Original checkout restored.' }
-        throw "Could not replace source contents: $replacementFailure $recoveryStatus Close tools or terminals holding files inside '$SourcePath' and check permissions. Backup: $BackupPath. Staging: $StagingPath. Neither recovery directory was deleted."
+        throw "Could not overwrite source contents: $($_.Exception.Message) '$SourcePath' may be partially overwritten. No local backup was created. Close tools or terminals holding files and check permissions. The complete clean origin/main checkout is retained at: $StagingPath"
     }
 }
 
@@ -97,7 +76,6 @@ function Sync-OpenClawSource {
 
     $suffix = (Get-Date -Format 'yyyyMMddTHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
     $stagingPath = "$SourcePath.openclaw-staging-$suffix"
-    $backupPath = ''
     $preserveStaging = $false
     $parentPath = Split-Path $SourcePath -Parent
     $null = New-Item -ItemType Directory -Path $parentPath -Force
@@ -113,18 +91,16 @@ function Sync-OpenClawSource {
         if ($LASTEXITCODE -ne 0 -or $branch -ne 'main') { throw 'Cloned source is not on main.' }
 
         if ($hadSource) {
-            $backupPath = "$SourcePath.openclaw-backup-$suffix"
             $preserveStaging = $true
-            Write-Host '  Preserving the checkout root; moving its contents to a backup before installing clean source...' -ForegroundColor Gray
-            Install-OpenClawSourceContents -SourcePath $SourcePath -StagingPath $stagingPath -BackupPath $backupPath
-            Write-Host "  Original checkout preserved at: $backupPath" -ForegroundColor Yellow
+            Write-Host '  Overwriting local source with origin/main. Local commits, edits, untracked/ignored files, and Git configuration will be discarded without a backup.' -ForegroundColor Yellow
+            Install-OpenClawSourceContents -SourcePath $SourcePath -StagingPath $stagingPath
         } else {
             [IO.Directory]::Move($stagingPath, $SourcePath)
         }
         $preserveStaging = $false
 
         Write-Host "  Source checkout is on main at $commit (origin/main)." -ForegroundColor Green
-        return [pscustomobject]@{ SourcePath = $SourcePath; Commit = ($commit -join '').Trim(); BackupPath = $backupPath }
+        return [pscustomobject]@{ SourcePath = $SourcePath; Commit = ($commit -join '').Trim(); BackupPath = '' }
     } finally {
         if (-not $preserveStaging -and (Test-Path -LiteralPath $stagingPath)) { Remove-Item -LiteralPath $stagingPath -Recurse -Force -ErrorAction Stop }
     }

@@ -22,10 +22,12 @@ Commits are intentionally omitted because repository changes must not be committ
 
 ### Task 1: Source Path and Worktree Safety
 
-**Status (2026-09-07): Superseded and handled.** The user selected full-checkout
-backup and replacement from `origin/main`, implemented by `Sync-OpenClawSource`
+**Status (2026-09-07): Superseded and handled.** The user now explicitly requests
+destructive replacement from `origin/main` without saving local-source backups,
+implemented by `Sync-OpenClawSource`
 in `source-helpers.ps1` and verified by `tests/openclaw-source-sync.Tests.ps1`.
-Do not implement the historical dirty-tree rejection or merge steps below.
+Keep source-path and linked-worktree safety guards. Do not restore the previous
+backup policy or implement the historical dirty-tree rejection/merge steps below.
 
 **Files:**
 - Modify: `wsl-helpers.ps1`
@@ -131,7 +133,7 @@ before starting Task 3. Runtime build benchmarking remains in Task 6.
 
 Implementation details:
 - Use the verified commit from `Sync-OpenClawSource`, preserving the approved
-  backup-and-replace source policy. Do not revert to reading arbitrary local HEAD.
+  no-backup overwrite policy. Do not revert to reading arbitrary local HEAD.
 - Include deployment/helper files, build platform, and images context in app inputs.
   The tools fingerprint also includes the source Dockerfile.
 - Bypass final reuse for `-RebuildTools`. Refresh floating npm tags unconditionally.

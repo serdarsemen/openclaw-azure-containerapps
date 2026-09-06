@@ -372,23 +372,27 @@ on every deployment. They shallow-clone `main` from the existing checkout's `ori
 remote (not `upstream`) with `--depth 1 --no-tags`, avoiding the full repository
 history download, and verify that the clone matches `origin/main`. The existing
 `openclaw-repo` root directory stays in place so a process holding that directory
-open does not block a root rename. All its child entries, including `.git` and
-local files, are moved into a timestamped sibling such as
-`openclaw-repo.openclaw-backup-<timestamp>-<id>` before the clean contents are installed.
+open does not block a root rename. After the clone is verified, all local child
+entries, including `.git`, are deleted and replaced with the clean remote contents.
 The refreshed checkout is on branch `main` tracking `origin/main`. The build exports
-that verified commit rather than local edits. Historical commits remain in the old
-backup; the new checkout contains only the main tip.
+that verified commit rather than local edits. The new checkout contains only the
+main tip.
 
-Backups preserve local commits, staged and unstaged changes, untracked files, and
-Git configuration. No local code is merged into the fresh checkout. If cloning fails,
-the existing checkout is not moved. Backup/staging folders are gitignored; backups
-are never automatically deleted and can consume significant disk space. Save editor
-buffers before deploying and avoid editing the checkout during replacement. Locks on
-individual files/subdirectories or access restrictions can still block their moves.
-On a replacement failure, moved entries are rolled back and both backup and staging
-directories are retained. The error reports these paths and any incomplete recovery;
-do not delete them until recovery is confirmed. The script does not close VS Code,
-kill processes holding files, or change filesystem permissions. Custom
+**Source sync is destructive and creates no local-source backup.** Local-only
+commits, staged and unstaged changes, untracked and ignored files, and local Git
+configuration are discarded. No local code is merged into the fresh checkout.
+If cloning or clone verification fails, local files are unchanged. If deletion or
+installation fails, the checkout may be partially overwritten and there is no local
+rollback. The complete clean remote clone is retained in the reported gitignored
+`.openclaw-staging-*` directory; it contains no saved local changes. Staging is removed
+after a successful sync. Historical `.openclaw-backup-*` folders are left untouched,
+but no new ones are created. Configuration/SQLite deployment-state backups remain
+enabled and are separate from source sync.
+
+Avoid editing the checkout during replacement; unsaved VS Code buffers are not
+updated by Git and can reintroduce local edits if saved afterward. Individual file
+locks or access restrictions can still block deletion or replacement. The script
+does not close VS Code, kill processes holding files, or change filesystem permissions. Custom
 `-SourcePath` values must refer to standalone checkouts, not linked worktrees or
 checkouts that own linked worktrees. Symlinks, junctions, Windows device-path
 prefixes, and path components ending in dots or spaces are rejected before cloning
@@ -405,7 +409,7 @@ The WSL deploy script skips image builds when `:latest` has a matching
 or npm version, npm Dockerfile content, deployment/build-helper files, Docker
 platform, and the images build context. Source builds also check a separate tools
 fingerprint, including the source Dockerfile, before reusing the tools foundation.
-Existing unlabeled images rebuild once. Source checkout refresh/backups, candidate
+Existing unlabeled images rebuild once. Source checkout overwrite, candidate
 validation, sidecar refresh, and runtime health checks still run on a cache hit.
 
 Use `-ForceRefresh` on `deploy-openclaw-wsl.ps1` to bypass fingerprint reuse,
