@@ -28,6 +28,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/startup-helpers.ps1"
 
 # --- Helper: prune old base-* image tags to stay under ACR Basic (10 GiB) quota ---
 function Invoke-AcrBaseImageSweep {
@@ -578,9 +579,7 @@ properties:
         export OPENCLAW_NO_RESPAWN=1 &&
         (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) &&
         (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) &&
-        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
+        ( $(New-OpenClawPermissionCommand -HomeDir $HomeDir) ) &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:

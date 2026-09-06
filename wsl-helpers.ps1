@@ -5,6 +5,8 @@
 #   . "$PSScriptRoot/wsl-helpers.ps1"
 # ---------------------------------------------------------------------------
 
+. "$PSScriptRoot/startup-helpers.ps1"
+
 function ConvertTo-WslCommand {
     param([Parameter(Mandatory)] [string] $Command)
     return $Command -replace "`r`n?", "`n"
@@ -1311,8 +1313,9 @@ function New-OpenClawComposeYaml {
     $envVars += "NPM_CONFIG_RESOLUTION_MODE=highest"
     $envVars += "npm_config_resolution_mode=highest"
 
+    $permissionCommand = New-OpenClawPermissionCommand -HomeDir $HomeDir
     if ($Npm) {
-        $startupCmd = @(
+      $startupCmd = @(
             "umask 077",
             "find $HomeDir/.openclaw/plugin-runtime-deps -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true",
         "npm config set prefix `$`$HOME/.openclaw/npm-global",
@@ -1325,9 +1328,7 @@ function New-OpenClawComposeYaml {
             "mkdir -p `"`$`$GOPATH/bin`"",
             "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
             "mkdir -p `$`$HOME/.openclaw/compile-cache",
-            "find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true",
-            "find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true",
-            "find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true",
+            "( $permissionCommand )",
             "export OPENCLAW_NO_RESPAWN=1",
             "openclaw gateway --allow-unconfigured --bind lan --port 18789"
         ) -join " && "
@@ -1345,9 +1346,7 @@ function New-OpenClawComposeYaml {
             "mkdir -p $HomeDir/.openclaw/workspace/memory",
             "export NODE_COMPILE_CACHE=`$`$HOME/.openclaw/compile-cache",
             "mkdir -p `$`$HOME/.openclaw/compile-cache",
-            "find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true",
-            "find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true",
-            "find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true",
+            "( $permissionCommand )",
             "export OPENCLAW_NO_RESPAWN=1",
             "node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
         ) -join " && "

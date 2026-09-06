@@ -53,6 +53,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/startup-helpers.ps1"
 
 if (-not $GroqApiKey) { $GroqApiKey = "REPLACE_ME" }
 
@@ -328,13 +329,13 @@ Write-Host "`n=== Step $openClawStep/$TotalSteps: Deploying OpenClaw ===" -Foreg
 if ($Npm) {
     $OpenClawCommand = @(
         "bash", "-c",
-        "umask 077 && (openclaw config set gateway.controlUi.allowInsecureAuth true || true) && (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (openclaw config set gateway.auth.rateLimit.maxAttempts 10 || true) && (openclaw config set gateway.auth.rateLimit.windowMs 60000 || true) && (openclaw config set gateway.auth.rateLimit.lockoutMs 300000 || true) && (openclaw config set browser.executablePath /usr/bin/chromium || true) && npm config set prefix '~/.openclaw/npm-global' && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true && find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true && find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true && openclaw gateway --allow-unconfigured --bind lan --port 18789"
+        "umask 077 && (openclaw config set gateway.controlUi.allowInsecureAuth true || true) && (openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (openclaw config set gateway.auth.rateLimit.maxAttempts 10 || true) && (openclaw config set gateway.auth.rateLimit.windowMs 60000 || true) && (openclaw config set gateway.auth.rateLimit.lockoutMs 300000 || true) && (openclaw config set browser.executablePath /usr/bin/chromium || true) && npm config set prefix '~/.openclaw/npm-global' && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && ( $(New-OpenClawPermissionCommand -HomeDir $HomeDir) ) && openclaw gateway --allow-unconfigured --bind lan --port 18789"
     )
     $PluginsDir = "/usr/local/lib/node_modules/openclaw/dist/extensions"
 } else {
     $OpenClawCommand = @(
         "sh", "-c",
-        "umask 077 && chmod -R 755 /app/dist/extensions && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true && find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true && find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
+        "umask 077 && chmod -R 755 /app/dist/extensions && mkdir -p $HomeDir/.openclaw/workspace/memory && export OPENCLAW_NO_RESPAWN=1 && (node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true || true) && (node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true || true) && (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) && (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) && ( $(New-OpenClawPermissionCommand -HomeDir $HomeDir) ) && node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789"
     )
     $PluginsDir = "/app/dist/extensions"
 }

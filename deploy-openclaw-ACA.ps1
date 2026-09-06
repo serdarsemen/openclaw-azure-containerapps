@@ -40,6 +40,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/startup-helpers.ps1"
 
 # Azure Container Apps rejects secrets with empty values — use a placeholder
 if (-not $GroqApiKey) { $GroqApiKey = "REPLACE_ME" }
@@ -367,9 +368,7 @@ properties:
         export NODE_COMPILE_CACHE=`$HOME/.openclaw/compile-cache &&
         mkdir -p `$HOME/.openclaw/compile-cache &&
         export OPENCLAW_NO_RESPAWN=1 &&
-        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
+        ( $(New-OpenClawPermissionCommand -HomeDir $HomeDir) ) &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         openclaw gateway --allow-unconfigured --bind lan --port 18789
       resources:
@@ -492,9 +491,7 @@ properties:
         (node openclaw.mjs config set gateway.auth.rateLimit.maxAttempts 10 || true) &&
         (node openclaw.mjs config set gateway.auth.rateLimit.windowMs 60000 || true) &&
         (node openclaw.mjs config set gateway.auth.rateLimit.lockoutMs 300000 || true) &&
-        find $HomeDir/.openclaw -name 'auth-*.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -name 'sessions.json' -exec chmod 600 {} + 2>/dev/null || true &&
-        find $HomeDir/.openclaw -type d -exec chmod 700 {} + 2>/dev/null || true &&
+        ( $(New-OpenClawPermissionCommand -HomeDir $HomeDir) ) &&
         freqtrade trade --config /opt/freqtrade/config.json --db-url sqlite:///`$HOME/.openclaw/freqtrade.db &
         node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
       resources:
