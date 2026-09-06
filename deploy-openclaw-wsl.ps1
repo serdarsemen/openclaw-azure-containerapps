@@ -63,6 +63,7 @@
 param(
     [switch] $Npm,
     [switch] $RebuildTools,
+    [switch] $ForceRefresh,
     [switch] $CompactState,
     [switch] $Ollama,
     [switch] $OllamaWindows,
@@ -182,6 +183,13 @@ $null = Save-OpenClawKnownGoodImage -ContainerName $ContainerName -ImageName $Im
 # ---------------------------------------------------------------------------
 # Step 1: Build image
 # ---------------------------------------------------------------------------
+$buildPlatform = ((Invoke-WslData "docker version --format '{{.Server.Os}}/{{.Server.Arch}}'") -join '').Trim()
+$toolsInputs = @($ToolsDockerfile, $buildPlatform, (Get-FileHash (Join-Path $PSScriptRoot 'wsl-helpers.ps1') -Algorithm SHA256).Hash)
+$imagesPath = Join-Path $PSScriptRoot 'images'
+$toolsInputs += @(Get-ChildItem -LiteralPath $imagesPath -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+    $_.FullName.Substring($imagesPath.Length).Replace('\', '/') + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+})
+$buildInputs = @((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash) + $toolsInputs
 $totalSteps = if ($Ollama -and (-not $OllamaHost)) { 6 } else { 5 }
 if ($Npm) {
     # ===== NPM variant: create inline Dockerfile and build locally =====
@@ -239,9 +247,17 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
     try {
-        Write-Host "  Step 2a: Building candidate image..." -ForegroundColor Gray
-        $CandidateImage = Build-OpenClawNpmCandidate -WslBuildContext $WslBuildDir -ImageName $ImageName -WslToolsDockerfile "$WslScriptRoot/$ToolsDockerfile" -WslToolsContext "$WslScriptRoot/images" -RebuildTools:$RebuildTools
-        Write-Host "  Candidate image built: $CandidateImage" -ForegroundColor Green
+        $buildFingerprint = Get-OpenClawBuildFingerprint -Inputs (@('npm', $npmTag, $dockerfile) + $buildInputs)
+        $refreshNpm = $ForceRefresh -or $npmTag -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+        $imageFresh = Test-OpenClawImageFresh -ImageName $ImageName -Fingerprint $buildFingerprint -ForceRefresh:($refreshNpm -or $RebuildTools)
+        if ($imageFresh) {
+            $CandidateImage = "${ImageName}:latest"
+            Write-Host "  Build inputs unchanged; reusing $CandidateImage" -ForegroundColor Green
+        } else {
+            Write-Host "  Step 2a: Building candidate image..." -ForegroundColor Gray
+            $CandidateImage = Build-OpenClawNpmCandidate -WslBuildContext $WslBuildDir -ImageName $ImageName -WslToolsDockerfile "$WslScriptRoot/$ToolsDockerfile" -WslToolsContext "$WslScriptRoot/images" -RebuildTools:$RebuildTools -Fingerprint $buildFingerprint -ForceRefresh:$refreshNpm
+            Write-Host "  Candidate image built: $CandidateImage" -ForegroundColor Green
+        }
     } finally {
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -261,6 +277,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
+    $buildFingerprint = Get-OpenClawBuildFingerprint -Inputs (@('source', $sourceCommit) + $buildInputs)
+    $sourceDockerfileHash = (Get-FileHash (Join-Path $ResolvedSourcePath 'Dockerfile') -Algorithm SHA256).Hash
+    $toolsFingerprint = Get-OpenClawBuildFingerprint -Inputs (@('source-tools', $sourceDockerfileHash) + $toolsInputs)
+    $imageFresh = Test-OpenClawImageFresh -ImageName $ImageName -Fingerprint $buildFingerprint -ForceRefresh:($ForceRefresh -or $RebuildTools)
+    if ($imageFresh) {
+        $CandidateImage = "${ImageName}:latest"
+        Write-Host "  Build inputs unchanged; reusing $CandidateImage" -ForegroundColor Green
+    } else {
     $WslSourcePath = (Invoke-WslData "wslpath -u '$($ResolvedSourcePath -replace '\\','/')'")
     # Handle relative paths — prepend script root if not already absolute
     if ($WslSourcePath -notmatch '^/') {
@@ -300,10 +324,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             -WslToolsDockerfile $WslToolsDockerfile `
             -WslToolsContext $WslToolsContext `
             -WslOverlayDockerfile $WslOverlayDockerfile `
-            -RebuildTools:$RebuildTools
+            -RebuildTools:$RebuildTools `
+            -Fingerprint $buildFingerprint `
+            -ToolsFingerprint $toolsFingerprint `
+            -ForceRefresh:$ForceRefresh
         Write-Host "  Candidate image built: $CandidateImage" -ForegroundColor Green
     } finally {
         try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
+    }
     }
 }
 

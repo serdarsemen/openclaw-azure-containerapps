@@ -556,9 +556,8 @@ function Build-OpenClawNpmCandidate {
   $candidateImage = "${ImageName}:candidate"
   $cacheArg = if ($RebuildTools -or $ForceRefresh) { '--no-cache ' } else { '' }
   $refreshArg = if ($ForceRefresh) { '--pull --no-cache ' } else { '' }
-  $toolsPullArg = if ($ForceRefresh) { '--pull ' } else { '' }
   $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${refreshArg}-t '$baseImage' -f '$WslBuildContext/Dockerfile' '$WslBuildContext'"
-  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}${toolsPullArg}-t '$candidateImage' --build-arg BASE_IMAGE='$baseImage' --label 'io.openclaw.build-fingerprint=$Fingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
+  $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg BASE_IMAGE='$baseImage' --label 'io.openclaw.build-fingerprint=$Fingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
   return $candidateImage
 }
 
@@ -602,7 +601,7 @@ function Build-OpenClawSourceCandidate {
     }
 
     if ($RebuildTools -or $ForceRefresh -or -not $toolsExist) {
-      $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}${pullArg}-t '$toolsImage' --build-arg BASE_IMAGE='$candidateApp' --label 'io.openclaw.build-fingerprint=$ToolsFingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
+      $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$toolsImage' --build-arg BASE_IMAGE='$candidateApp' --label 'io.openclaw.build-fingerprint=$ToolsFingerprint' -f '$WslToolsDockerfile' '$WslToolsContext'"
     }
 
     $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host ${cacheArg}-t '$candidateImage' --build-arg TOOLS_IMAGE='$toolsImage' --build-arg APP_IMAGE='$candidateApp' --label 'io.openclaw.build-fingerprint=$Fingerprint' -f '$WslOverlayDockerfile' '$WslToolsContext'"

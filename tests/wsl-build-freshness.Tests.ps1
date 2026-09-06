@@ -1,5 +1,6 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repoRoot 'wsl-helpers.ps1')
+. (Join-Path $repoRoot 'source-helpers.ps1')
 
 Describe 'Build fingerprints' {
     It 'is deterministic and changes with source or build input changes' {
@@ -88,7 +89,7 @@ Describe 'Fingerprint-aware builds' {
             $command | Should Match '--no-cache'
         }
         $script:buildCommands[0] | Should Match '--pull'
-        $script:buildCommands[1] | Should Match '--pull'
+        $script:buildCommands[1] | Should Not Match '--pull'
     }
 
     It 'labels the npm candidate and refreshes both stages on demand' {
@@ -96,8 +97,9 @@ Describe 'Fingerprint-aware builds' {
         $script:buildCommands.Count | Should Be 2
         foreach ($command in $script:buildCommands) {
             $command | Should Match '--no-cache'
-            $command | Should Match '--pull'
         }
+        $script:buildCommands[0] | Should Match '--pull'
+        $script:buildCommands[1] | Should Not Match '--pull'
         $script:buildCommands[1] | Should Match "io.openclaw.build-fingerprint=$fingerprint"
     }
 
@@ -111,17 +113,17 @@ Describe 'Fingerprint-aware builds' {
 
 Describe 'Deploy build selection' {
     BeforeEach {
-        . (Join-Path $repoRoot 'source-helpers.ps1')
         $source = Get-Content (Join-Path $repoRoot 'deploy-openclaw-wsl.ps1') -Raw
         $tokens = $null
         $parseErrors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
         $build = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.Contains('$npmTag =') -and $node.Extent.Text.Contains('Sync-OpenClawSource') }, $true)
-        $buildBlock = [scriptblock]::Create($build.Extent.Text)
+        $buildBlock = [scriptblock]::Create($build.Extent.Text.Replace('[System.IO.Path]::GetTempPath()', '$TestDrive'))
         $fixtureSource = Join-Path $TestDrive 'source'
         $null = New-Item -ItemType Directory -Path $fixtureSource -Force
         Set-Content (Join-Path $fixtureSource 'Dockerfile') 'FROM node:22-slim'
         $Npm = $false
+        $totalSteps = 5
         $Tag = ''
         $ForceRefresh = $false
         $RebuildTools = $false
