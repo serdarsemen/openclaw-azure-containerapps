@@ -798,6 +798,63 @@ function Stop-OllamaWindowsServer {
   }
 }
 
+function Test-OllamaWindowsRuntime {
+  param([string] $ExpectedVersion, [ValidateRange(1, 30)] [int] $TimeoutSeconds = 2)
+
+  try {
+    $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/version' -NoProxy -TimeoutSec $TimeoutSeconds -ErrorAction Stop
+    if (-not $response.version -or ($ExpectedVersion -and $response.version -ne $ExpectedVersion)) { return $false }
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 11434 -ErrorAction Stop | Where-Object { $_.LocalAddress -in @('0.0.0.0', '::') })
+    return $listeners.Count -gt 0
+  } catch { return $false }
+}
+
+function Start-OllamaWindowsRuntime {
+  param(
+    [Parameter(Mandatory)] [string] $ExecutablePath,
+    [string] $ExpectedVersion = '',
+    [string] $LogDirectory = (Join-Path $env:LOCALAPPDATA 'Ollama/deployment-logs'),
+    [ValidateRange(1, 300)] [int] $TimeoutSeconds = 30
+  )
+
+  if (Test-OllamaWindowsRuntime -ExpectedVersion $ExpectedVersion) {
+    Write-Host '    Ollama is already ready on port 11434; reusing the running server.' -ForegroundColor Green
+    return $true
+  }
+
+  $process = $null
+  $service = Get-Service -Name 'Ollama' -ErrorAction SilentlyContinue
+  if ($service) {
+    if ($service.Status -ne 'Running') { Start-Service -Name 'Ollama' -ErrorAction Stop }
+    $diagnostics = 'Check the Ollama service logs.'
+  } else {
+    $null = New-Item -ItemType Directory -Path $LogDirectory -Force
+    $logName = 'serve-' + [guid]::NewGuid().ToString('N')
+    $stdoutPath = Join-Path $LogDirectory "$logName.stdout.log"
+    $stderrPath = Join-Path $LogDirectory "$logName.stderr.log"
+    $diagnostics = "Server logs: $stderrPath ; $stdoutPath"
+    Write-Host "    Starting $ExecutablePath serve" -ForegroundColor Gray
+    Write-Host "    $diagnostics" -ForegroundColor Gray
+    $process = Start-Process -FilePath $ExecutablePath -ArgumentList 'serve' -WorkingDirectory (Split-Path $ExecutablePath -Parent) -WindowStyle Hidden -Environment @{ OLLAMA_HOST = '0.0.0.0:11434' } -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -ErrorAction Stop
+  }
+
+  Write-Host "    Waiting for the local Ollama version API (up to $TimeoutSeconds seconds)..." -ForegroundColor Gray
+  $timer = [Diagnostics.Stopwatch]::StartNew()
+  while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    $remaining = [int][Math]::Ceiling($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+    if (Test-OllamaWindowsRuntime -ExpectedVersion $ExpectedVersion -TimeoutSeconds ([Math]::Min(2, [Math]::Max(1, $remaining)))) {
+      Write-Host '    Ollama started successfully with the expected version and external binding.' -ForegroundColor Green
+      return $true
+    }
+    if ($process -and $process.HasExited) {
+      throw "Ollama server exited with code $($process.ExitCode) before becoming ready. $diagnostics"
+    }
+    $remainingMilliseconds = [Math]::Max(0, ($TimeoutSeconds - $timer.Elapsed.TotalSeconds) * 1000)
+    if ($remainingMilliseconds -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(500, $remainingMilliseconds)) }
+  }
+  throw "Ollama did not become ready with version '$ExpectedVersion' on 0.0.0.0:11434 within $TimeoutSeconds seconds. $diagnostics"
+}
+
 # Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWindows {
     param([switch] $Upgrade)

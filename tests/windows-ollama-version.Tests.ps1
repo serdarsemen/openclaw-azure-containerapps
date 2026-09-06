@@ -94,15 +94,18 @@ Describe 'Outdated Windows Ollama server recovery' {
 Describe 'Stopping only the matching Ollama server' {
     BeforeEach {
         Mock Get-NetTCPConnection { [pscustomobject]@{ OwningProcess = 1234 } }
-        Mock Get-Process { [pscustomobject]@{ Id = 1234; Path = 'C:\Tools\ollama.exe' } }
+        Mock Get-Process { [pscustomobject]@{ Id = 1234; Path = 'C:\Tools\ollama.exe' } | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($milliseconds) $script:waitedForServer = $true; return $true } -PassThru }
+        Mock Get-Process { $null } -ParameterFilter { $Name -eq 'ollama app' }
         Mock Get-Service { $null }
         Mock Stop-Process {}
         Mock Stop-Service {}
+        $script:waitedForServer = $false
     }
 
     It 'stops the matching listener executable' {
         Stop-OllamaWindowsServer -ExecutablePath 'C:\Tools\ollama.exe'
         Assert-MockCalled Stop-Process -Times 1 -Exactly -Scope It -ParameterFilter { $Id -eq 1234 }
+        $script:waitedForServer | Should Be $true
     }
 
     It 'refuses to stop a different executable using that port' {
@@ -117,6 +120,33 @@ Describe 'Stopping only the matching Ollama server' {
         Mock Get-Service { [pscustomobject]@{ Status = 'Running' } }
         Stop-OllamaWindowsServer -ExecutablePath 'C:\Tools\ollama.exe'
         Assert-MockCalled Stop-Service -Times 1 -Exactly -Scope It
+        Assert-MockCalled Stop-Process -Times 0 -Exactly -Scope It
+    }
+
+    It 'stops the matching tray supervisor before its server' {
+        Mock Get-Process {
+            [pscustomobject]@{ Id = 2345; Path = 'C:\Tools\ollama app.exe' } | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($milliseconds) return $true } -PassThru
+        } -ParameterFilter { $Name -eq 'ollama app' }
+        $script:stoppedIds = @()
+        Mock Stop-Process { $script:stoppedIds += $Id }
+        Stop-OllamaWindowsServer -ExecutablePath 'C:\Tools\ollama.exe'
+        ($script:stoppedIds -join ',') | Should Be '2345,1234'
+    }
+
+    It 'stops the matching tray supervisor even when its server has already exited' {
+        Mock Get-NetTCPConnection { @() }
+        Mock Get-Process {
+            [pscustomobject]@{ Id = 2345; Path = 'C:\Tools\ollama app.exe' } | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($milliseconds) return $true } -PassThru
+        } -ParameterFilter { $Name -eq 'ollama app' }
+        Stop-OllamaWindowsServer -ExecutablePath 'C:\Tools\ollama.exe'
+        Assert-MockCalled Stop-Process -Times 1 -Exactly -Scope It -ParameterFilter { $Id -eq 2345 }
+    }
+
+    It 'refuses to terminate a tray app from another installation' {
+        Mock Get-Process { [pscustomobject]@{ Id = 2345; Path = 'C:\Other\ollama app.exe' } } -ParameterFilter { $Name -eq 'ollama app' }
+        $failure = ''
+        try { Stop-OllamaWindowsServer -ExecutablePath 'C:\Tools\ollama.exe' } catch { $failure = $_.Exception.Message }
+        $failure | Should Match 'tray'
         Assert-MockCalled Stop-Process -Times 0 -Exactly -Scope It
     }
 }
