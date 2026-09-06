@@ -24,6 +24,7 @@
 
 param(
     [switch] $Npm,
+    [switch] $RefreshImages,
     [string] $SourceResourceGroup = "rg-openclaw",
     [string] $SourceDeploymentName = "main",
     [string] $AksResourceGroup = "rg-openclaw-aks",
@@ -38,6 +39,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/acr-build-helpers.ps1"
+$refreshBuildArgs = if ($RefreshImages) { @('--no-cache') } else { @() }
 
 function Invoke-AcrBaseImageSweep {
     param(
@@ -101,10 +104,9 @@ try {
 }
 
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
-$BaseTag = "base-$stamp"
 
 # --- Build base image ---
-Write-Host "`n=== Step 2/5: Building base image ($BaseTag) ===" -ForegroundColor Cyan
+Write-Host "`n=== Step 2/5: Resolving base image ===" -ForegroundColor Cyan
 $env:PYTHONIOENCODING = "utf-8"
 
 if ($Npm) {
@@ -131,9 +133,9 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 "@
     try {
         $dockerfile | Set-Content (Join-Path $buildDir "Dockerfile") -Encoding utf8
-        az acr build --registry $AcrName --image "openclaw:$BaseTag" `
-            --file "$buildDir/Dockerfile" $buildDir
-        if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
+        $BaseTag = "base-npm-$(Get-OpenClawBuildKey -Identity $dockerfile)"
+        $refreshBase = $RefreshImages -or $npmTag -notmatch '^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+        Invoke-AcrCachedBuild -Registry $AcrName -Image "openclaw:$BaseTag" -Dockerfile "$buildDir/Dockerfile" -Context $buildDir -Refresh:$refreshBase
     } finally {
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -154,6 +156,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         }
     } finally { Pop-Location }
 
+    $sourceCommit = git -C $SourcePath rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve source commit' }
+    $baseKey = Get-OpenClawBuildKey -Identity $sourceCommit -Files @((Join-Path $SourcePath 'Dockerfile'), $PSCommandPath)
+    $BaseTag = "base-$baseKey"
+    $cachedBase = if (-not $RefreshImages) { Get-AcrImageDigest -Registry $AcrName -Image "openclaw:$BaseTag" -AllowMissing } else { '' }
+    if ($cachedBase) {
+        Write-Host "  Reusing $AcrServer/openclaw:$BaseTag" -ForegroundColor Gray
+    } else {
     $ctx = Join-Path ([System.IO.Path]::GetTempPath()) ("openclaw-acr-ctx-$stamp")
     $zip = "$ctx.zip"
     New-Item -ItemType Directory -Path $ctx | Out-Null
@@ -171,23 +181,18 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             -replace '(?m)^\s+\\\r?\n', '' |
             Set-Content $acrDf -Encoding utf8
 
-        az acr build --registry $AcrName --image "openclaw:$BaseTag" --file $acrDf $ctx
+        az acr build @refreshBuildArgs --registry $AcrName --image "openclaw:$BaseTag" --file $acrDf $ctx
         if ($LASTEXITCODE -ne 0) { throw "Base image build failed" }
     } finally {
         Remove-Item $zip -Force -ErrorAction SilentlyContinue
         Remove-Item $ctx -Recurse -Force -ErrorAction SilentlyContinue
     }
+    }
 }
 
 # --- Tools layer → :latest ---
 Write-Host "`n=== Step 3/5: Building tools layer (:latest) ===" -ForegroundColor Cyan
-az acr build `
-    --registry $AcrName `
-    --image openclaw:latest `
-    --build-arg "BASE_IMAGE=$AcrServer/openclaw:$BaseTag" `
-    --file $ToolsDockerfile `
-    images
-if ($LASTEXITCODE -ne 0) { throw "Tools image build failed" }
+Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage "openclaw:$BaseTag" -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
 
 # Resolve the new digest for a pin-perfect rollout
 $NewDigest = az acr repository show --name $AcrName --image "openclaw:latest" `
