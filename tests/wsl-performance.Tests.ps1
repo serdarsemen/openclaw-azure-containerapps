@@ -1,6 +1,28 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repoRoot "wsl-helpers.ps1")
 
+Describe "Bounded WSL health checks" {
+    It "bounds HTTP response time as well as connection time" {
+        Mock wsl { 'OK' }
+        Test-OllamaEndpointFromWsl -Url 'http://localhost:11434' | Should Be $true
+        Assert-MockCalled wsl -Times 1 -ParameterFilter { ($args -join ' ') -match '--max-time 2' }
+    }
+
+    It "polls readiness without repeating the audit" {
+        Mock Test-OpenClawRuntimeState { $true }
+        Wait-OpenClawContainerHealthy -ContainerName 'test' -MaxAttempts 2 | Should Be $true
+        Assert-MockCalled Test-OpenClawRuntimeState -Times 1 -ParameterFilter { $SkipAudit }
+        Assert-MockCalled Test-OpenClawRuntimeState -Times 1 -ParameterFilter { -not $SkipAudit }
+    }
+
+    It "bounds runtime inspection and audit commands" {
+        Mock Invoke-WslData { 'running healthy 0' }
+        Mock Invoke-Wsl {}
+        Test-OpenClawRuntimeState -ContainerName 'test' | Should Be $true
+        Assert-MockCalled Invoke-Wsl -Times 1 -ParameterFilter { $Command -match 'timeout .*docker exec' }
+    }
+}
+
 Describe "WSL retry classification" {
     It "does not retry a missing npm package" {
         Test-WslTransientNetworkError 'npm ERR! E404 Not Found - GET https://registry.npmjs.org/missing-package' | Should Be $false
