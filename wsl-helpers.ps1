@@ -880,7 +880,7 @@ function Start-OllamaWindows {
     $upgradeRequired = $false
 
     try {
-        Write-Host "  Attempting to auto-start Ollama on Windows..." -ForegroundColor Gray
+        Write-Host "  Checking Windows Ollama installation and runtime..." -ForegroundColor Gray
 
         # Check if Ollama executable exists
         $ollamaPath = Get-Command ollama -ErrorAction SilentlyContinue
@@ -906,7 +906,7 @@ function Start-OllamaWindows {
         } catch {}
         if ($latestVersion) {
             Write-Host "    Latest available: $latestVersion" -ForegroundColor Gray
-            Write-Host "    Tip: -UpgradeOllama forces a reinstall even when the current version is up to date." -ForegroundColor Gray
+            Write-Host "    Tip: -UpgradeOllama requests a winget upgrade; it does not guarantee a reinstall." -ForegroundColor Gray
         }
 
         $upgradeRequired = $Upgrade -or (
@@ -930,7 +930,7 @@ function Start-OllamaWindows {
             }
             $versions = Get-OllamaWindowsVersionInfo
         } elseif ($currentVersion -and $latestVersion) {
-            Write-Host "    Ollama on Windows is already up to date ($currentVersion)." -ForegroundColor Green
+            Write-Host "    Installed Ollama client is up to date ($currentVersion)." -ForegroundColor Green
         }
 
         if ($versions.ServerVersion -and $versions.ClientVersion -and $versions.ServerVersion -ne $versions.ClientVersion) {
@@ -1153,17 +1153,15 @@ function Resolve-OllamaHost {
     }
 
     Write-Host "`n=== Resolving Ollama host ===" -ForegroundColor Cyan
-    Write-Host "  Note: this script does not auto-install Ollama." -ForegroundColor Gray
-    Write-Host "  Ollama runs only when explicitly requested via -Ollama / -OllamaWindows / -OllamaWsl / -OllamaHost." -ForegroundColor Gray
-
     if ($OllamaWindows) {
-      Get-OllamaWindowsSetupLines | ForEach-Object {
-        Write-Host $_ -ForegroundColor Cyan
-      }
-      Get-OllamaWindowsUpgradeLines | ForEach-Object {
-        Write-Host $_ -ForegroundColor Gray
-      }
+        Write-Host '  Mode: Windows native. Reuse/start the installed server; upgrade the client only if needed or requested.' -ForegroundColor Gray
+    } elseif ($OllamaWsl) {
+        Write-Host '  Mode: WSL native. Reuse/start the installed server; upgrade only if needed or requested.' -ForegroundColor Gray
+    } else {
+        Write-Host '  Mode: external endpoint. No local startup or installation is requested.' -ForegroundColor Gray
     }
+    $relayRequired = $false
+    $startupAttempted = $false
 
     $dockerOs = (Invoke-WslData "docker info --format '{{.OperatingSystem}}' 2>/dev/null").Trim()
     $isDockerDesktop = $dockerOs -match "Docker Desktop"
@@ -1220,12 +1218,13 @@ function Resolve-OllamaHost {
           throw "Could not determine a private Windows host IP from WSL. Use -OllamaHost http://<your-windows-ip>:11434 instead."
         }
 
-        Write-Host "  Candidate Windows host IPs from WSL: $($candidateIps -join ', ')" -ForegroundColor Gray
+        Write-Host "  Unverified address candidates (Windows interfaces, route gateway, DNS): $($candidateIps -join ', ')" -ForegroundColor Gray
         $fallbackIp = [string]($candidateIps | Select-Object -First 1)
         $OllamaHost = ('http://{0}:11434' -f $fallbackIp)
         }
-        Write-Host "  Auto-starting Ollama on Windows..." -ForegroundColor Green
-        $null = Start-OllamaWindows -Upgrade:$UpgradeOllama
+        $startupAttempted = $true
+        $startupSucceeded = Start-OllamaWindows -Upgrade:$UpgradeOllama
+        if (-not $startupSucceeded) { Write-Warning 'Windows Ollama startup did not report success; checking available routes.' }
 
       # With WSL Docker Engine, probe candidate IPs and pick the one that is
       # actually reachable from WSL. This avoids selecting a LAN router IP
@@ -1244,16 +1243,17 @@ function Resolve-OllamaHost {
           $OllamaHost = $selectedHost
           Write-Host "  Selected reachable Windows Ollama endpoint: $OllamaHost" -ForegroundColor Green
         } else {
-          Write-Host "  No candidate responded from WSL yet; keeping fallback endpoint: $OllamaHost" -ForegroundColor Yellow
+          Write-Host '  No candidate address responded from WSL; checking the Windows server through WSL loopback.' -ForegroundColor Yellow
         }
       }
 
       # WSL mirrored networking forwards its localhost to Windows, but Docker
       # bridge containers do not inherit that forwarding. Use a compose-managed
       # host-network relay when no private Windows address was proven reachable.
-      if ((-not $selectedHost) -and (Wait-OllamaEndpointFromWsl -Url "http://127.0.0.1:11434" -MaxAttempts 3 -DelaySeconds 1)) {
+      if ((-not $isDockerDesktop) -and (-not $selectedHost) -and (Wait-OllamaEndpointFromWsl -Url "http://127.0.0.1:11434" -MaxAttempts 3 -DelaySeconds 1)) {
         $OllamaHost = "http://host.docker.internal:11435"
-        Write-Host "  Windows Ollama is reachable through WSL localhost; enabling container relay on port 11435" -ForegroundColor Green
+        $relayRequired = $true
+        Write-Host '  Selected container relay on port 11435 (pending Compose startup); its loopback upstream responded.' -ForegroundColor Gray
       }
     }
 
@@ -1269,42 +1269,52 @@ function Resolve-OllamaHost {
             $OllamaHost = "http://host.docker.internal:11434"
             Write-Host "  Using host.docker.internal for WSL Ollama" -ForegroundColor Green
         }
-        Write-Host "  Auto-starting Ollama in WSL..." -ForegroundColor Green
-        $null = Start-OllamaWsl -Upgrade:$UpgradeOllama
+        $startupAttempted = $true
+        $startupSucceeded = Start-OllamaWsl -Upgrade:$UpgradeOllama
+        if (-not $startupSucceeded) { Write-Warning 'WSL Ollama startup did not report success; checking the selected route.' }
     }
 
-    Write-Host "  Verifying Ollama connectivity at $OllamaHost ..." -ForegroundColor Gray
+      $probeUrl = $OllamaHost
+      $verificationScope = 'WSL host'
+      if ($OllamaWindows -and $isDockerDesktop) {
+        $probeUrl = 'http://127.0.0.1:11434'
+        $verificationScope = 'Windows host'
+      } elseif ($relayRequired -or ($OllamaWsl -and -not $isDockerDesktop)) {
+        $probeUrl = 'http://127.0.0.1:11434'
+      }
+      Write-Host "  Checking Ollama from $verificationScope at $probeUrl ..." -ForegroundColor Gray
     $ollamaReachable = $false
     try {
-        if ($OllamaHost -match 'host\.docker\.internal') {
-            if ($OllamaWindows -and $isDockerDesktop) {
-                $resp = Invoke-WebRequest -Uri "http://localhost:11434" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-                if ($resp.StatusCode -eq 200) { $ollamaReachable = $true }
-            } else {
-          $ollamaReachable = Wait-OllamaEndpointFromWsl -Url "http://localhost:11434" -MaxAttempts 5 -DelaySeconds 1
-            }
+        if ($verificationScope -eq 'Windows host') {
+          $resp = Invoke-WebRequest -Uri $probeUrl -NoProxy -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+          if ($resp.StatusCode -eq 200) { $ollamaReachable = $true }
         } else {
-        $ollamaReachable = Wait-OllamaEndpointFromWsl -Url $OllamaHost -MaxAttempts 5 -DelaySeconds 1
+          $ollamaReachable = Wait-OllamaEndpointFromWsl -Url $probeUrl -MaxAttempts 5 -DelaySeconds 1
         }
     } catch {}
 
     if ($ollamaReachable) {
-      Write-Host "  Ollama connectivity verified" -ForegroundColor Green
+      Write-Host "  Ollama host access verified from $verificationScope at $probeUrl." -ForegroundColor Green
       if ((-not $OllamaWindows) -and (-not $OllamaWsl) -and $OllamaHost) {
         Write-Host "  External endpoint reachable; no resolver rewrite applied." -ForegroundColor Green
       }
     } else {
         $sourceLabel = if ($OllamaWindows) { "Windows" } elseif ($OllamaWsl) { "WSL" } else { "the external host" }
-        Write-Warning "Ollama not reachable at $OllamaHost"
-        Write-Host "  Auto-start was attempted. If Ollama did not start, please check:" -ForegroundColor Yellow
+        Write-Warning "Ollama did not respond from $verificationScope at $probeUrl."
+        if ($startupAttempted) {
+          Write-Host '  Native startup was attempted. Check the startup messages and server logs above.' -ForegroundColor Yellow
+        } else {
+          Write-Host '  No local startup was requested; check the external server and its network route.' -ForegroundColor Yellow
+        }
         Write-Host "    - Ollama is installed on $sourceLabel" -ForegroundColor Yellow
         Write-Host "    - OLLAMA_HOST is set to 0.0.0.0:11434 (not 127.0.0.1)" -ForegroundColor Yellow
         Write-Host "    - Ollama service/process has sufficient permissions" -ForegroundColor Yellow
-        Write-Host "  Continuing deployment — Ollama features will be unavailable until connectivity is restored." -ForegroundColor Yellow
+        Write-Host '  Continuing deployment with unverified Ollama connectivity.' -ForegroundColor Yellow
     }
-    Write-Host "  OLLAMA_HOST=$OllamaHost" -ForegroundColor Green
+      Write-Host '  Container-route connectivity has not been verified from inside a container.' -ForegroundColor Yellow
+      Write-Host "  Container configuration: OLLAMA_HOST=$OllamaHost" -ForegroundColor Gray
 
-    return @{ OllamaHost = $OllamaHost; Reachable = $ollamaReachable }
+      return @{ OllamaHost = $OllamaHost; Reachable = $ollamaReachable; ProbeUrl = $probeUrl; VerificationScope = $verificationScope; RelayRequired = $relayRequired; ContainerRouteVerified = $false }
 }
 
 # Return the terminal summary lines for the selected Ollama mode.

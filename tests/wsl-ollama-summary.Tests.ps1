@@ -4,7 +4,9 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 Describe "Get-OllamaWindowsSetupLines" {
     It "shows the commands required to expose Ollama to WSL" {
         @(Get-OllamaWindowsSetupLines) | Should Be @(
+            '  Manual recovery only if automatic startup fails; close the existing Ollama tray/server first:',
             '  taskkill /IM ollama.exe /F',
+            '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
             '  setx OLLAMA_HOST "0.0.0.0:11434"',
             '  ollama serve'
         )
@@ -14,10 +16,12 @@ Describe "Get-OllamaWindowsSetupLines" {
 Describe "Get-OllamaWindowsUpgradeLines" {
     It "shows how to upgrade Ollama on Windows and restart with the required host binding" {
         @(Get-OllamaWindowsUpgradeLines) | Should Be @(
-            '  Upgrade Ollama on Windows:',
+            '  Optional Windows upgrade (winget may report no applicable upgrade):',
             '  winget upgrade --id Ollama.Ollama -e',
             '  ollama --version',
+            '  Close the existing Ollama tray/server before restarting:',
             '  taskkill /IM ollama.exe /F',
+            '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
             '  setx OLLAMA_HOST "0.0.0.0:11434"',
             '  ollama serve'
         )
@@ -25,6 +29,16 @@ Describe "Get-OllamaWindowsUpgradeLines" {
 }
 
 Describe "Get-OllamaSummaryLines" {
+    It "labels a direct Windows endpoint without calling it a relay" {
+        $lines = @(Get-OllamaSummaryLines -OllamaWindows -OllamaHost 'http://192.168.1.190:11434')
+        $lines[-1] | Should Be '  Container route: http://192.168.1.190:11434 (direct Windows endpoint)'
+    }
+
+    It "labels the Docker Desktop host route without calling it a WSL relay" {
+        $lines = @(Get-OllamaSummaryLines -OllamaWindows -OllamaHost 'http://host.docker.internal:11434')
+        $lines[-1] | Should Be '  Container route: http://host.docker.internal:11434 (Docker host endpoint)'
+    }
+
     It "shows the Windows endpoint and internal WSL relay" {
         $lines = @(Get-OllamaSummaryLines `
             -OllamaWindows `
