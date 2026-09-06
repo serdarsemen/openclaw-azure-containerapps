@@ -368,17 +368,27 @@ instead of overwriting them. Existing containers require their saved Compose fil
 for rollback. Fresh installations do not require an existing SQLite database.
 
 WSL and ACA source-build deploy scripts refresh the checkout visible in VS Code
-on every deployment. They clone `main` from the existing checkout's `origin` remote
-(not `upstream`), verify it matches `origin/main`, then move the entire old checkout
-to a timestamped sibling such as `openclaw-repo.openclaw-backup-<timestamp>-<id>`.
-The verified clone takes its place as `openclaw-repo`, on branch `main` tracking
-`origin/main`. The build exports that verified commit rather than local edits.
+on every deployment. They shallow-clone `main` from the existing checkout's `origin`
+remote (not `upstream`) with `--depth 1 --no-tags`, avoiding the full repository
+history download, and verify that the clone matches `origin/main`. The existing
+`openclaw-repo` root directory stays in place so a process holding that directory
+open does not block a root rename. All its child entries, including `.git` and
+local files, are moved into a timestamped sibling such as
+`openclaw-repo.openclaw-backup-<timestamp>-<id>` before the clean contents are installed.
+The refreshed checkout is on branch `main` tracking `origin/main`. The build exports
+that verified commit rather than local edits. Historical commits remain in the old
+backup; the new checkout contains only the main tip.
 
 Backups preserve local commits, staged and unstaged changes, untracked files, and
 Git configuration. No local code is merged into the fresh checkout. If cloning fails,
 the existing checkout is not moved. Backup/staging folders are gitignored; backups
 are never automatically deleted and can consume significant disk space. Save editor
-buffers before deploying and avoid editing the checkout during replacement. Custom
+buffers before deploying and avoid editing the checkout during replacement. Locks on
+individual files/subdirectories or access restrictions can still block their moves.
+On a replacement failure, moved entries are rolled back and both backup and staging
+directories are retained. The error reports these paths and any incomplete recovery;
+do not delete them until recovery is confirmed. The script does not close VS Code,
+kill processes holding files, or change filesystem permissions. Custom
 `-SourcePath` values must refer to standalone checkouts, not linked worktrees or
 checkouts that own linked worktrees. Symlinks, junctions, Windows device-path
 prefixes, and path components ending in dots or spaces are rejected before cloning

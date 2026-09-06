@@ -1,6 +1,7 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $helperPath = Join-Path $repoRoot 'source-helpers.ps1'
 if (Test-Path $helperPath) { . $helperPath }
+$script:sourceEntryMove = (Get-Command Move-OpenClawSourceEntry).ScriptBlock
 
 function Invoke-SourceFixtureGit {
     $output = & git @args 2>&1
@@ -10,6 +11,7 @@ function Invoke-SourceFixtureGit {
 
 Describe 'Clean origin/main source checkout' {
     BeforeEach {
+    Mock Move-OpenClawSourceEntry { & $script:sourceEntryMove -Source $Source -Destination $Destination }
         $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $fixture
         $remote = Join-Path $fixture 'origin'
@@ -85,6 +87,68 @@ Describe 'Clean origin/main source checkout' {
         $result.Commit | Should Be $expected
         $result.BackupPath | Should Be ''
         (Invoke-SourceFixtureGit -C $newPath branch --show-current) | Should Be 'main'
+    }
+
+    It 'replaces source contents while a process holds the checkout root open' {
+        $previousDirectory = [Environment]::CurrentDirectory
+        $original = (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) -join ''
+        Set-Content (Join-Path $checkout 'local-note.txt') 'keep this file'
+        try {
+            [Environment]::CurrentDirectory = $checkout
+            $result = Sync-OpenClawSource -SourcePath $checkout
+            $result.Commit | Should Be $expected
+            (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) | Should Be $expected
+            (Invoke-SourceFixtureGit -C $result.BackupPath rev-parse HEAD) | Should Be $original
+            (Get-Content (Join-Path $result.BackupPath 'local-note.txt') -Raw).Trim() | Should Be 'keep this file'
+        } finally {
+            [Environment]::CurrentDirectory = $previousDirectory
+        }
+    }
+
+    It 'downloads only the main tip without historical commits or tags' {
+        $null = Invoke-SourceFixtureGit -C $remote tag old-tag HEAD~1
+        $result = Sync-OpenClawSource -SourcePath $checkout
+        (Invoke-SourceFixtureGit -C $checkout rev-parse --is-shallow-repository) | Should Be 'true'
+        (Invoke-SourceFixtureGit -C $checkout rev-list --count HEAD) | Should Be '1'
+        ((Invoke-SourceFixtureGit -C $checkout tag --list) -join '') | Should Be ''
+        $result.Commit | Should Be $expected
+    }
+
+    It 'restores local contents and retains staging if a child file is locked' {
+        $original = (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) -join ''
+        $lockedPath = Join-Path $checkout 'locked-local.txt'
+        Set-Content $lockedPath 'local data must survive'
+        $handle = [IO.File]::Open($lockedPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $failure = ''
+        try {
+            try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
+        } finally { $handle.Dispose() }
+
+        $failure | Should Match 'Original checkout restored'
+        $failure | Should Match 'Close tools or terminals'
+        (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) | Should Be $original
+        (Get-Content $lockedPath -Raw).Trim() | Should Be 'local data must survive'
+        $staging = @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*')
+        $staging.Count | Should Be 1
+        (Invoke-SourceFixtureGit -C $staging[0].FullName rev-parse HEAD) | Should Be $expected
+    }
+
+    It 'rolls back a partial candidate installation without losing local work' {
+        $original = (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) -join ''
+        Set-Content (Join-Path $checkout 'local.txt') 'preserve'
+        Mock Move-OpenClawSourceEntry {
+            if ($Source -match '\.openclaw-staging-.*[\\/]source\.txt$') { throw 'simulated locked destination' }
+            & $script:sourceEntryMove -Source $Source -Destination $Destination
+        }
+        $failure = ''
+        try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
+
+        $failure | Should Match 'Original checkout restored'
+        (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) | Should Be $original
+        (Get-Content (Join-Path $checkout 'local.txt') -Raw).Trim() | Should Be 'preserve'
+        $staging = @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*')
+        $staging.Count | Should Be 1
+        (Invoke-SourceFixtureGit -C $staging[0].FullName rev-parse HEAD) | Should Be $expected
     }
 
     It 'keeps earlier backups when synchronization runs again' {
