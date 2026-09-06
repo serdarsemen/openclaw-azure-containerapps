@@ -285,6 +285,16 @@ captures logs under `%LOCALAPPDATA%/Ollama/deployment-logs`, and probes the loca
 immediately instead of waiting through the readiness timeout. Actual winget failures
 still stop required upgrades and report the exit code.
 
+Resolver output names the probe location (Windows host or WSL host) and the URL
+actually checked. A successful loopback probe does not verify the container relay:
+selecting `host.docker.internal:11435` only requests the Compose-managed relay for
+startup. Container connectivity remains unverified until checked from a container.
+The resolver's `Reachable` field refers to that host probe, with `ProbeUrl` and
+`VerificationScope` identifying it; `ContainerRouteVerified` remains false at this
+stage. Normal startup does not print optional manual kill/setup/upgrade commands.
+On Windows, `-UpgradeOllama` requests winget upgrade even when the client is current;
+it does not guarantee a reinstall or an available winget package update.
+
 With WSL mirrored networking, native WSL Ollama and Windows Ollama cannot both
 own port 11434. A WSL listener can block the Windows bind even when no Windows
 listener is listed. Stop the conflicting installation before switching hosts.
@@ -302,7 +312,11 @@ If Ollama is already running on your Windows PC, use `-OllamaHost` to point Open
 .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434
 ```
 
-`host.docker.internal` is a special hostname that Docker containers use to reach services on the Windows host. Ollama listens on port `11434` by default.
+`host.docker.internal` addresses the Docker host: Windows with Docker Desktop,
+or WSL with native Docker Engine. For automatic Windows address/relay selection,
+use `-OllamaWindows`. An explicit `-OllamaHost` URL is left unchanged and probed as
+given from WSL; the name may only resolve inside configured containers. Ollama
+listens on port `11434` by default.
 
 > **Note:** If Ollama is bound only to `127.0.0.1`, Docker containers cannot reach it ("Connection refused" error). The script automatically kills any existing Ollama process and restarts it with `OLLAMA_HOST=0.0.0.0:11434` to accept Docker bridge network connections. If auto-start fails, manually run in WSL: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`
 

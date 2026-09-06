@@ -3,6 +3,7 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 
 Describe "Get-OllamaWindowsSetupLines" {
     It "shows the commands required to expose Ollama to WSL" {
+        @(Get-OllamaWindowsSetupLines).Count | Should Be 5
         @(Get-OllamaWindowsSetupLines) | Should Be @(
             '  Manual recovery only if automatic startup fails; close the existing Ollama tray/server first:',
             '  taskkill /IM ollama.exe /F',
@@ -15,6 +16,7 @@ Describe "Get-OllamaWindowsSetupLines" {
 
 Describe "Get-OllamaWindowsUpgradeLines" {
     It "shows how to upgrade Ollama on Windows and restart with the required host binding" {
+        @(Get-OllamaWindowsUpgradeLines).Count | Should Be 8
         @(Get-OllamaWindowsUpgradeLines) | Should Be @(
             '  Optional Windows upgrade (winget may report no applicable upgrade):',
             '  winget upgrade --id Ollama.Ollama -e',

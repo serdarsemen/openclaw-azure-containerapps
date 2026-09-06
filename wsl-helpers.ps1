@@ -1118,12 +1118,11 @@ function Wait-OllamaEndpointFromWsl {
   return $false
 }
 
-# Resolve -OllamaWindows / -OllamaWsl / -OllamaHost into a concrete URL and
-# verify reachability. Returns @{ OllamaHost = '...'; Reachable = $bool }.
-# Passes the resolved OllamaHost through unchanged when an explicit URL is given.
 function Get-OllamaWindowsSetupLines {
   return @(
+    '  Manual recovery only if automatic startup fails; close the existing Ollama tray/server first:',
     '  taskkill /IM ollama.exe /F',
+    '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
     '  setx OLLAMA_HOST "0.0.0.0:11434"',
     '  ollama serve'
   )
@@ -1131,15 +1130,18 @@ function Get-OllamaWindowsSetupLines {
 
 function Get-OllamaWindowsUpgradeLines {
   return @(
-    '  Upgrade Ollama on Windows:',
+    '  Optional Windows upgrade (winget may report no applicable upgrade):',
     '  winget upgrade --id Ollama.Ollama -e',
     '  ollama --version',
+    '  Close the existing Ollama tray/server before restarting:',
     '  taskkill /IM ollama.exe /F',
+    '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
     '  setx OLLAMA_HOST "0.0.0.0:11434"',
     '  ollama serve'
   )
 }
 
+# Reachable describes the host-side probe, not end-to-end container connectivity.
 function Resolve-OllamaHost {
     param(
         [switch] $OllamaWindows,
@@ -1331,9 +1333,16 @@ function Get-OllamaSummaryLines {
   }
 
   if ($OllamaWindows -and $OllamaHost) {
+    $routeLabel = 'direct Windows endpoint'
+    try {
+      $routeUri = [uri]$OllamaHost
+      if ($routeUri.Host -eq 'host.docker.internal') {
+        $routeLabel = if ($routeUri.Port -eq 11435) { 'WSL relay' } else { 'Docker host endpoint' }
+      }
+    } catch {}
     return @(
       "  Ollama:          http://localhost:11434 (Windows host)"
-      "  Container route: $OllamaHost (WSL relay)"
+      "  Container route: $OllamaHost ($routeLabel)"
     )
   }
 
