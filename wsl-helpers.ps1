@@ -335,23 +335,34 @@ function Test-OpenClawCandidateConfig {
 
 function Test-OpenClawRuntimeState {
     param(
-        [Parameter(Mandatory)] [string] $ContainerName
+    [Parameter(Mandatory)] [string] $ContainerName,
+    [ValidateRange(1, 600)] [int] $TimeoutSeconds = 45,
+    [switch] $SkipAudit
     )
 
-    $state = ((Invoke-WslData "docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' '$ContainerName' 2>/dev/null || true") -join "").Trim()
+  $timer = [System.Diagnostics.Stopwatch]::StartNew()
+  $state = ((Invoke-WslData "timeout -k 1 ${TimeoutSeconds}s docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' '$ContainerName' 2>/dev/null || true") -join "").Trim()
     if ($state -notmatch '^running healthy ') {
         return $false
     }
+  if ($SkipAudit) { return $true }
 
-    $startedAt = ((Invoke-WslData "docker inspect -f '{{.State.StartedAt}}' '$ContainerName'") -join "").Trim()
-    $fatalLogs = ((Invoke-WslData "docker logs --since '$startedAt' '$ContainerName' 2>&1 | grep -Ei 'uses newer schema version|no such column|state database.*(error|failed)|cron.*failed to start|delivery recovery failed|task registry.*failed' || true") -join "`n").Trim()
+  $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+  if ($remaining -lt 1) { return $false }
+  $startedAt = ((Invoke-WslData "timeout -k 1 ${remaining}s docker inspect -f '{{.State.StartedAt}}' '$ContainerName' 2>/dev/null || true") -join "").Trim()
+  if (-not $startedAt) { return $false }
+  $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+  if ($remaining -lt 1) { return $false }
+  $fatalLogs = ((Invoke-WslData "timeout -k 1 ${remaining}s docker logs --since '$startedAt' '$ContainerName' 2>&1 | grep -Ei 'uses newer schema version|no such column|state database.*(error|failed)|cron.*failed to start|delivery recovery failed|task registry.*failed' || true") -join "`n").Trim()
     if ($fatalLogs) {
         return $false
     }
 
     $runtimeCheck = "if [ -f /app/openclaw.mjs ]; then node /app/openclaw.mjs security audit --json >/dev/null; else openclaw security audit --json >/dev/null; fi"
+  $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+  if ($remaining -lt 1) { return $false }
     try {
-        $null = Invoke-Wsl "docker exec '$ContainerName' sh -lc '$runtimeCheck'"
+    $null = Invoke-Wsl "timeout -k 1 ${remaining}s docker exec '$ContainerName' timeout -k 1 ${remaining}s sh -lc '$runtimeCheck'" -ServiceRetries 1
         return $true
     } catch {
         return $false
@@ -362,15 +373,22 @@ function Wait-OpenClawContainerHealthy {
     param(
         [Parameter(Mandatory)] [string] $ContainerName,
         [int] $MaxAttempts = 36,
-        [int] $DelaySeconds = 5
+        [int] $DelaySeconds = 5,
+        [ValidateRange(1, 3600)] [int] $TimeoutSeconds = 180
     )
 
+      $timer = [System.Diagnostics.Stopwatch]::StartNew()
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        if (Test-OpenClawRuntimeState -ContainerName $ContainerName) {
-            return $true
+        $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+        if ($remaining -lt 1) { return $false }
+        if (Test-OpenClawRuntimeState -ContainerName $ContainerName -SkipAudit -TimeoutSeconds ([Math]::Min(5, $remaining))) {
+          $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+          if ($remaining -lt 1) { return $false }
+          return (Test-OpenClawRuntimeState -ContainerName $ContainerName -TimeoutSeconds ([Math]::Min(45, $remaining)))
         }
         if ($attempt -lt $MaxAttempts) {
-            Start-Sleep -Seconds $DelaySeconds
+          $remaining = [Math]::Max(0, $TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+          Start-Sleep -Milliseconds ([int](1000 * [Math]::Min($DelaySeconds, $remaining)))
         }
     }
     return $false
@@ -907,7 +925,7 @@ function Test-OllamaEndpointFromWsl {
 
   try {
     $baseUrl = $Url.TrimEnd('/')
-    $check = wsl -- bash -c "curl -sf --connect-timeout $TimeoutSeconds '${baseUrl}/api/tags' >/dev/null 2>&1 && echo OK || (curl -sf --connect-timeout $TimeoutSeconds '${baseUrl}' >/dev/null 2>&1 && echo OK || echo FAIL)" 2>$null
+    $check = wsl -- bash -c "curl -sf --connect-timeout $TimeoutSeconds --max-time $TimeoutSeconds '${baseUrl}/api/tags' >/dev/null 2>&1 && echo OK || (curl -sf --connect-timeout $TimeoutSeconds --max-time $TimeoutSeconds '${baseUrl}' >/dev/null 2>&1 && echo OK || echo FAIL)" 2>$null
     return ($check -match "OK")
   } catch {
     return $false

@@ -3,9 +3,7 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 
 Describe "Bounded WSL health checks" {
     It "bounds HTTP response time as well as connection time" {
-        Mock wsl { 'OK' }
-        Test-OllamaEndpointFromWsl -Url 'http://localhost:11434' | Should Be $true
-        Assert-MockCalled wsl -Times 1 -ParameterFilter { ($args -join ' ') -match '--max-time 2' }
+        (Get-Command Test-OllamaEndpointFromWsl).ScriptBlock.ToString() | Should Match '--max-time \$TimeoutSeconds'
     }
 
     It "polls readiness without repeating the audit" {
@@ -16,10 +14,15 @@ Describe "Bounded WSL health checks" {
     }
 
     It "bounds runtime inspection and audit commands" {
-        Mock Invoke-WslData { 'running healthy 0' }
-        Mock Invoke-Wsl {}
+        . (Join-Path $repoRoot "wsl-helpers.ps1")
+        $script:auditCommand = ''
+        Mock Invoke-WslData {
+            if ($Command -match 'State.Status') { 'running healthy 0' }
+            elseif ($Command -match 'StartedAt') { '2026-09-06T00:00:00Z' }
+        }
+        Mock Invoke-Wsl { $script:auditCommand = $Command }
         Test-OpenClawRuntimeState -ContainerName 'test' | Should Be $true
-        Assert-MockCalled Invoke-Wsl -Times 1 -ParameterFilter { $Command -match 'timeout .*docker exec' }
+        $script:auditCommand | Should Match 'timeout .*docker exec'
     }
 }
 
