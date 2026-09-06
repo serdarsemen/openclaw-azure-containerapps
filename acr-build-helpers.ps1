@@ -72,7 +72,7 @@ function Invoke-AcrCachedBuild {
 }
 
 function Invoke-OpenClawToolsBuild {
-    param([string] $Registry, [string] $BaseImage, [string] $Dockerfile, [string] $Context, [switch] $Refresh)
+    param([string] $Registry, [string] $BaseImage, [string] $Dockerfile, [string] $Context, [switch] $Refresh, [int] $Keep = 3)
 
     $baseDigest = Get-AcrImageDigest -Registry $Registry -Image $BaseImage
     $files = @(Get-ChildItem -LiteralPath $Context -Recurse -File -Force | Select-Object -ExpandProperty FullName)
@@ -80,4 +80,34 @@ function Invoke-OpenClawToolsBuild {
     $key = Get-OpenClawBuildKey -Identity $identity -Files $files -RootPath $Context
     $repository = ($BaseImage -split ':')[0]
     Invoke-AcrCachedBuild -Registry $Registry -Image "${repository}:tools-$key" -Dockerfile $Dockerfile -Context $Context -AdditionalTag "${repository}:latest" -BuildArguments @("BASE_IMAGE=$Registry.azurecr.io/$repository@$baseDigest") -Refresh:$Refresh
+    Invoke-AcrBaseImageSweep -Registry $Registry -Repository $repository -KeepTagPrefix 'tools-' -Keep $Keep -ProtectedTags @("tools-$key")
+}
+
+function Get-AcrRepositoryTags {
+    param([string] $Registry, [string] $Repository)
+
+    $result = az acr repository show-tags --name $Registry --repository $Repository --orderby time_desc --detail -o json
+    if ($LASTEXITCODE -ne 0) { throw "Could not list cache tags for $Registry/$Repository" }
+    return ($result | ConvertFrom-Json)
+}
+
+function Invoke-AcrBaseImageSweep {
+    param(
+        [string] $Registry,
+        [string] $Repository,
+        [string] $KeepTagPrefix,
+        [ValidateRange(1, 1000)] [int] $Keep = 3,
+        [string[]] $ProtectedTags = @()
+    )
+
+    $tags = @(Get-AcrRepositoryTags -Registry $Registry -Repository $Repository)
+    $matching = @($tags | Where-Object { $_.name.StartsWith($KeepTagPrefix) })
+    $protectedNames = @('latest') + $ProtectedTags + @($matching | Select-Object -First $Keep -ExpandProperty name)
+    $protectedDigests = @($tags | Where-Object { $protectedNames -contains $_.name -or -not $_.name.StartsWith($KeepTagPrefix) } | Select-Object -ExpandProperty digest)
+    $obsolete = @($matching | Select-Object -Skip $Keep | Where-Object { $_.digest -and $protectedDigests -notcontains $_.digest } | Group-Object digest)
+    foreach ($group in $obsolete) {
+        $tag = $group.Group[0].name
+        Write-Host "  Removing unused cache image ${Repository}:$tag" -ForegroundColor Gray
+        Invoke-AcrBuildCommand -Arguments @('acr', 'repository', 'delete', '--name', $Registry, '--image', "${Repository}:$tag", '--yes')
+    }
 }

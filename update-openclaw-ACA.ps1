@@ -34,31 +34,6 @@ $ErrorActionPreference = "Stop"
 $refreshBuildArgs = if ($RefreshImages) { @('--no-cache') } else { @() }
 
 # --- Helper: prune old base-* image tags to stay under ACR Basic (10 GiB) quota ---
-function Invoke-AcrBaseImageSweep {
-    param(
-        [Parameter(Mandatory)][string] $Registry,
-        [Parameter(Mandatory)][string] $Repository,
-        [Parameter(Mandatory)][string] $KeepTagPrefix,
-        [int] $Keep = 3
-    )
-    Write-Host "  Sweeping old '$KeepTagPrefix*' tags in $Registry/$Repository (keeping newest $Keep)..." -ForegroundColor Gray
-    $tagsJson = az acr repository show-tags `
-        --name $Registry `
-        --repository $Repository `
-        --orderby time_desc `
-        --detail `
-        --query "[?starts_with(name, '$KeepTagPrefix')].{name:name,created:createdTime}" `
-        -o json 2>$null
-    if (-not $tagsJson) { return }
-    try { $tags = $tagsJson | ConvertFrom-Json } catch { return }
-    if (-not $tags -or $tags.Count -le $Keep) { return }
-    $toDelete = $tags | Select-Object -Skip $Keep
-    foreach ($t in $toDelete) {
-        Write-Host "    Deleting ${Repository}:$($t.name)" -ForegroundColor DarkGray
-        az acr repository delete --name $Registry --image "${Repository}:$($t.name)" --yes 2>$null | Out-Null
-    }
-}
-
 # --- Set variant-specific defaults ---
 if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('ResourceGroup'))  { $ResourceGroup  = "rg-openclawnpm" }
@@ -167,14 +142,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
     $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
+    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
     $step2bStopwatch.Stop()
     $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-npm-' -Keep $KeepBaseImages
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-npm-' -Keep $KeepBaseImages -ProtectedTags @($baseTagName)
 
     # Clean up temp build dir
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -276,14 +251,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
     $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
+    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
     $step2bStopwatch.Stop()
     $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages -ProtectedTags @($baseTagName)
 }
 
 # --- Step 2.5/3: Import latest CRW image to ACR ---

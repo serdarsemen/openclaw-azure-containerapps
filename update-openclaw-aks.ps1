@@ -42,29 +42,6 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/acr-build-helpers.ps1"
 $refreshBuildArgs = if ($RefreshImages) { @('--no-cache') } else { @() }
 
-function Invoke-AcrBaseImageSweep {
-    param(
-        [Parameter(Mandatory)][string] $Registry,
-        [Parameter(Mandatory)][string] $Repository,
-        [Parameter(Mandatory)][string] $KeepTagPrefix,
-        [int] $Keep = 3
-    )
-    Write-Host "  Sweeping old '$KeepTagPrefix*' tags in $Registry/$Repository (keeping newest $Keep)..." -ForegroundColor Gray
-    $tagsJson = az acr repository show-tags `
-        --name $Registry --repository $Repository `
-        --orderby time_desc --detail `
-        --query "[?starts_with(name, '$KeepTagPrefix')].{name:name,created:createdTime}" `
-        -o json 2>$null
-    if (-not $tagsJson) { return }
-    try { $tags = $tagsJson | ConvertFrom-Json } catch { return }
-    if (-not $tags -or $tags.Count -le $Keep) { return }
-    $toDelete = $tags | Select-Object -Skip $Keep
-    foreach ($t in $toDelete) {
-        Write-Host "    Deleting ${Repository}:$($t.name)" -ForegroundColor DarkGray
-        az acr repository delete --name $Registry --image "${Repository}:$($t.name)" --yes 2>$null | Out-Null
-    }
-}
-
 # --- Variant-specific defaults ---
 if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('SourceResourceGroup'))  { $SourceResourceGroup  = "rg-openclawnpm" }
@@ -192,7 +169,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
 # --- Tools layer → :latest ---
 Write-Host "`n=== Step 3/5: Building tools layer (:latest) ===" -ForegroundColor Cyan
-Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage "openclaw:$BaseTag" -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
+Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage "openclaw:$BaseTag" -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
 
 # Resolve the new digest for a pin-perfect rollout
 $NewDigest = az acr repository show --name $AcrName --image "openclaw:latest" `
@@ -201,7 +178,7 @@ if (-not $NewDigest) { throw "Could not resolve digest for $AcrServer/openclaw:l
 $PinnedImage = "$AcrServer/openclaw@$NewDigest"
 Write-Host "  New image: $PinnedImage" -ForegroundColor Green
 
-Invoke-AcrBaseImageSweep -Registry $AcrName -Repository "openclaw" -KeepTagPrefix "base-" -Keep $KeepBaseImages
+Invoke-AcrBaseImageSweep -Registry $AcrName -Repository "openclaw" -KeepTagPrefix "base-" -Keep $KeepBaseImages -ProtectedTags @($BaseTag)
 
 # --- Patch OpenClaw Deployment ---
 Write-Host "`n=== Step 4/5: Rolling out OpenClaw ===" -ForegroundColor Cyan
