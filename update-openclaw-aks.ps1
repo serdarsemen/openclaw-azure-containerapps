@@ -7,8 +7,8 @@
 #
 # Actions:
 #   1. Pull/checkout OpenClaw source (source variant) or use npm tag (npm variant)
-#   2. Rebuild base + tools images in the existing ACR (tagged :base-<timestamp>
-#      and :latest); sweep old base tags beyond -KeepBaseImages.
+#   2. Build or reuse content-keyed base + tools images in the existing ACR;
+#      refresh with -RefreshImages and retain caches with -KeepBaseImages.
 #   3. Patch the openclaw Deployment to force a pull of the new :latest digest.
 #   4. Optionally update the Ollama Deployment image (-OllamaImage).
 #
@@ -34,7 +34,7 @@ param(
     [string] $Tag = "",
     [string] $GroqApiKey = "",                 # if set, rotates GROQ_API_KEY in the openclaw-secrets Secret
     [string] $OllamaImage = "",                # if set, the Ollama pod image is updated too
-    [int]    $KeepBaseImages = 3,
+    [ValidateRange(1, 1000)] [int] $KeepBaseImages = 3,
     [int]    $RolloutTimeoutSeconds = 600
 )
 

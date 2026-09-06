@@ -110,9 +110,23 @@ az containerapp exec --name ca-openclaw --resource-group rg-openclaw
 .\update-openclaw-ACA.ps1                   # rebuild + roll source variant
 .\update-openclaw-ACA.ps1 -Npm              # npm variant
 .\update-openclaw-ACA.ps1 -Tag v2026.3.2    # pin to a tag
+.\update-openclaw-ACA.ps1 -RefreshImages   # rebuild base and tools without cache
 ```
 
 The update script preserves the existing gateway token, env vars, NFS mount, and probes by reading them from the running app before patching.
+
+ACA and AKS updates reuse base images keyed by source/build inputs and tools images
+keyed by the base digest and tools context. Floating npm tags such as `latest`
+always rebuild the base. Use `-RefreshImages` periodically for upstream dependency
+and security updates, even when the OpenClaw version has not changed. Cache retention
+uses `-KeepBaseImages` (default 3) for each swept base/tools group; active images and
+digests with other tags are protected and may increase the retained count.
+
+Generated ACA, AKS, and WSL startup commands perform a full permission migration
+once, then check sensitive locations and change only incorrect permissions.
+The first startup can still be slower on large data volumes. Remove the
+`.permissions-v1` file from the persisted OpenClaw data directory when a full
+permission repair is needed after importing or restoring data.
 
 Open the Control UI URL printed by the script. Send a test message.
 
@@ -158,10 +172,13 @@ The script prints the external `LoadBalancer` IP plus a Control UI URL with the 
 .\update-openclaw-aks.ps1                                   # rebuild image, rollout openclaw
 .\update-openclaw-aks.ps1 -Npm                              # npm variant
 .\update-openclaw-aks.ps1 -Tag v2026.3.2                    # pin source build to a tag
+.\update-openclaw-aks.ps1 -RefreshImages                    # refresh base and tools dependencies
 .\update-openclaw-aks.ps1 -OllamaImage ollama/ollama:0.4.0  # bump Ollama pod too
 ```
 
-The update pins the rolled-out Deployment to the freshly built image **digest** (not the `:latest` tag) so every rollout is deterministic, and sweeps old `base-*` tags in ACR down to `-KeepBaseImages` (default 3).
+The update pins the rolled-out Deployment to the built or reused image **digest**
+(not the `:latest` tag), and removes old unprotected base/tools cache images using
+`-KeepBaseImages` (default 3). An unchanged image digest does not require a new rollout.
 
 ### AKS useful commands
 
@@ -319,6 +336,9 @@ node openclaw.mjs models auth login-github-copilot   # source variant
 # Rebuild the large Python/ML tools foundation when its dependencies change
 .\update-openclaw-wsl.ps1 -RebuildTools
 
+# Also compact SQLite during the gateway downtime (optional maintenance)
+.\update-openclaw-wsl.ps1 -CompactState
+
 # Keep/start the Ollama sidecar during update
 .\update-openclaw-wsl.ps1 -Ollama
 
@@ -335,8 +355,11 @@ kept as `openclaw-source:tools`, while the OpenClaw application is overlaid as a
 small rebuild. Healthy releases are tagged `openclaw-source:known-good`; failed
 container, state-audit, or schema-error checks restore that tag automatically. Before updates, the scripts create
 retained SQLite/configuration backups under `~/.openclaw-data/backups`, prune
-terminal task history older than 30 days, compact the database, and install a
-weekly online maintenance job. A bounded Docker sidecar monitors restart events
+terminal task history older than 30 days, and install a weekly online maintenance
+job. Full SQLite compaction during updates is opt-in via `-CompactState`; ordinary
+updates skip `VACUUM` to reduce gateway downtime. Readiness polling uses bounded
+Docker checks followed by one bounded state/security audit, with rollback on failure.
+A bounded Docker sidecar monitors restart events
 and writes diagnostics under `~/.openclaw-data/logs/restarts`.
 
 ### WSL useful commands

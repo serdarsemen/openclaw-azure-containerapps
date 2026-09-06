@@ -25,7 +25,7 @@ param(
     [string] $SourcePath = "openclaw-repo",
     [string] $Tag = "",
     [string] $GroqApiKey = "",     # if set, overrides the preserved groq-api-key secret
-    [int]    $KeepBaseImages = 3   # retain N newest openclaw:base-* tags; older ones are deleted
+    [ValidateRange(1, 1000)] [int] $KeepBaseImages = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +33,6 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/acr-build-helpers.ps1"
 $refreshBuildArgs = if ($RefreshImages) { @('--no-cache') } else { @() }
 
-# --- Helper: prune old base-* image tags to stay under ACR Basic (10 GiB) quota ---
 # --- Set variant-specific defaults ---
 if ($Npm) {
     if (-not $PSBoundParameters.ContainsKey('ResourceGroup'))  { $ResourceGroup  = "rg-openclawnpm" }
