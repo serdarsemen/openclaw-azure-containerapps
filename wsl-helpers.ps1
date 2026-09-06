@@ -713,6 +713,15 @@ function Get-LatestOllamaVersion {
     return $true
   }
 
+function Get-OllamaWindowsVersionInfo {
+    $versionOutput = (& ollama --version 2>&1 | Out-String)
+    $serverMatch = [regex]::Match($versionOutput, '(?im)^\s*ollama version is\s+(\d+\.\d+\.\d+)')
+    $clientMatch = [regex]::Match($versionOutput, '(?i)client version is\s+(\d+\.\d+\.\d+)')
+    $serverVersion = if ($serverMatch.Success) { $serverMatch.Groups[1].Value } else { '' }
+    $clientVersion = if ($clientMatch.Success) { $clientMatch.Groups[1].Value } else { $serverVersion }
+    return [pscustomobject]@{ ClientVersion = $clientVersion; ServerVersion = $serverVersion }
+}
+
   # Upgrade Ollama on Windows using winget.
   # Returns $true when Ollama is already current or upgraded successfully.
   function Update-OllamaWindows {
@@ -730,12 +739,8 @@ function Get-LatestOllamaVersion {
       return $false
     }
 
-    if (-not $CurrentVersion) {
-      $currentVersionRaw = & ollama --version 2>$null | Select-Object -First 1
-      if ($currentVersionRaw -match '(\d+\.\d+\.\d+)') {
-        $CurrentVersion = $Matches[1]
-      }
-    }
+    $versions = Get-OllamaWindowsVersionInfo
+    if ($versions.ClientVersion) { $CurrentVersion = $versions.ClientVersion }
 
     if (-not $LatestVersion) {
       $LatestVersion = Get-LatestOllamaVersion
@@ -754,17 +759,13 @@ function Get-LatestOllamaVersion {
     }
 
     Write-Host "  Upgrading Ollama on Windows via winget..." -ForegroundColor Gray
-    & winget upgrade --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements
+    & winget upgrade --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements | Out-Host
     if ($LASTEXITCODE -ne 0) {
-      Write-Host "  Ollama upgrade failed on Windows" -ForegroundColor Yellow
+      Write-Host "  Ollama upgrade failed on Windows (winget exit code $LASTEXITCODE). See winget output above." -ForegroundColor Yellow
       return $false
     }
 
-    $newVersionRaw = & ollama --version 2>$null | Select-Object -First 1
-    $newVersion = ""
-    if ($newVersionRaw -match '(\d+\.\d+\.\d+)') {
-      $newVersion = $Matches[1]
-    }
+    $newVersion = (Get-OllamaWindowsVersionInfo).ClientVersion
 
     if ($newVersion) {
       Write-Host "  Ollama upgraded on Windows: $CurrentVersion -> $newVersion" -ForegroundColor Green
@@ -774,6 +775,28 @@ function Get-LatestOllamaVersion {
 
     return $true
   }
+
+function Stop-OllamaWindowsServer {
+  param([Parameter(Mandatory)] [string] $ExecutablePath)
+
+  $listenerIds = @(Get-NetTCPConnection -State Listen -LocalPort 11434 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+  if ($listenerIds.Count -eq 0) { return }
+  $serverProcesses = foreach ($listenerId in $listenerIds) {
+    $process = Get-Process -Id $listenerId -ErrorAction Stop
+    if (-not $process.Path -or -not [string]::Equals([IO.Path]::GetFullPath($process.Path), [IO.Path]::GetFullPath($ExecutablePath), [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Port 11434 belongs to a different executable or its path cannot be verified; it was not stopped.'
+    }
+    $process
+  }
+  $service = Get-Service -Name 'Ollama' -ErrorAction SilentlyContinue
+  if ($service -and $service.Status -eq 'Running') {
+    Stop-Service -Name 'Ollama' -ErrorAction Stop
+  } else {
+    foreach ($process in $serverProcesses) {
+      Stop-Process -Id $process.Id -Force -ErrorAction Stop
+    }
+  }
+}
 
 # Auto-start Ollama on Windows by setting OLLAMA_HOST and starting the service.
 function Start-OllamaWindows {
@@ -794,13 +817,16 @@ function Start-OllamaWindows {
         # Fetch and display latest version info
         Write-Host "  Checking Ollama version..." -ForegroundColor Gray
         $latestVersion = Get-LatestOllamaVersion
+        $currentVersion = ''
+        $versions = $null
         try {
-            $currentVersionRaw = & ollama --version 2>$null | Select-Object -First 1
-            if ($currentVersionRaw) {
-              Write-Host "    Current: $currentVersionRaw" -ForegroundColor Gray
-              if ($currentVersionRaw -match '(\d+\.\d+\.\d+)') {
-                $currentVersion = $Matches[1]
-              }
+            $versions = Get-OllamaWindowsVersionInfo
+            $currentVersion = $versions.ClientVersion
+            if ($currentVersion) {
+              Write-Host "    Installed client: $currentVersion" -ForegroundColor Gray
+            }
+            if ($versions.ServerVersion) {
+              Write-Host "    Running server: $($versions.ServerVersion)" -ForegroundColor Gray
             }
         } catch {}
         if ($latestVersion) {
@@ -827,8 +853,14 @@ function Start-OllamaWindows {
             if (-not $upgradeSucceeded) {
               throw "Required Ollama upgrade failed on Windows."
             }
+            $versions = Get-OllamaWindowsVersionInfo
         } elseif ($currentVersion -and $latestVersion) {
             Write-Host "    Ollama on Windows is already up to date ($currentVersion)." -ForegroundColor Green
+        }
+
+        if ($versions.ServerVersion -and $versions.ClientVersion -and $versions.ServerVersion -ne $versions.ClientVersion) {
+          Write-Host "    Restarting the outdated Ollama server ($($versions.ServerVersion) -> $($versions.ClientVersion))..." -ForegroundColor Yellow
+          Stop-OllamaWindowsServer -ExecutablePath $ollamaPath.Source
         }
 
         # Ensure the current process and user profile both prefer non-loopback
