@@ -332,17 +332,25 @@ SQLite snapshot, and image. Concurrent configuration edits cause deployment to a
 instead of overwriting them. Existing containers require their saved Compose file
 for rollback. Fresh installations do not require an existing SQLite database.
 
-The deploy script always fetches, merges, and verifies `origin/main` for source
-builds, regardless of whether local `main` tracks `upstream/main`. It does not change
-branch tracking configuration. It switches back to `main` if the checkout was
-detached at an old release tag. It refuses
-dirty checkouts and updates by fast-forward only, rejecting local-only commits rather
-than building a different revision. `-Tag` applies only to the npm deploy variant;
-source deployments ignore it with a warning. Use a separate `-SourcePath` when
-maintaining local source edits. The update script's release-selection options are unchanged.
+The deploy script always fetches `origin/main` for source builds, resolves its exact
+commit, and exports that commit into a disposable build directory. It does not check
+out, merge, or reset the local branch, regardless of whether local `main` tracks
+`upstream/main`. Detached checkouts and local-only commits are preserved and do not
+affect the build. Modified, staged, and untracked files in the checkout are ignored
+and left untouched; they are not merged or copied into the build context. `-Tag`
+applies only to the npm deploy variant; source deployments ignore it with a warning.
+The update script's release-selection options are unchanged.
 The npm deploy variant builds both the base and tools layers; `-RebuildTools` forces
 its tools layer to rebuild. Both deploy and update accept `-CompactState` for explicit
 SQLite compaction during downtime; ordinary deployments skip compaction.
+
+WSL deploy and update refresh Redis, SearXNG, and CRW independently. A failed pull
+does not skip the remaining images. An existing local image is used only after
+its presence is verified; if a required image cannot be pulled and is not cached,
+the script stops before restarting the gateway. An HTTP response to an HTTPS
+client indicates a registry transport problem, not an image-version problem.
+Check Docker daemon proxy/mirror settings and host network interception rather
+than disabling registry TLS verification. Cached fallback does not refresh an image.
 
 ```powershell
 # Update to the tested default release (currently v2026.6.8)

@@ -152,6 +152,44 @@ function Invoke-WslWithNetworkPoolRecovery {
   }
 }
 
+function Invoke-WslImageRefresh {
+  param(
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/:@-]*$')]
+    [string[]] $Images
+  )
+
+  $missingImages = @()
+  foreach ($image in $Images) {
+    Write-Host "  Pulling $image..." -ForegroundColor Gray
+    try {
+      Invoke-WslRetry -Command "docker pull '$image'" | Out-Host
+      Write-Host "  Updated $image" -ForegroundColor Green
+    } catch {
+      $pullFailure = $_.Exception.Message
+      if ($pullFailure -match 'HTTP response to\s*HTTPS client') {
+        Write-Warning "Cannot refresh ${image}: the Docker daemon received plain HTTP on an HTTPS connection. Check daemon proxy settings, registry mirrors, and network interception; keep registry TLS verification enabled."
+      } else {
+        Write-Warning "Could not refresh ${image}: $pullFailure"
+      }
+      $cachedImage = ''
+      try {
+        $cachedImage = ((Invoke-WslData "docker image inspect '$image' --format '{{.Id}}'") -join '').Trim()
+      } catch {
+        Write-Warning "Could not confirm a cached image for $image"
+      }
+      if ($cachedImage) {
+        Write-Warning "Using the existing cached image for $image; it was not refreshed."
+      } else {
+        $missingImages += $image
+      }
+    }
+  }
+  if ($missingImages.Count -gt 0) {
+    throw "Image refresh failed and no cached image is available for: $($missingImages -join ', '). Fix registry connectivity before starting containers."
+  }
+}
+
 function Test-WslDocker {
     try {
         $null = Invoke-Wsl "docker info > /dev/null 2>&1"
@@ -227,11 +265,12 @@ sudo -n sh -c 'grep -q generateResolvConf /etc/wsl.conf 2>/dev/null || printf "\
 function New-WslTransferArchive {
     param(
         [string] $SourcePath,
-        [string] $ArchiveName
+    [string] $ArchiveName,
+    [ValidatePattern('^(HEAD|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$')] [string] $Revision = 'HEAD'
     )
     $wslTransferRoot = "/tmp/openclaw-transfer"
     $wslArchivePath = "$wslTransferRoot/$ArchiveName.tar"
-    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; git -C '$SourcePath' archive --format=tar --output '$wslArchivePath' HEAD"
+    Invoke-Wsl "set -e; mkdir -p '$wslTransferRoot'; rm -f '$wslArchivePath'; git -C '$SourcePath' archive --format=tar --output '$wslArchivePath' '$Revision'"
     return [pscustomobject]@{ WslArchivePath = $wslArchivePath }
 }
 

@@ -536,17 +536,7 @@ if ($ollamaContainerExists) {
 
 # Always refresh auxiliary service images to their latest tags.
 Write-Host "  Pulling latest redis, searxng, and crw images..." -ForegroundColor Gray
-try {
-    Write-Host "  -> docker pull redis:7-alpine" -ForegroundColor Gray
-    Invoke-WslStream "docker pull redis:7-alpine"
-    Write-Host "  -> docker pull searxng/searxng:latest" -ForegroundColor Gray
-    Invoke-WslStream "docker pull searxng/searxng:latest"
-    Write-Host "  -> docker pull ghcr.io/us/crw:latest" -ForegroundColor Gray
-    Invoke-WslStream "docker pull ghcr.io/us/crw:latest"
-    Write-Host "  redis, searxng, and crw images updated" -ForegroundColor Green
-} catch {
-    Write-Warning "  Failed to pull latest redis/searxng/crw image(s) — will use cached version(s)"
-}
+Invoke-WslImageRefresh -Images @('redis:7-alpine', 'searxng/searxng:latest', 'ghcr.io/us/crw:latest')
 
 # Fetch latest Ollama version if native Ollama mode is selected
 if ($OllamaWindows -or $OllamaWsl) {

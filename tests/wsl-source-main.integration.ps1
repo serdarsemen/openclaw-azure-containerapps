@@ -23,21 +23,22 @@ try {
     Invoke-FixtureGit -C $remote tag old-release
     Invoke-FixtureGit clone $remote $clone
     Invoke-FixtureGit -C $clone checkout old-release
+    $initialCommit = Invoke-FixtureGit -C $clone rev-parse HEAD
     Invoke-FixtureGit -C $remote -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m 'Fixture newer main'
     $expected = Invoke-FixtureGit -C $remote rev-parse main
     $Tag = 'old-release'
     Push-Location $clone
-    & $checkoutBlock
+    . $checkoutBlock
     $actual = Invoke-FixtureGit -C $clone rev-parse HEAD
-    $branch = Invoke-FixtureGit -C $clone symbolic-ref --short HEAD
-    if ($actual -ne $expected -or $branch -ne 'main') { throw 'Did not move from detached tag to latest remote main' }
+    if ($sourceCommit -ne $expected) { throw 'Did not select the latest origin/main commit' }
+    if ($actual -ne $initialCommit) { throw 'Changed the detached checkout' }
 
+    Invoke-FixtureGit -C $clone checkout main
     Invoke-FixtureGit -C $clone -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m 'Fixture local-only commit'
     $localCommit = Invoke-FixtureGit -C $clone rev-parse HEAD
-    $failure = ''
     Push-Location $clone
-    try { & $checkoutBlock } catch { $failure = $_.Exception.Message }
-    if ($failure -notmatch 'Local main contains commits') { throw 'Local-only commits were not rejected' }
+    . $checkoutBlock
+    if ($sourceCommit -ne $expected) { throw 'Selected local commits instead of origin/main' }
     if ((Invoke-FixtureGit -C $clone rev-parse HEAD) -ne $localCommit) { throw 'Local commit was overwritten' }
 
     $null = New-Item -ItemType File -Path (Join-Path $clone 'local-edit.txt')
@@ -45,7 +46,7 @@ try {
     Push-Location $clone
     try { & $checkoutBlock } catch { $failure = $_.Exception.Message }
     if ($failure -notmatch 'Source checkout has local changes') { throw 'Dirty checkout was not rejected' }
-    Write-Host 'Detached-tag recovery, latest remote main, and local-change protection passed'
+    Write-Host 'Origin/main selection with detached or divergent checkouts and local-change protection passed'
 } finally {
     Remove-Item -LiteralPath $fixture -Recurse -Force
 }

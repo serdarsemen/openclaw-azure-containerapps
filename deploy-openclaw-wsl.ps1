@@ -260,28 +260,23 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     try {
         $sourceChanges = git status --porcelain
         if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source checkout' }
-        if ($sourceChanges) { throw 'Source checkout has local changes. Commit or stash them, or use a separate -SourcePath.' }
+        if ($sourceChanges) {
+            Write-Host '  Local source changes are ignored; only the fetched origin/main commit will be built. Local files are unchanged.' -ForegroundColor Yellow
+        }
         $sourceRemote = 'origin'
         $sourceRef = "$sourceRemote/main"
         if ($Tag) { Write-Warning "-Tag applies only to -Npm; source builds always use the latest $sourceRef." }
         Write-Host "  Fetching latest $sourceRef (single-branch, pruning stale refs)..."
         git fetch --prune $sourceRemote "+refs/heads/main:refs/remotes/$sourceRef"
         if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-        git checkout main
-        if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-        git merge --ff-only $sourceRef
-        if ($LASTEXITCODE -ne 0) { throw "Source branch cannot be fast-forwarded; use a separate -SourcePath or reconcile it manually." }
-        $sourceCommit = git rev-parse HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve source commit' }
-        $remoteCommit = git rev-parse $sourceRef
-        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve remote main commit' }
-        if ($sourceCommit -ne $remoteCommit) { throw "Local main contains commits not in $sourceRef; use a separate -SourcePath or reconcile it manually." }
+        $sourceCommit = git rev-parse --verify "refs/remotes/$sourceRef^{commit}"
+        if ($LASTEXITCODE -ne 0) { throw "Could not resolve the fetched $sourceRef commit" }
     } finally {
         Pop-Location
     }
 
     $ref = "latest ($sourceRef @ $sourceCommit)"
-    Write-Host "  Source updated to: $ref" -ForegroundColor Green
+    Write-Host "  Build source: $ref (local checkout unchanged)" -ForegroundColor Green
 
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
 
@@ -293,7 +288,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     $WslSourcePath = $WslSourcePath.Trim()
 
     Write-Host "  Step 2a: Packaging source as WSL transfer archive..." -ForegroundColor Gray
-    $SourceArchive = New-WslTransferArchive -SourcePath $WslSourcePath -ArchiveName "$ImageName-source"
+    $SourceArchive = New-WslTransferArchive -SourcePath $WslSourcePath -ArchiveName "$ImageName-source" -Revision $sourceCommit
     Write-Host "  Source archive (WSL): $($SourceArchive.WslArchivePath)" -ForegroundColor Green
 
     Write-Host "  Step 2b: Expanding source archive in WSL..." -ForegroundColor Gray
@@ -450,17 +445,7 @@ Write-Host "  Candidate configuration staged; live configuration is unchanged" -
 
 # Always refresh auxiliary service images to their latest tags before startup.
 Write-Host "  Pulling latest redis, searxng, and crw images..." -ForegroundColor Gray
-try {
-    Write-Host "  -> docker pull redis:7-alpine" -ForegroundColor Gray
-    Invoke-WslStream "docker pull redis:7-alpine"
-    Write-Host "  -> docker pull searxng/searxng:latest" -ForegroundColor Gray
-    Invoke-WslStream "docker pull searxng/searxng:latest"
-    Write-Host "  -> docker pull ghcr.io/us/crw:latest" -ForegroundColor Gray
-    Invoke-WslStream "docker pull ghcr.io/us/crw:latest"
-    Write-Host "  redis, searxng, and crw images updated" -ForegroundColor Green
-} catch {
-    Write-Warning "  Failed to pull latest redis/searxng/crw image(s) — will use cached version(s)"
-}
+Invoke-WslImageRefresh -Images @('redis:7-alpine', 'searxng/searxng:latest', 'ghcr.io/us/crw:latest')
 
 # Fetch latest Ollama version if native Ollama mode is selected
 if ($OllamaWindows -or $OllamaWsl) {
