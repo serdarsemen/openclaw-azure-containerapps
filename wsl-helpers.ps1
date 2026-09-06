@@ -37,6 +37,9 @@ function Invoke-Wsl {
 function Test-WslTransientNetworkError {
   param([string] $Output)
   if (-not $Output) { return $false }
+  if ($Output -match '(?i)\b(E401|E403|E404|ETARGET|ERESOLVE)\b|unauthorized|authentication required|denied:|manifest unknown|manifest.*not found|failed to resolve.*: not found|WSL_E_DISTRO_NOT_FOUND') {
+    return $false
+  }
 
   $patterns = @(
     'UND_ERR_CONNECT_TIMEOUT',
@@ -49,10 +52,7 @@ function Test-WslTransientNetworkError {
     'network is unreachable',
     'context deadline exceeded',
     'lookup .*: no such host',
-    'registry\.npmjs\.org',
-    'registry-1\.docker\.io',
     # WSL service-level socket timeouts (Wsl/Service/0x8007274c et al.)
-    'Wsl/Service/',
     'connected party did not properly respond',
     'connected host has failed to respond',
     '0x8007274c',
