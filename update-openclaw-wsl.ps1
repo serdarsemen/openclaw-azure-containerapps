@@ -41,6 +41,7 @@ param(
     [switch] $Npm,
     [switch] $NoCache,
     [switch] $RebuildTools,
+    [switch] $CompactState,
     [switch] $PullOnly,
     [switch] $Ollama,
     [switch] $OllamaWindows,
@@ -562,8 +563,8 @@ if ($OllamaWindows -or $OllamaWsl) {
 
 Write-Host "  Applying the updated image without stopping unchanged services..." -ForegroundColor Gray
 try { Invoke-Wsl "docker stop -t 90 '$ContainerName' >/dev/null 2>&1 || true" } catch {}
-Write-Host "  Pruning terminal task history and compacting SQLite..." -ForegroundColor Gray
-Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact
+Write-Host "  Pruning terminal task history (SQLite compaction: $CompactState)..." -ForegroundColor Gray
+Invoke-OpenClawStateMaintenance -WslDataDir $WslDataDir -WslMaintenanceScript $WslMaintenanceScript -RetentionDays 30 -Compact:$CompactState
 Invoke-WslWithNetworkPoolRecovery -Context "docker compose up" -Command "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' up -d --remove-orphans"
 Write-Host "  Containers reconciled" -ForegroundColor Green
 
