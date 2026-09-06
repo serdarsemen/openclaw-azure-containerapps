@@ -64,6 +64,9 @@ Write-Host "  ACR: $AcrServer" -ForegroundColor Green
 # Ensure kubectl context is the AKS cluster
 az aks get-credentials --resource-group $AksResourceGroup --name $AksName --overwrite-existing --only-show-errors | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to fetch AKS credentials for $AksName" }
+$replicaImages = kubectl -n $Namespace get replicasets -o jsonpath='{.items[*].spec.template.spec.containers[*].image}'
+if ($LASTEXITCODE -ne 0) { throw 'Could not discover ReplicaSet images to protect before updating' }
+$rollbackDigests = @(Resolve-AcrProtectedDigests -Registry $AcrName -Repository 'openclaw' -Images (($replicaImages -join ' ') -split '\s+' | Where-Object { $_ }))
 
 # --- Import CRW image to ACR ---
 Write-Host "`n=== Step 1.5/5: Importing CRW image to ACR ===" -ForegroundColor Cyan
@@ -169,7 +172,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
 # --- Tools layer → :latest ---
 Write-Host "`n=== Step 3/5: Building tools layer (:latest) ===" -ForegroundColor Cyan
-Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage "openclaw:$BaseTag" -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
+Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage "openclaw:$BaseTag" -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
 
 # Resolve the new digest for a pin-perfect rollout
 $NewDigest = az acr repository show --name $AcrName --image "openclaw:latest" `
@@ -178,7 +181,6 @@ if (-not $NewDigest) { throw "Could not resolve digest for $AcrServer/openclaw:l
 $PinnedImage = "$AcrServer/openclaw@$NewDigest"
 Write-Host "  New image: $PinnedImage" -ForegroundColor Green
 
-Invoke-AcrBaseImageSweep -Registry $AcrName -Repository "openclaw" -KeepTagPrefix "base-" -Keep $KeepBaseImages -ProtectedTags @($BaseTag)
 
 # --- Patch OpenClaw Deployment ---
 Write-Host "`n=== Step 4/5: Rolling out OpenClaw ===" -ForegroundColor Cyan
@@ -198,7 +200,13 @@ kubectl -n $Namespace set image deploy/openclaw openclaw=$PinnedImage | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "kubectl set image failed" }
 
 kubectl -n $Namespace rollout status deploy/openclaw --timeout=${RolloutTimeoutSeconds}s | Out-Host
-if ($LASTEXITCODE -ne 0) { Write-Warning "openclaw rollout did not complete within timeout" }
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "openclaw rollout did not complete within timeout; skipping image cleanup"
+} else {
+    $basePrefix = if ($Npm) { 'base-npm-' } else { 'base-' }
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix $basePrefix -Keep $KeepBaseImages -ProtectedTags @($BaseTag) -ProtectedDigests $rollbackDigests
+    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'tools-' -Keep $KeepBaseImages -ProtectedDigests $rollbackDigests
+}
 
 # --- Optional: update Ollama image ---
 if ($OllamaImage) {

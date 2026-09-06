@@ -386,7 +386,7 @@ function Wait-OpenClawContainerHealthy {
         if (Test-OpenClawRuntimeState -ContainerName $ContainerName -SkipAudit -TimeoutSeconds ([Math]::Min(5, $remaining))) {
           $remaining = [int][Math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
           if ($remaining -lt 1) { return $false }
-          return (Test-OpenClawRuntimeState -ContainerName $ContainerName -TimeoutSeconds ([Math]::Min(45, $remaining)))
+            if (Test-OpenClawRuntimeState -ContainerName $ContainerName -TimeoutSeconds ([Math]::Min(45, $remaining))) { return $true }
         }
         if ($attempt -lt $MaxAttempts) {
           $remaining = [Math]::Max(0, $TimeoutSeconds - $timer.Elapsed.TotalSeconds)
@@ -1313,7 +1313,7 @@ function New-OpenClawComposeYaml {
     $envVars += "NPM_CONFIG_RESOLUTION_MODE=highest"
     $envVars += "npm_config_resolution_mode=highest"
 
-    $permissionCommand = New-OpenClawPermissionCommand -HomeDir $HomeDir
+    $permissionCommand = (New-OpenClawPermissionCommand -HomeDir $HomeDir).Replace('$', '$$')
     if ($Npm) {
       $startupCmd = @(
             "umask 077",

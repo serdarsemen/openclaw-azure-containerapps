@@ -70,6 +70,9 @@ Write-Host "  ACR:  $AcrName" -ForegroundColor Green
 Write-Host "  App:  $AppName" -ForegroundColor Green
 
 $AcrServer = "$AcrName.azurecr.io"
+$revisionImagesJson = az containerapp revision list --name $AppName --resource-group $ResourceGroup --query '[].properties.template.containers[].image' -o json
+if ($LASTEXITCODE -ne 0) { throw 'Could not discover images to protect before updating' }
+$rollbackDigests = @(Resolve-AcrProtectedDigests -Registry $AcrName -Repository 'openclaw' -Images @($revisionImagesJson | ConvertFrom-Json))
 
 # --- Build image ---
 if ($Npm) {
@@ -141,14 +144,13 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
     $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
+    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
     $step2bStopwatch.Stop()
     $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-npm-' -Keep $KeepBaseImages -ProtectedTags @($baseTagName)
 
     # Clean up temp build dir
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -250,17 +252,17 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog)..." -ForegroundColor Gray
     $step2bStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages -Keep $KeepBaseImages
+    Invoke-OpenClawToolsBuild -Registry $AcrName -BaseImage $baseImageTag -Dockerfile $ToolsDockerfile -Context images -Refresh:$RefreshImages
     $step2bStopwatch.Stop()
     $step2Stopwatch.Stop()
     Write-Host "Image built and pushed to $AcrServer/openclaw:latest" -ForegroundColor Green
     Write-Host ("  Step 2b duration: {0:N1}s" -f $step2bStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
     Write-Host ("  Step 2 total duration: {0:N1}s" -f $step2Stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
-    Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep $KeepBaseImages -ProtectedTags @($baseTagName)
 }
 
 # --- Step 2.5/3: Import latest CRW image to ACR ---
+$PinnedImage = "$AcrServer/openclaw@$(Get-AcrImageDigest -Registry $AcrName -Image 'openclaw:latest')"
 Write-Host "`n=== Step 2.5/3: Importing latest CRW image to ACR ===" -ForegroundColor Cyan
 try {
     Write-Host "  Importing ghcr.io/us/crw:latest -> $AcrServer/crw:latest" -ForegroundColor Gray
@@ -387,7 +389,7 @@ properties:
   template:
     containers:
     - name: $AppName
-      image: $AcrServer/openclaw:latest
+      image: $PinnedImage
       command:
       - bash
       - -c
@@ -508,7 +510,7 @@ properties:
   template:
     containers:
     - name: $AppName
-      image: $AcrServer/openclaw:latest
+      image: $PinnedImage
       command:
       - sh
       - -c
@@ -659,6 +661,14 @@ for ($h = 1; $h -le $healthMaxAttempts; $h++) {
 }
 if (-not $healthOk) {
     Write-Warning "OpenClaw health check failed after $healthMaxAttempts attempts — proceeding anyway"
+}
+
+if ($healthOk -and $running -in 'Running', 'RunningAtMaxScale') {
+  $basePrefix = if ($Npm) { 'base-npm-' } else { 'base-' }
+  Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix $basePrefix -Keep $KeepBaseImages -ProtectedTags @($baseTagName) -ProtectedDigests $rollbackDigests
+  Invoke-AcrBaseImageSweep -Registry $AcrName -Repository 'openclaw' -KeepTagPrefix 'tools-' -Keep $KeepBaseImages -ProtectedDigests $rollbackDigests
+} else {
+  Write-Warning 'Skipping image cleanup because the new revision has not passed readiness checks'
 }
 
 $rev = $latestRev

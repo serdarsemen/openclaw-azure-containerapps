@@ -116,10 +116,11 @@ az containerapp exec --name ca-openclaw --resource-group rg-openclaw
 The update script preserves the existing gateway token, env vars, NFS mount, and probes by reading them from the running app before patching.
 
 ACA and AKS updates reuse base images keyed by source/build inputs and tools images
-keyed by the base digest and tools context. Floating npm tags such as `latest`
+keyed by the base digest and tools context, and deploy by image digest. Floating npm tags such as `latest`
 always rebuild the base. Use `-RefreshImages` periodically for upstream dependency
 and security updates, even when the OpenClaw version has not changed. Cache retention
-uses `-KeepBaseImages` (default 3) for each swept base/tools group; active images and
+uses `-KeepBaseImages` (default 3) for each swept base/tools group. Cleanup runs only
+after readiness succeeds. Images referenced by existing revisions/ReplicaSets and
 digests with other tags are protected and may increase the retained count.
 
 Generated ACA, AKS, and WSL startup commands perform a full permission migration
@@ -127,6 +128,7 @@ once, then check sensitive locations and change only incorrect permissions.
 The first startup can still be slower on large data volumes. Remove the
 `.permissions-v1` file from the persisted OpenClaw data directory when a full
 permission repair is needed after importing or restoring data.
+Required permission failures block startup rather than silently skipping later checks.
 
 Open the Control UI URL printed by the script. Send a test message.
 
@@ -358,7 +360,8 @@ retained SQLite/configuration backups under `~/.openclaw-data/backups`, prune
 terminal task history older than 30 days, and install a weekly online maintenance
 job. Full SQLite compaction during updates is opt-in via `-CompactState`; ordinary
 updates skip `VACUUM` to reduce gateway downtime. Readiness polling uses bounded
-Docker checks followed by one bounded state/security audit, with rollback on failure.
+Docker checks followed by a bounded state/security audit. Temporary failures are
+retried within the overall readiness deadline, with rollback if checks never pass.
 A bounded Docker sidecar monitors restart events
 and writes diagnostics under `~/.openclaw-data/logs/restarts`.
 

@@ -21,16 +21,22 @@ function Get-OpenClawBuildKey {
     }
 }
 
+function Invoke-AcrImageQuery {
+    param([string] $Registry, [string] $Image)
+    $result = az acr repository show --name $Registry --image $Image --query digest -o tsv 2>&1
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($result -join "`n") }
+}
+
 function Get-AcrImageDigest {
     param([string] $Registry, [string] $Image, [switch] $AllowMissing)
 
-    $result = az acr repository show --name $Registry --image $Image --query digest -o tsv 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $message = $result -join "`n"
-        if ($AllowMissing -and $message -match 'MANIFEST_UNKNOWN|NAME_UNKNOWN|specified (tag|image|repository).*does not exist') { return '' }
+    $result = Invoke-AcrImageQuery -Registry $Registry -Image $Image
+    if ($result.ExitCode -ne 0) {
+        $message = $result.Output
+        if ($AllowMissing -and $message -match 'MANIFEST_UNKNOWN|NAME_UNKNOWN|The requested data does not exist|specified (tag|image|repository).*does not exist') { return '' }
         throw "Could not query ${Registry}/${Image}: $message"
     }
-    $digest = ($result -join '').Trim()
+    $digest = $result.Output.Trim()
     if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw "Invalid digest returned for ${Registry}/${Image}" }
     return $digest
 }
@@ -72,7 +78,7 @@ function Invoke-AcrCachedBuild {
 }
 
 function Invoke-OpenClawToolsBuild {
-    param([string] $Registry, [string] $BaseImage, [string] $Dockerfile, [string] $Context, [switch] $Refresh, [int] $Keep = 3)
+    param([string] $Registry, [string] $BaseImage, [string] $Dockerfile, [string] $Context, [switch] $Refresh)
 
     $baseDigest = Get-AcrImageDigest -Registry $Registry -Image $BaseImage
     $files = @(Get-ChildItem -LiteralPath $Context -Recurse -File -Force | Select-Object -ExpandProperty FullName)
@@ -80,7 +86,20 @@ function Invoke-OpenClawToolsBuild {
     $key = Get-OpenClawBuildKey -Identity $identity -Files $files -RootPath $Context
     $repository = ($BaseImage -split ':')[0]
     Invoke-AcrCachedBuild -Registry $Registry -Image "${repository}:tools-$key" -Dockerfile $Dockerfile -Context $Context -AdditionalTag "${repository}:latest" -BuildArguments @("BASE_IMAGE=$Registry.azurecr.io/$repository@$baseDigest") -Refresh:$Refresh
-    Invoke-AcrBaseImageSweep -Registry $Registry -Repository $repository -KeepTagPrefix 'tools-' -Keep $Keep -ProtectedTags @("tools-$key")
+}
+
+function Resolve-AcrProtectedDigests {
+    param([string] $Registry, [string] $Repository, [string[]] $Images)
+
+    $prefix = "$Registry.azurecr.io/$Repository"
+    foreach ($image in ($Images | Sort-Object -Unique)) {
+        if ($image -match ('^' + [regex]::Escape($prefix) + '@(sha256:[0-9a-f]{64})$')) {
+            $Matches[1]
+        } elseif ($image.StartsWith("${prefix}:")) {
+            $digest = Get-AcrImageDigest -Registry $Registry -Image $image.Substring($Registry.Length + '.azurecr.io/'.Length) -AllowMissing
+            if ($digest) { $digest }
+        }
+    }
 }
 
 function Get-AcrRepositoryTags {
@@ -97,14 +116,16 @@ function Invoke-AcrBaseImageSweep {
         [string] $Repository,
         [string] $KeepTagPrefix,
         [ValidateRange(1, 1000)] [int] $Keep = 3,
-        [string[]] $ProtectedTags = @()
+        [string[]] $ProtectedTags = @(),
+        [string[]] $ProtectedDigests = @()
     )
 
     $tags = @(Get-AcrRepositoryTags -Registry $Registry -Repository $Repository)
-    $matching = @($tags | Where-Object { $_.name.StartsWith($KeepTagPrefix) })
+    $matching = @($tags | Where-Object { $_.name.StartsWith($KeepTagPrefix) -and -not ($KeepTagPrefix -eq 'base-' -and $_.name.StartsWith('base-npm-')) })
+    $matchingNames = @($matching | Select-Object -ExpandProperty name)
     $protectedNames = @('latest') + $ProtectedTags + @($matching | Select-Object -First $Keep -ExpandProperty name)
-    $protectedDigests = @($tags | Where-Object { $protectedNames -contains $_.name -or -not $_.name.StartsWith($KeepTagPrefix) } | Select-Object -ExpandProperty digest)
-    $obsolete = @($matching | Select-Object -Skip $Keep | Where-Object { $_.digest -and $protectedDigests -notcontains $_.digest } | Group-Object digest)
+    $retainedDigests = $ProtectedDigests + @($tags | Where-Object { $protectedNames -contains $_.name -or $matchingNames -notcontains $_.name } | Select-Object -ExpandProperty digest)
+    $obsolete = @($matching | Select-Object -Skip $Keep | Where-Object { $_.digest -and $retainedDigests -notcontains $_.digest } | Group-Object digest)
     foreach ($group in $obsolete) {
         $tag = $group.Group[0].name
         Write-Host "  Removing unused cache image ${Repository}:$tag" -ForegroundColor Gray

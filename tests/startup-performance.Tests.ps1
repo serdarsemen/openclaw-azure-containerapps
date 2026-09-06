@@ -3,6 +3,11 @@ $helperPath = Join-Path $repoRoot 'startup-helpers.ps1'
 if (Test-Path $helperPath) { . $helperPath }
 
 Describe 'Startup permissions' {
+    It 'does not swallow failures or short-circuit the sensitive checks' {
+        $command = New-OpenClawPermissionCommand -HomeDir '/home/node'
+        $command.EndsWith('|| true') | Should Be $false
+        $command | Should Match 'permission_status'
+    }
     It 'guards the full scan with a versioned migration marker' {
         $command = New-OpenClawPermissionCommand -HomeDir '/home/node'
         $command | Should Match 'if \[ ! -f .*/\.permissions-v1'

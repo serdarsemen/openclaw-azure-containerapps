@@ -44,6 +44,29 @@ Describe 'ACR cached builds' {
 }
 
 Describe 'ACR cache retention' {
+    It 'protects deployed rollback digests outside the keep window' {
+        Mock Get-AcrRepositoryTags {
+            @(
+                [pscustomobject]@{ name = 'tools-new'; digest = 'new' },
+                [pscustomobject]@{ name = 'tools-running'; digest = 'running' }
+            )
+        }
+        Mock Invoke-AcrBuildCommand {}
+        Invoke-AcrBaseImageSweep -Registry 'test' -Repository 'openclaw' -KeepTagPrefix 'tools-' -Keep 1 -ProtectedDigests @('running')
+        Assert-MockCalled Invoke-AcrBuildCommand -Times 0 -Exactly -Scope It
+    }
+
+    It 'does not sweep npm tags with the source cache' {
+        Mock Get-AcrRepositoryTags {
+            @(
+                [pscustomobject]@{ name = 'base-new'; digest = 'new' },
+                [pscustomobject]@{ name = 'base-npm-current'; digest = 'npm' }
+            )
+        }
+        Mock Invoke-AcrBuildCommand {}
+        Invoke-AcrBaseImageSweep -Registry 'test' -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep 1
+        Assert-MockCalled Invoke-AcrBuildCommand -Times 0 -Exactly -Scope It
+    }
     It 'keeps the active digest even when its cache tag is older' {
         Mock Get-AcrRepositoryTags {
             @(
@@ -69,5 +92,22 @@ Describe 'ACR cache retention' {
         Mock Invoke-AcrBuildCommand {}
         Invoke-AcrBaseImageSweep -Registry 'test' -Repository 'openclaw' -KeepTagPrefix 'base-' -Keep 1 -ProtectedTags @('base-selected')
         Assert-MockCalled Invoke-AcrBuildCommand -Times 0 -Exactly -Scope It
+    }
+}
+
+Describe 'ACR lookup errors' {
+    It 'treats the Azure CLI missing-data response as a cache miss' {
+        . $helperPath
+        Mock Invoke-AcrImageQuery { [pscustomobject]@{ ExitCode = 1; Output = 'ERROR: The requested data does not exist.' } }
+        Get-AcrImageDigest -Registry 'test' -Image 'openclaw:absent' -AllowMissing | Should Be ''
+    }
+
+    It 'does not hide authorization failures' {
+        . $helperPath
+        function Invoke-AcrImageQuery { [pscustomobject]@{ ExitCode = 1; Output = 'ERROR: unauthorized: authentication required' } }
+        $lookup = (Get-Command Get-AcrImageDigest).ScriptBlock
+        $failure = ''
+        try { & $lookup -Registry 'test' -Image 'openclaw:absent' -AllowMissing } catch { $failure = $_.Exception.Message }
+        $failure | Should Match 'unauthorized'
     }
 }

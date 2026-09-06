@@ -25,6 +25,20 @@ chmod 644 '$dataDir/agents/test/auth-second.json'
 ( $permissions )
 test "`$(stat -c %a '$dataDir/agents/test/auth-second.json')" = 600
 test "`$(stat -c %a '$dataDir/workspace/not-rescanned')" = 755
+mkdir -p '$dataDir/credentials' '$dataDir/identity'
+touch '$dataDir/identity/auth-after-failure.json'
+chmod 644 '$dataDir/identity/auth-after-failure.json'
+find() {
+    case "`$1" in
+        '$dataDir/credentials') return 1 ;;
+        *) command find "`$@" ;;
+    esac
+}
+if ( $permissions ); then
+    printf 'Permission failures must block startup\n' >&2
+    exit 1
+fi
+test "`$(stat -c %a '$dataDir/identity/auth-after-failure.json')" = 600
 printf 'Permission migration and targeted second-run checks passed\n'
 "@
     wsl --exec timeout -k 1 20 sh -c ($testScript -replace "`r", '')

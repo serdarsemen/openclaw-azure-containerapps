@@ -2,6 +2,18 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repoRoot "wsl-helpers.ps1")
 
 Describe "Bounded WSL health checks" {
+    It "retries a temporary audit failure within the deadline" {
+        $script:auditAttempts = 0
+        Mock Test-OpenClawRuntimeState {
+            if ($SkipAudit) { return $true }
+            $script:auditAttempts++
+            return $script:auditAttempts -ge 2
+        }
+        Mock Start-Sleep {}
+        Wait-OpenClawContainerHealthy -ContainerName 'test' -MaxAttempts 3 | Should Be $true
+        $script:auditAttempts | Should Be 2
+    }
+
     It "bounds HTTP response time as well as connection time" {
         (Get-Command Test-OllamaEndpointFromWsl).ScriptBlock.ToString() | Should Match '--max-time \$TimeoutSeconds'
     }
