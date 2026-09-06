@@ -368,28 +368,27 @@ instead of overwriting them. Existing containers require their saved Compose fil
 for rollback. Fresh installations do not require an existing SQLite database.
 
 WSL and ACA source-build deploy scripts refresh the checkout visible in VS Code
-on every deployment. They shallow-clone `main` from the existing checkout's `origin`
-remote (not `upstream`) with `--depth 1 --no-tags`, avoiding the full repository
-history download, and verify that the clone matches `origin/main`. The existing
-`openclaw-repo` root directory stays in place so a process holding that directory
-open does not block a root rename. After the clone is verified, all local child
-entries, including `.git`, are deleted and replaced with the clean remote contents.
-The refreshed checkout is on branch `main` tracking `origin/main`. The build exports
-that verified commit rather than local edits. The new checkout contains only the
-main tip.
+on every deployment using an in-place `git fetch --no-tags origin` for `main`.
+They reuse the existing `.git` directory and downloaded objects; no clone,
+replacement directory, or staging folder is created. Once the fetch succeeds,
+local `main` is forced to the fetched commit, tracked files are reset, and
+`git clean -ffdx` removes untracked and ignored files (including nested untracked
+repositories). Branch `main` is set to track `origin/main`, not `upstream/main`.
+The build exports the verified fetched commit rather than local edits.
 
 **Source sync is destructive and creates no local-source backup.** Local-only
 commits, staged and unstaged changes, untracked and ignored files, and local Git
-configuration are discarded. No local code is merged into the fresh checkout.
-If cloning or clone verification fails, local files are unchanged. If deletion or
-installation fails, the checkout may be partially overwritten and there is no local
-rollback. The complete clean remote clone is retained in the reported gitignored
-`.openclaw-staging-*` directory; it contains no saved local changes. Staging is removed
-after a successful sync. Historical `.openclaw-backup-*` folders are left untouched,
-but no new ones are created. Configuration/SQLite deployment-state backups remain
-enabled and are separate from source sync.
+working-tree changes are discarded. No local code is merged. Existing Git objects,
+other refs, and repository configuration remain; main's tracking remote is updated.
+Local-only commits are removed from main but may remain in other refs or reflogs.
+If fetching fails, local files and HEAD are unchanged. If checkout, reset, or cleanup
+fails, the checkout may be partially updated and there is no local rollback.
+Locked-file retries are non-interactive and report an error. Historical sibling
+`.openclaw-backup-*` and `.openclaw-staging-*` folders are left untouched, but no new
+ones are created. Configuration/SQLite deployment-state backups remain enabled and
+are separate from source sync.
 
-Avoid editing the checkout during replacement; unsaved VS Code buffers are not
+Avoid editing the checkout during synchronization; unsaved VS Code buffers are not
 updated by Git and can reintroduce local edits if saved afterward. Individual file
 locks or access restrictions can still block deletion or replacement. The script
 does not close VS Code, kill processes holding files, or change filesystem permissions. Custom
@@ -397,7 +396,9 @@ does not close VS Code, kill processes holding files, or change filesystem permi
 checkouts that own linked worktrees. Symlinks, junctions, Windows device-path
 prefixes, and path components ending in dots or spaces are rejected before cloning
 or moving source directories.
-Without an existing checkout, the scripts clone the official OpenClaw repository.
+Without an existing checkout, the scripts initialize a repository, add the official
+OpenClaw repository as origin, and fetch main with depth 1. Later runs fetch into
+that repository instead of starting over.
 `-Tag` applies only to npm deployments; source deployments ignore it with a warning.
 Update scripts and the AKS/GitHub Actions deployment paths are unchanged.
 The npm deploy variant builds both the base and tools layers; `-RebuildTools` forces

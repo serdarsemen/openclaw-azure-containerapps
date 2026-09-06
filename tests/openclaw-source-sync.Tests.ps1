@@ -1,8 +1,6 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $helperPath = Join-Path $repoRoot 'source-helpers.ps1'
 if (Test-Path $helperPath) { . $helperPath }
-$copyCommand = Get-Command Copy-OpenClawSourceEntry -ErrorAction SilentlyContinue
-$script:sourceEntryCopy = if ($copyCommand) { $copyCommand.ScriptBlock } else { $null }
 
 function Invoke-SourceFixtureGit {
     $output = & git @args 2>&1
@@ -12,9 +10,6 @@ function Invoke-SourceFixtureGit {
 
 Describe 'Clean origin/main source checkout' {
     BeforeEach {
-        if ($script:sourceEntryCopy) {
-            Mock Copy-OpenClawSourceEntry { & $script:sourceEntryCopy -Source $Source -Destination $Destination }
-        }
         $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $fixture
         $remote = Join-Path $fixture 'origin'
@@ -53,7 +48,7 @@ Describe 'Clean origin/main source checkout' {
         $result.BackupPath | Should Be ''
         @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-backup-*').Count | Should Be 0
         @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*').Count | Should Be 0
-        (Get-Content (Join-Path $checkout '.git/config') -Raw) | Should Not Match 'preserved'
+        (Invoke-SourceFixtureGit -C $checkout config --get fixture.setting) | Should Be 'preserved'
     }
 
     It 'uses origin even if local main tracks a different upstream remote' {
@@ -72,14 +67,16 @@ Describe 'Clean origin/main source checkout' {
         $result.BackupPath | Should Be ''
     }
 
-    It 'leaves the existing checkout in place when the origin clone fails' {
+    It 'leaves local files and HEAD unchanged when fetching origin fails' {
         $null = Invoke-SourceFixtureGit -C $checkout remote set-url origin (Join-Path $fixture 'missing-remote')
         $original = (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) -join ''
+        Set-Content (Join-Path $checkout 'source.txt') 'local edit'
         $failure = ''
         try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
 
-        $failure | Should Match 'clone'
+        $failure | Should Match 'fetch'
         (Invoke-SourceFixtureGit -C $checkout rev-parse HEAD) | Should Be $original
+        (Get-Content (Join-Path $checkout 'source.txt') -Raw).Trim() | Should Be 'local edit'
         @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-backup-*').Count | Should Be 0
         @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*').Count | Should Be 0
     }
@@ -107,16 +104,17 @@ Describe 'Clean origin/main source checkout' {
         }
     }
 
-    It 'downloads only the main tip without historical commits or tags' {
+    It 'reuses the existing Git directory and history without downloading tags' {
         $null = Invoke-SourceFixtureGit -C $remote tag old-tag HEAD~1
+        Set-Content (Join-Path $checkout '.git/local-marker') 'existing git directory'
         $result = Sync-OpenClawSource -SourcePath $checkout
-        (Invoke-SourceFixtureGit -C $checkout rev-parse --is-shallow-repository) | Should Be 'true'
-        (Invoke-SourceFixtureGit -C $checkout rev-list --count HEAD) | Should Be '1'
+        (Get-Content (Join-Path $checkout '.git/local-marker') -Raw).Trim() | Should Be 'existing git directory'
+        (Invoke-SourceFixtureGit -C $checkout rev-list --count HEAD) | Should Be '2'
         ((Invoke-SourceFixtureGit -C $checkout tag --list) -join '') | Should Be ''
         $result.Commit | Should Be $expected
     }
 
-    It 'reports partial overwrite and retains only clean staging when a child is locked' {
+    It 'reports a locked file without deleting Git metadata or creating staging' {
         $lockedPath = Join-Path $checkout 'locked-local.txt'
         Set-Content $lockedPath 'local data must survive'
         $handle = [IO.File]::Open($lockedPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
@@ -125,31 +123,25 @@ Describe 'Clean origin/main source checkout' {
             try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
         } finally { $handle.Dispose() }
 
-        $failure | Should Match 'partially overwritten'
+        $failure | Should Match 'partially updated'
         $failure | Should Match 'Close tools or terminals'
         (Get-Content $lockedPath -Raw).Trim() | Should Be 'local data must survive'
         @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-backup-*').Count | Should Be 0
-        $staging = @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*')
-        $staging.Count | Should Be 1
-        (Invoke-SourceFixtureGit -C $staging[0].FullName rev-parse HEAD) | Should Be $expected
+        @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*').Count | Should Be 0
+        (Invoke-SourceFixtureGit -C $checkout rev-parse --is-inside-work-tree) | Should Be 'true'
     }
 
-    It 'retains the complete clean clone after a failed copy without backing up local work' {
-        Set-Content (Join-Path $checkout 'local.txt') 'discard'
-        Mock Copy-OpenClawSourceEntry {
-            if ($Source -match '\.openclaw-staging-.*[\\/]source\.txt$') { throw 'simulated locked destination' }
-            & $script:sourceEntryCopy -Source $Source -Destination $Destination
-        }
-        $failure = ''
-        try { $null = Sync-OpenClawSource -SourcePath $checkout } catch { $failure = $_.Exception.Message }
-
-        $failure | Should Match 'partially overwritten'
-        Test-Path (Join-Path $checkout 'local.txt') | Should Be $false
-        @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-backup-*').Count | Should Be 0
-        $staging = @(Get-ChildItem $fixture -Directory -Filter '*.openclaw-staging-*')
-        $staging.Count | Should Be 1
-        (Invoke-SourceFixtureGit -C $staging[0].FullName rev-parse HEAD) | Should Be $expected
-        (Get-Content (Join-Path $staging[0].FullName 'source.txt') -Raw).Trim() | Should Be 'origin latest'
+    It 'updates detached and shallow checkouts without a clone' {
+        $shallow = Join-Path $fixture 'shallow'
+        $null = Invoke-SourceFixtureGit clone --depth 1 --no-local $remote $shallow
+        $null = Invoke-SourceFixtureGit -C $shallow checkout --detach
+        $null = Invoke-SourceFixtureGit -C $remote -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m newer
+        $latest = (Invoke-SourceFixtureGit -C $remote rev-parse HEAD) -join ''
+        Set-Content (Join-Path $shallow '.git/local-marker') 'keep metadata'
+        $result = Sync-OpenClawSource -SourcePath $shallow
+        $result.Commit | Should Be $latest
+        (Invoke-SourceFixtureGit -C $shallow branch --show-current) | Should Be 'main'
+        (Get-Content (Join-Path $shallow '.git/local-marker') -Raw).Trim() | Should Be 'keep metadata'
     }
 
     It 'creates no backups on repeated syncs and leaves historical backup folders alone' {
@@ -195,6 +187,10 @@ Describe 'Clean origin/main source checkout' {
 }
 
 Describe 'Source deployment integration' {
+    It 'never clones or stages a replacement repository' {
+        $helper = Get-Content $helperPath -Raw
+        $helper | Should Not Match 'git clone|openclaw-staging|openclaw-backup'
+    }
     It 'uses source sync in WSL and ACA and exports the verified commit' {
         foreach ($scriptName in @('deploy-openclaw-wsl.ps1', 'deploy-openclaw-ACA.ps1')) {
             $source = Get-Content (Join-Path $repoRoot $scriptName) -Raw

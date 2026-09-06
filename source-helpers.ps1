@@ -1,26 +1,3 @@
-function Copy-OpenClawSourceEntry {
-    param([string] $Source, [string] $Destination)
-
-    Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force -ErrorAction Stop
-}
-
-function Install-OpenClawSourceContents {
-    param([string] $SourcePath, [string] $StagingPath)
-
-    $originalEntries = @(Get-ChildItem -LiteralPath $SourcePath -Force -ErrorAction Stop)
-    $candidateEntries = @(Get-ChildItem -LiteralPath $StagingPath -Force -ErrorAction Stop)
-    try {
-        foreach ($entry in $originalEntries) {
-            Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
-        }
-        foreach ($entry in $candidateEntries) {
-            Copy-OpenClawSourceEntry -Source $entry.FullName -Destination (Join-Path $SourcePath $entry.Name)
-        }
-    } catch {
-        throw "Could not overwrite source contents: $($_.Exception.Message) '$SourcePath' may be partially overwritten. No local backup was created. Close tools or terminals holding files and check permissions. The complete clean origin/main checkout is retained at: $StagingPath"
-    }
-}
-
 function Sync-OpenClawSource {
     param(
         [Parameter(Mandatory)] [string] $SourcePath,
@@ -68,40 +45,43 @@ function Sync-OpenClawSource {
         }
         $origin = git -C $SourcePath remote get-url origin 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $origin) { throw 'Could not read the source checkout origin remote; existing files were not changed.' }
-        $RepositoryUrl = ($origin -join '').Trim()
-        if (-not [IO.Path]::IsPathRooted($RepositoryUrl) -and $RepositoryUrl -notmatch '^[A-Za-z][A-Za-z0-9+.-]*://' -and $RepositoryUrl -notmatch '^[^/\\]+:.+') {
-            $RepositoryUrl = [IO.Path]::GetFullPath((Join-Path $SourcePath $RepositoryUrl))
-        }
+    } else {
+        Write-Host '  Initializing source repository for origin/main...' -ForegroundColor Gray
+        git init --initial-branch=main -- $SourcePath | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not initialize source repository.' }
+        git -C $SourcePath remote add origin $RepositoryUrl
+        if ($LASTEXITCODE -ne 0) { throw 'Could not configure the source origin remote.' }
     }
 
-    $suffix = (Get-Date -Format 'yyyyMMddTHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
-    $stagingPath = "$SourcePath.openclaw-staging-$suffix"
-    $preserveStaging = $false
-    $parentPath = Split-Path $SourcePath -Parent
-    $null = New-Item -ItemType Directory -Path $parentPath -Force
+    Write-Host '  Fetching latest origin/main into the existing repository (no clone)...' -ForegroundColor Gray
+    $fetchOptions = if ($hadSource) { @() } else { @('--depth', '1') }
+    git -C $SourcePath fetch --no-tags @fetchOptions origin '+refs/heads/main:refs/remotes/origin/main' | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'Source fetch failed; local files and HEAD were not changed.' }
+    $commit = git -C $SourcePath rev-parse --verify 'refs/remotes/origin/main^{commit}'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve fetched origin/main; local files and HEAD were not changed.' }
+
+    Write-Host '  Updating local main to origin/main. Local edits and local-only files are discarded without a backup; no local code is merged.' -ForegroundColor Yellow
+    $previousAskYesNo = [Environment]::GetEnvironmentVariable('GIT_ASK_YESNO', 'Process')
     try {
-        Write-Host '  Cloning the origin/main tip (depth 1, no tags) before replacing local source...' -ForegroundColor Gray
-        git clone --branch main --single-branch --depth 1 --no-tags --no-local -- $RepositoryUrl $stagingPath | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw 'Source clone failed; existing files were not changed.' }
-        $commit = git -C $stagingPath rev-parse --verify HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Could not verify the cloned source commit.' }
-        $remoteCommit = git -C $stagingPath rev-parse --verify 'refs/remotes/origin/main^{commit}'
-        if ($LASTEXITCODE -ne 0 -or $commit -ne $remoteCommit) { throw 'Cloned source does not match origin/main.' }
-        $branch = git -C $stagingPath symbolic-ref --short HEAD
-        if ($LASTEXITCODE -ne 0 -or $branch -ne 'main') { throw 'Cloned source is not on main.' }
-
-        if ($hadSource) {
-            $preserveStaging = $true
-            Write-Host '  Overwriting local source with origin/main. Local commits, edits, untracked/ignored files, and Git configuration will be discarded without a backup.' -ForegroundColor Yellow
-            Install-OpenClawSourceContents -SourcePath $SourcePath -StagingPath $stagingPath
-        } else {
-            [IO.Directory]::Move($stagingPath, $SourcePath)
-        }
-        $preserveStaging = $false
-
-        Write-Host "  Source checkout is on main at $commit (origin/main)." -ForegroundColor Green
-        return [pscustomobject]@{ SourcePath = $SourcePath; Commit = ($commit -join '').Trim(); BackupPath = '' }
+        $env:GIT_ASK_YESNO = 'false'
+        git -C $SourcePath checkout --quiet --force -B main $commit | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not force local main to the fetched commit.' }
+        git -C $SourcePath reset --hard $commit | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not reset tracked source files.' }
+        git -C $SourcePath clean -ffdx | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not remove local-only source files.' }
+        git -C $SourcePath branch --set-upstream-to=origin/main main | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not set main to track origin/main.' }
+        $head = git -C $SourcePath rev-parse HEAD
+        if ($LASTEXITCODE -ne 0 -or $head -ne $commit) { throw 'Source HEAD does not match the fetched origin/main commit.' }
+        $status = git -C $SourcePath status --porcelain --untracked-files=all
+        if ($LASTEXITCODE -ne 0 -or $status) { throw 'Source working tree is not clean after the update.' }
+    } catch {
+        throw "Source checkout may be partially updated: $($_.Exception.Message) No backup was created. Close tools or terminals holding files inside '$SourcePath', check permissions, and retry."
     } finally {
-        if (-not $preserveStaging -and (Test-Path -LiteralPath $stagingPath)) { Remove-Item -LiteralPath $stagingPath -Recurse -Force -ErrorAction Stop }
+        [Environment]::SetEnvironmentVariable('GIT_ASK_YESNO', $previousAskYesNo, 'Process')
     }
+
+    Write-Host "  Source checkout is on main at $commit (origin/main); existing Git objects were reused." -ForegroundColor Green
+    return [pscustomobject]@{ SourcePath = $SourcePath; Commit = ($commit -join '').Trim(); BackupPath = '' }
 }

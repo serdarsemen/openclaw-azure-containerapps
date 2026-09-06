@@ -23,7 +23,8 @@ Commits are intentionally omitted because repository changes must not be committ
 ### Task 1: Source Path and Worktree Safety
 
 **Status (2026-09-07): Superseded and handled.** The user now explicitly requests
-destructive replacement from `origin/main` without saving local-source backups,
+in-place fetching and forced synchronization from `origin/main` without cloning
+or saving local-source backups,
 implemented by `Sync-OpenClawSource`
 in `source-helpers.ps1` and verified by `tests/openclaw-source-sync.Tests.ps1`.
 Keep source-path and linked-worktree safety guards. Do not restore the previous

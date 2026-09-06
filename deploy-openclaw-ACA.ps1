@@ -180,7 +180,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
 } else {
     # ===== Source-build variant: pull/checkout source and build =====
-    Write-Host "`n=== Step 1/6: Cloning OpenClaw source ===" -ForegroundColor Cyan
+    Write-Host "`n=== Step 1/6: Updating OpenClaw source from origin/main ===" -ForegroundColor Cyan
 
     $ResolvedSourcePath = if ([System.IO.Path]::IsPathRooted($SourcePath)) { $SourcePath } else { Join-Path $PSScriptRoot $SourcePath }
     if ($Tag) { Write-Warning '-Tag applies only to -Npm; source builds always use the latest origin/main.' }
