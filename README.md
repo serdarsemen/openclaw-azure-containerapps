@@ -332,8 +332,12 @@ SQLite snapshot, and image. Concurrent configuration edits cause deployment to a
 instead of overwriting them. Existing containers require their saved Compose file
 for rollback. Fresh installations do not require an existing SQLite database.
 
-The deploy script refuses dirty source checkouts and updates `main` by fast-forward
-only. Use a separate `-SourcePath` for deployment when maintaining local source edits.
+The deploy script always fetches the latest `origin/main` for source builds and
+switches back to `main` if the checkout was detached at an old release tag. It refuses
+dirty checkouts and updates by fast-forward only, rejecting local-only commits rather
+than building a different revision. `-Tag` applies only to the npm deploy variant;
+source deployments ignore it with a warning. Use a separate `-SourcePath` when
+maintaining local source edits. The update script's release-selection options are unchanged.
 The npm deploy variant builds both the base and tools layers; `-RebuildTools` forces
 its tools layer to rebuild. Both deploy and update accept `-CompactState` for explicit
 SQLite compaction during downtime; ordinary deployments skip compaction.
