@@ -861,6 +861,10 @@ function Start-OllamaWindowsRuntime {
       return $true
     }
     if ($process -and $process.HasExited) {
+      $startupErrors = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Tail 10 -ErrorAction SilentlyContinue) -join "`n" } else { '' }
+      if ($startupErrors -match '(?i)bind:.*(Only one usage|address already in use)') {
+        throw "Ollama server exited with code $($process.ExitCode): port 11434 is already in use. Check Windows listeners and WSL listeners, especially in mirrored networking. A WSL VM restart may be needed after stopping a conflicting WSL server; it interrupts containers and is not performed automatically. $diagnostics"
+      }
       throw "Ollama server exited with code $($process.ExitCode) before becoming ready. $diagnostics"
     }
     $remainingMilliseconds = [Math]::Max(0, ($TimeoutSeconds - $timer.Elapsed.TotalSeconds) * 1000)

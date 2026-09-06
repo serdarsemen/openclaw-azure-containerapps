@@ -65,6 +65,8 @@ Describe 'Windows Ollama runtime startup' {
         try { Start-OllamaWindowsRuntime @parameters } catch { $failure = $_.Exception.Message }
         $failure | Should Match 'exited.*1'
         $failure | Should Match '\.stderr\.log'
+        $failure | Should Match 'port 11434'
+        $failure | Should Match 'mirrored'
         Assert-MockCalled Start-Sleep -Times 0 -Exactly -Scope It
     }
 

@@ -277,8 +277,22 @@ Windows deployment startup distinguishes the installed Ollama client from the
 running server. When `ollama --version` reports an older server and a newer client,
 it restarts the matching local Ollama server instead of requesting another winget
 upgrade. It checks the executable owning port 11434 before stopping it and refuses
-to stop an unrelated process. Actual winget failures still stop required upgrades
-and report the exit code.
+to stop an unrelated process. During a restart, the matching tray supervisor is
+also stopped and process exit is confirmed before launching the replacement.
+An already healthy server is reused. CLI startup uses the resolved executable,
+captures logs under `%LOCALAPPDATA%/Ollama/deployment-logs`, and probes the local
+`/api/version` endpoint without a proxy. Launch failures and early exits report
+immediately instead of waiting through the readiness timeout. Actual winget failures
+still stop required upgrades and report the exit code.
+
+With WSL mirrored networking, native WSL Ollama and Windows Ollama cannot both
+own port 11434. A WSL listener can block the Windows bind even when no Windows
+listener is listed. Stop the conflicting installation before switching hosts.
+If the port remains reserved after the WSL server stops, a WSL VM restart may be
+needed; this interrupts WSL containers and is never performed automatically by
+the deploy script. Keep WSL Ollama autostart disabled when Windows is the chosen
+host, or the conflict can recur after a WSL restart. Models are not removed by
+stopping or disabling either service.
 
 #### Using a local Ollama instance (no sidecar)
 
