@@ -109,7 +109,14 @@ Run the AST parser check and focused Pester file. Expected: parser errors `0`; f
 
 ### Task 2: Deterministic Build Freshness
 
-**Status (2026-09-07): Implemented.** Runtime build benchmarking remains in Task 6.
+**Status (2026-09-07): Implemented; two review follow-ups pending.** Paused to fix
+Windows Ollama client/server version handling at the user's request. Complete these
+before starting Task 3. Runtime build benchmarking remains in Task 6.
+
+- [ ] Refresh the external Python tools-stage image on `-ForceRefresh` without
+  using `--pull` for local app bases.
+- [ ] Include source `package.json.packageManager` in the tools fingerprint and
+  test invalidation when it changes.
 
 **Files:** `wsl-helpers.ps1`, `deploy-openclaw-wsl.ps1`,
 `tests/wsl-build-freshness.Tests.ps1`, `README.md`.

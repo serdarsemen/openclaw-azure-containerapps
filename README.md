@@ -273,6 +273,13 @@ For native modes (`-OllamaWindows`, `-OllamaWsl`), the script attempts to auto-s
 
 > **Note:** `-OllamaWsl` compares the installed Ollama version with the latest GitHub release and upgrades automatically only when the installed version is older. Use `-UpgradeOllama` to force a reinstall. For `-OllamaWindows` (and any host-bound instance), Ollama must listen on `0.0.0.0` so it accepts connections from the WSL/Docker bridge network. If automatic startup does not succeed, use `start-ollama-windows.ps1` (or `start-ollama-qwen.ps1` for WSL-hosted flows) and retry.
 
+Windows deployment startup distinguishes the installed Ollama client from the
+running server. When `ollama --version` reports an older server and a newer client,
+it restarts the matching local Ollama server instead of requesting another winget
+upgrade. It checks the executable owning port 11434 before stopping it and refuses
+to stop an unrelated process. Actual winget failures still stop required upgrades
+and report the exit code.
+
 #### Using a local Ollama instance (no sidecar)
 
 If Ollama is already running on your Windows PC, use `-OllamaHost` to point OpenClaw at it instead of spinning up a sidecar container:

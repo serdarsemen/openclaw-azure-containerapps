@@ -48,6 +48,14 @@ Describe 'Windows Ollama version detection' {
         Update-OllamaWindows -LatestVersion '0.33.3' | Should Be $true
         $script:wingetCalls | Should Be 0
     }
+
+    It 'returns only false when winget prints output and fails' {
+        $script:versionOutput = 'ollama version is 0.32.14'
+        Mock winget { $global:LASTEXITCODE = 1; 'No available upgrade found.' }
+        $result = @(Update-OllamaWindows -LatestVersion '0.33.3')
+        $result.Count | Should Be 1
+        $result[0] | Should Be $false
+    }
 }
 
 Describe 'Outdated Windows Ollama server recovery' {
