@@ -22,6 +22,11 @@ Commits are intentionally omitted because repository changes must not be committ
 
 ### Task 1: Source Path and Worktree Safety
 
+**Status (2026-09-07): Superseded and handled.** The user selected full-checkout
+backup and replacement from `origin/main`, implemented by `Sync-OpenClawSource`
+in `source-helpers.ps1` and verified by `tests/openclaw-source-sync.Tests.ps1`.
+Do not implement the historical dirty-tree rejection or merge steps below.
+
 **Files:**
 - Modify: `wsl-helpers.ps1`
 - Create: `tests/wsl-deploy-performance.Tests.ps1`
@@ -104,77 +109,32 @@ Run the AST parser check and focused Pester file. Expected: parser errors `0`; f
 
 ### Task 2: Deterministic Build Freshness
 
-**Files:**
-- Modify: `wsl-helpers.ps1`
-- Modify: `deploy-openclaw-wsl.ps1`
-- Modify: `tests/wsl-deploy-performance.Tests.ps1`
+**Status (2026-09-07): Implemented.** Runtime build benchmarking remains in Task 6.
 
-- [ ] **Step 1: Write failing fingerprint tests**
+**Files:** `wsl-helpers.ps1`, `deploy-openclaw-wsl.ps1`,
+`tests/wsl-build-freshness.Tests.ps1`, `README.md`.
 
-```powershell
-Describe "Get-OpenClawBuildFingerprint" {
-    It "returns the same digest for identical inputs" {
-        $first = Get-OpenClawBuildFingerprint -Inputs @('source', 'abc123', 'tools-hash')
-        $second = Get-OpenClawBuildFingerprint -Inputs @('source', 'abc123', 'tools-hash')
-        $first | Should Be $second
-    }
+- [x] **Step 1:** Add deterministic fingerprint and image-reuse tests.
+- [x] **Step 2:** Confirm tests fail before implementation.
+- [x] **Step 3:** Implement SHA-256 over structured inputs and exact OCI label checks.
+- [x] **Step 4:** Verify missing/unlabeled images and refresh requests bypass reuse.
+- [x] **Step 5:** Label final source/npm builds and the tools foundation; skip source
+  packaging/builds and pinned npm builds on matching fingerprints. Add `-ForceRefresh`.
+- [x] **Step 6:** Run focused tests and check script diagnostics.
 
-    It "changes when an input changes" {
-        Get-OpenClawBuildFingerprint -Inputs @('source', 'abc123') |
-            Should Not Be (Get-OpenClawBuildFingerprint -Inputs @('source', 'def456'))
-    }
-}
+Implementation details:
+- Use the verified commit from `Sync-OpenClawSource`, preserving the approved
+  backup-and-replace source policy. Do not revert to reading arbitrary local HEAD.
+- Include deployment/helper files, build platform, and images context in app inputs.
+  The tools fingerprint also includes the source Dockerfile.
+- Bypass final reuse for `-RebuildTools`. Refresh floating npm tags unconditionally.
+- Clear inherited final fingerprints for legacy callers that supply no fingerprint.
+- Refresh external app bases with `--pull`; do not use `--pull` for the local-only
+  base images passed into tools/overlay builds.
+- Retain configuration validation, rollback, and runtime health checks on cache hits.
 
-Describe "Test-OpenClawImageFresh" {
-    It "returns false when force refresh is requested" {
-        Test-OpenClawImageFresh -ImageName 'openclaw-source' -Fingerprint 'abc' -ForceRefresh |
-            Should Be $false
-    }
-}
-```
-
-- [ ] **Step 2: Run the test and verify RED**
-
-Expected: FAIL because fingerprint helpers do not exist.
-
-- [ ] **Step 3: Implement fingerprint helpers**
-
-```powershell
-function Get-OpenClawBuildFingerprint {
-  param([string[]] $Inputs)
-  $bytes = [Text.Encoding]::UTF8.GetBytes(($Inputs -join "`n"))
-  return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-}
-
-function Test-OpenClawImageFresh {
-  param([string] $ImageName, [string] $Fingerprint, [switch] $ForceRefresh)
-  if ($ForceRefresh) { return $false }
-  try {
-    $label = (Invoke-WslData "docker image inspect ${ImageName}:latest --format '{{ index .Config.Labels \"io.openclaw.build-fingerprint\" }}'").Trim()
-    return $label -eq $Fingerprint
-  } catch { return $false }
-}
-```
-
-- [ ] **Step 4: Run tests and verify GREEN**
-
-Expected: focused tests pass.
-
-- [ ] **Step 5: Add `-ForceRefresh` and image label integration**
-
-Compute source revision with `git -C $SourcePath rev-parse HEAD`, hash the selected tools Dockerfile with `Get-FileHash`, and include variant/tag values. Pass the label to the final build:
-
-```powershell
-$buildFingerprint = Get-OpenClawBuildFingerprint -Inputs @($variantLabel, $sourceRevision, $toolsHash, $npmTag)
-$imageFresh = Test-OpenClawImageFresh -ImageName $ImageName -Fingerprint $buildFingerprint -ForceRefresh:$ForceRefresh
-Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --label io.openclaw.build-fingerprint=$buildFingerprint ..."
-```
-
-Wrap both build stages in `if ($imageFresh) { Write-Host ... } else { ... }`. Stop deleting `${ImageName}:base`, allowing BuildKit and the tagged base to accelerate later runs.
-
-- [ ] **Step 6: Run parser and focused tests**
-
-Expected: parser errors `0`; tests pass.
+Verification: `Invoke-Pester -Script ./tests/wsl-build-freshness.Tests.ps1`.
+Docker operations are mocked; no live image build or deployment was performed.
 
 ### Task 3: Token-Free Compose Runtime
 

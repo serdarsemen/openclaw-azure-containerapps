@@ -44,6 +44,7 @@
 #   -BridgePort <port>:    host port for the bridge (default: 18790)
 #   -DataDir <path>:       persistent data dir (default: ~/.openclaw-data in WSL)
 #   -CompactState:         compact SQLite while stopped (optional maintenance)
+#   -ForceRefresh:         bypass image fingerprints and refresh base/app/tools builds
 #   -GroqApiKey <key>:     set GROQ_API_KEY in the OpenClaw container
 #
 # Usage:

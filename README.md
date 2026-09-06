@@ -355,6 +355,24 @@ The npm deploy variant builds both the base and tools layers; `-RebuildTools` fo
 its tools layer to rebuild. Both deploy and update accept `-CompactState` for explicit
 SQLite compaction during downtime; ordinary deployments skip compaction.
 
+The WSL deploy script skips image builds when `:latest` has a matching
+`io.openclaw.build-fingerprint` label. The fingerprint covers the source commit
+or npm version, npm Dockerfile content, deployment/build-helper files, Docker
+platform, and the images build context. Source builds also check a separate tools
+fingerprint, including the source Dockerfile, before reusing the tools foundation.
+Existing unlabeled images rebuild once. Source checkout refresh/backups, candidate
+validation, sidecar refresh, and runtime health checks still run on a cache hit.
+
+Use `-ForceRefresh` on `deploy-openclaw-wsl.ps1` to bypass fingerprint reuse,
+refresh the base image, and rebuild app/tools layers without Docker layer cache.
+`-RebuildTools` also bypasses final-image reuse. Floating npm tags such as `latest`
+always refresh; pinned versions can be reused. Run explicit refreshes periodically
+for upstream dependency/security updates that do not change local build files.
+
+```powershell
+.\deploy-openclaw-wsl.ps1 -OllamaWindows -ForceRefresh
+```
+
 WSL deploy and update refresh Redis, SearXNG, and CRW independently. A failed pull
 does not skip the remaining images. An existing local image is used only after
 its presence is verified; if a required image cannot be pulled and is not cached,
