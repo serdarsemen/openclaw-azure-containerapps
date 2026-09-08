@@ -442,7 +442,9 @@ $config.gateway.controlUi | Add-Member -NotePropertyName allowInsecureAuth      
 $config.gateway.controlUi | Add-Member -NotePropertyName dangerouslyAllowHostHeaderOriginFallback    -NotePropertyValue $true -Force
 
 # Model
-$config.agents.defaults.model | Add-Member -NotePropertyName primary -NotePropertyValue "github-copilot/claude-opus-4.6" -Force
+if (-not $config.agents.defaults.model.primary) {
+    $config.agents.defaults.model | Add-Member -NotePropertyName primary -NotePropertyValue "github-copilot/claude-opus-5" -Force
+}
 
 # Write back
 $config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
@@ -517,7 +519,7 @@ function Wait-OpenClawReady {
     $noiseNoticePrinted = $false
     while ((Get-Date) -lt $deadline) {
         $check = wsl bash -c "docker exec $ContainerName bash -c 'timeout 3 bash -c ""</dev/tcp/localhost/18789"" 2>/dev/null && echo READY || echo NOT_READY'" 2>$null
-        if ($check -match "READY") {
+        if ($LASTEXITCODE -eq 0 -and ($check -join "`n").Trim() -ceq "READY") {
             Write-Host "  OpenClaw gateway: ready" -ForegroundColor Green
             return $true
         }
