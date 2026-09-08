@@ -281,7 +281,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $preparationTimer.Stop()
         Write-Host ("  Source/context preparation elapsed: {0:N1}s" -f $preparationTimer.Elapsed.TotalSeconds) -ForegroundColor Gray
     }
-    $quotedContextPath = "'" + $contextPath.Replace("'", "'\"'\"'") + "'"
+    $quotedContextPath = "'" + $contextPath.Replace("'", "'`"'`"'") + "'"
     Write-Host "  Build context retained at: $contextPath" -ForegroundColor Green
     Write-Host "  WSL resources (builds are not limited by Compose service settings):" -ForegroundColor Gray
     Invoke-WslStream "nproc; free -h"
