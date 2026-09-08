@@ -38,7 +38,10 @@
 #
 # Parameters:
 #   -ContainerName <name>: container/compose name (default: openclaw)
-#   -SourcePath <path>:    OpenClaw source checkout (default: openclaw-repo)
+#   -SourcePath <path>:    optional source repo (default: WSL ~/.cache/openclaw-build/source)
+#   -BuildCacheDir <path>: absolute Linux cache path (default: ~/.cache/openclaw-build in WSL)
+#   -BuildNodeHeapMB <n>:  compilation heap in MiB (default: 8192; not a container RAM limit)
+#   -BuildTsdownHeapMB <n>: tsdown heap override in MiB (0 uses upstream default)
 #   -Tag <tag>:            pin a specific OpenClaw release tag (default: latest)
 #   -GatewayPort <port>:   host port for the gateway (default: 18789)
 #   -BridgePort <port>:    host port for the bridge (default: 18790)
@@ -66,7 +69,10 @@ param(
     [switch] $OllamaWsl,
     [switch] $UpgradeOllama,
     [string] $ContainerName = "openclaw",
-    [string] $SourcePath    = "openclaw-repo",
+    [string] $SourcePath    = "",
+    [string] $BuildCacheDir = "",
+    [ValidateRange(512, 131072)] [int] $BuildNodeHeapMB = 8192,
+    [ValidateRange(0, 131072)] [int] $BuildTsdownHeapMB = 0,
     [string] $Tag           = "",
     [int]    $GatewayPort   = 18789,
     [int]    $BridgePort    = 18790,
@@ -252,71 +258,60 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
     # ===== Source-build variant: pull/checkout source and build locally =====
     Write-Host "`n=== Step 1/${totalSteps}: Cloning/updating OpenClaw source ===" -ForegroundColor Cyan
 
-    if (-not (Test-Path $SourcePath)) {
-        Write-Host "  Source not found — cloning..."
-        git clone https://github.com/openclaw/openclaw.git $SourcePath
-        if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
-    }
-
-    Push-Location $SourcePath
-    try {
-        if ($Tag) {
-            Write-Host "  Fetching tags and checking out: $Tag"
-            git fetch --tags
-            if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-            git checkout $Tag
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout '$Tag' failed" }
+    $WslSourcePath = ""
+    if ($SourcePath) {
+        if ($SourcePath.StartsWith('/')) {
+            $WslSourcePath = $SourcePath
         } else {
-            Write-Host "  Fetching latest main (single-branch, pruning stale refs)..."
-            git fetch --prune origin +refs/heads/main:refs/remotes/origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Git fetch failed" }
-            git checkout main
-            if ($LASTEXITCODE -ne 0) { throw "Git checkout 'main' failed" }
-            git reset --hard origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Git reset failed" }
+            $absoluteSourcePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourcePath)
+            $WslSourcePath = (wsl --exec wslpath -u $absoluteSourcePath) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not convert SourcePath to a WSL path' }
+            $WslSourcePath = $WslSourcePath.Trim()
         }
-    } finally {
-        Pop-Location
     }
-
-    $ref = if ($Tag) { $Tag } else { "latest (main)" }
-    Write-Host "  Source updated to: $ref" -ForegroundColor Green
-
+    Write-Host "  Building fetched origin/main or -Tag; local source edits are not included or reset." -ForegroundColor Gray
     Write-Host "`n=== Step 2/${totalSteps}: Building OpenClaw image locally via Docker ===" -ForegroundColor Cyan
-
-    $WslSourcePath = (Invoke-WslData "wslpath -u '$($SourcePath -replace '\\','/')'")
-    # Handle relative paths — prepend script root if not already absolute
-    if ($WslSourcePath -notmatch '^/') {
-        $WslSourcePath = "$WslScriptRoot/$SourcePath"
+    $preparationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $contextOutput = wsl --exec bash "$WslScriptRoot/scripts/prepare-wsl-build.sh" $WslSourcePath $Tag $BuildCacheDir
+        if ($LASTEXITCODE -ne 0) { throw 'WSL source/context preparation failed' }
+        $contextPath = ($contextOutput -join "`n").Trim()
+        if (-not $contextPath.StartsWith('/')) { throw 'Preparation did not return an absolute build-context path' }
+    } finally {
+        $preparationTimer.Stop()
+        Write-Host ("  Source/context preparation elapsed: {0:N1}s" -f $preparationTimer.Elapsed.TotalSeconds) -ForegroundColor Gray
     }
-    $WslSourcePath = $WslSourcePath.Trim()
+    $quotedContextPath = "'" + $contextPath.Replace("'", "'\"'\"'") + "'"
+    Write-Host "  Build context retained at: $contextPath" -ForegroundColor Green
+    Write-Host "  WSL resources (builds are not limited by Compose service settings):" -ForegroundColor Gray
+    Invoke-WslStream "nproc; free -h"
+    $availableMemoryMB = [long]((Invoke-WslData "awk '/MemAvailable/ {print `$2}' /proc/meminfo") -join '') / 1024
+    if ([Math]::Max($BuildNodeHeapMB, $BuildTsdownHeapMB) + 2048 -gt $availableMemoryMB) {
+        Write-Warning 'Build heap leaves less than 2 GiB of currently available WSL memory for other work. Consider a smaller -BuildNodeHeapMB/-BuildTsdownHeapMB or increasing WSL RAM manually.'
+    }
+    $buildArgs = "--build-arg OPENCLAW_DOCKER_BUILD_NODE_OPTIONS=--max-old-space-size=$BuildNodeHeapMB"
+    if ($BuildTsdownHeapMB -gt 0) {
+        $buildArgs += " --build-arg OPENCLAW_DOCKER_BUILD_TSDOWN_MAX_OLD_SPACE_MB=$BuildTsdownHeapMB"
+    }
+    Write-Host "  Compilation Node heap: $BuildNodeHeapMB MiB; tsdown override: $BuildTsdownHeapMB (0 = upstream default)" -ForegroundColor Gray
 
-    Write-Host "  Step 2a: Packaging source as WSL transfer archive..." -ForegroundColor Gray
-    $SourceArchive = New-WslTransferArchive -SourcePath $WslSourcePath -ArchiveName "$ImageName-source"
-    Write-Host "  Source archive (WSL): $($SourceArchive.WslArchivePath)" -ForegroundColor Green
-
-    Write-Host "  Step 2b: Expanding source archive in WSL..." -ForegroundColor Gray
-    $WslBuildContext = Expand-WslTransferArchive -ArchivePath $SourceArchive.WslArchivePath -ContextName "$ImageName-source"
-    Write-Host "  Build context (WSL): $($WslBuildContext.WslContextPath)" -ForegroundColor Green
-
-    # Patch Dockerfile for local Docker compatibility:
-    # - Strip '# syntax=docker/dockerfile:...' (avoids pulling BuildKit frontend image — fails when WSL DNS is flaky)
-    # - Keep --mount=type=cache directives — BuildKit is the default builder in Docker 23.0+ (WSL)
-    #   and cache mounts dramatically speed up rebuilds (pnpm store, apt cache).
-    Write-Host "  Step 2c: Patching Dockerfile for local Docker compatibility..." -ForegroundColor Gray
-    Update-LocalBuildDockerfile -WslDockerfilePath "$($WslBuildContext.WslContextPath)/Dockerfile"
-    Write-Host "  Stripped syntax directive (keeping BuildKit cache mounts for faster rebuilds)" -ForegroundColor Green
-
+    $buildTimer = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         Write-Host "  Step 2d: Building base OpenClaw image from source..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+        Invoke-WslRetry -Stream "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host $buildArgs -t ${ImageName}:base $quotedContextPath"
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
+    } finally {
+        $buildTimer.Stop()
+        Write-Host ("  Base build elapsed (including retries): {0:N1}s" -f $buildTimer.Elapsed.TotalSeconds) -ForegroundColor Gray
+    }
 
+    $buildTimer.Restart()
+    try {
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-WslRetry -Stream "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
 
         # Remove intermediate base image — only the final :latest image should remain
@@ -324,7 +319,8 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
         Write-Host "  Intermediate image removed" -ForegroundColor Green
     } finally {
-        try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
+        $buildTimer.Stop()
+        Write-Host ("  Tools build elapsed (including retries): {0:N1}s" -f $buildTimer.Elapsed.TotalSeconds) -ForegroundColor Gray
     }
 }
 

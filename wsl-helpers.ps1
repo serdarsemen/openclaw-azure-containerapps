@@ -64,7 +64,8 @@ function Invoke-WslRetry {
   param(
     [string] $Command,
     [int] $MaxAttempts = 3,
-    [int] $InitialDelaySeconds = 5
+    [int] $InitialDelaySeconds = 5,
+    [switch] $Stream
   )
 
   $attempt = 1
@@ -73,11 +74,16 @@ function Invoke-WslRetry {
   $lastExitCode = 0
 
   while ($attempt -le $MaxAttempts) {
-    $result = wsl bash -c $Command 2>&1
+    if ($Stream) {
+      wsl bash -c $Command 2>&1 | Tee-Object -Variable result | ForEach-Object { Write-Host "$_" }
+    } else {
+      $result = wsl bash -c $Command 2>&1
+    }
     $lastExitCode = $LASTEXITCODE
 
     if ($lastExitCode -eq 0) {
-      return $result
+      if (-not $Stream) { return $result }
+      return
     }
 
     $lastResult = ($result -join [Environment]::NewLine)
