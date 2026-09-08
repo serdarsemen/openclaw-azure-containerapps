@@ -30,4 +30,65 @@ foreach ($required in @('prepare-wsl-build.sh', 'BuildNodeHeapMB', 'BuildTsdownH
     if (-not $text.Contains($required)) { throw "Missing build integration: $required" }
 }
 if ($text.Contains("rm -rf '`$(`$SourceArchive.WslArchivePath)'")) { throw 'Deployment still deletes reusable source context' }
-Write-Output 'PASS: streaming retries and failures, build options, timing, and context integration.'
+$sourceBranch = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and
+    $node.Else -and $node.Else.Extent.Text.Contains('prepare-wsl-build.sh')
+}, $true).Else.Extent.Text
+$sourceBuild = [scriptblock]::Create($sourceBranch.Substring(1, $sourceBranch.Length - 2))
+function wsl {
+    $script:nativeCalls += ,@($args)
+    $global:LASTEXITCODE = 0
+    if ($args[1] -eq 'wslpath') { '/mnt/c/custom source'; return }
+    if ($script:failPreparation) { $global:LASTEXITCODE = 1; return }
+    "/tmp/cache with spaces/user's-context"
+}
+function Invoke-WslData { '1048576' }
+function Invoke-WslStream { param($Command) }
+function Invoke-Wsl { param($Command) }
+function Write-Warning { param($Message) $script:warnings += $Message }
+function Invoke-WslRetry {
+    param($Command, [switch]$Stream)
+    if (-not $Stream) { throw 'Build did not enable streaming' }
+    $script:buildCommands += $Command
+    if ($script:failBuild) { throw 'fixture build failure' }
+}
+$WslScriptRoot = '/mnt/c/repo'
+$ToolsDockerfile = 'images/Dockerfile.tools'
+$ImageName = 'openclaw-source'
+$totalSteps = 5
+$BuildCacheDir = '/tmp/cache with spaces'
+$BuildNodeHeapMB = 4096
+$BuildTsdownHeapMB = 2048
+$Tag = 'v-test'
+foreach ($SourcePath in @('', '/tmp/user source', 'C:\custom source')) {
+    $script:nativeCalls = @()
+    $script:buildCommands = @()
+    $script:warnings = @()
+    & $sourceBuild
+    $preparationCall = $script:nativeCalls[-1]
+    $expectedSource = if ($SourcePath.StartsWith('C:')) { '/mnt/c/custom source' } else { $SourcePath }
+    if ($preparationCall[3] -cne $expectedSource -or $preparationCall[4] -cne $Tag -or $preparationCall[5] -cne $BuildCacheDir) { throw 'Preparation arguments changed' }
+    if ($script:buildCommands.Count -ne 2) { throw 'Expected base and tools builds' }
+    if (-not $script:buildCommands[0].Contains('OPENCLAW_DOCKER_BUILD_NODE_OPTIONS=--max-old-space-size=4096') -or
+        -not $script:buildCommands[0].Contains('OPENCLAW_DOCKER_BUILD_TSDOWN_MAX_OLD_SPACE_MB=2048')) { throw 'Heap arguments missing from base build' }
+    if (-not $script:buildCommands[0].Contains("'/tmp/cache with spaces/user'`"'`"'s-context'")) { throw 'Context shell quoting failed' }
+    if ($script:warnings.Count -ne 1) { throw 'Missing memory headroom warning' }
+}
+$SourcePath = ''
+$BuildTsdownHeapMB = 0
+$script:buildCommands = @()
+& $sourceBuild
+if ($script:buildCommands[0].Contains('OPENCLAW_DOCKER_BUILD_TSDOWN_MAX_OLD_SPACE_MB')) { throw 'Default tsdown heap should remain upstream-controlled' }
+foreach ($failure in @('preparation', 'build')) {
+    $script:failPreparation = $failure -eq 'preparation'
+    $script:failBuild = $failure -eq 'build'
+    $script:buildCommands = @()
+    $script:messages = @()
+    $failed = $false
+    try { & $sourceBuild } catch { $failed = $true }
+    if (-not $failed) { throw "$failure failure swallowed" }
+    $expectedBuildCount = if ($failure -eq 'preparation') { 0 } else { 1 }
+    if ($script:buildCommands.Count -ne $expectedBuildCount) { throw 'Continued building after failure' }
+    if ($failure -eq 'build' -and -not ($script:messages -match 'Base build elapsed')) { throw 'Failure timing missing' }
+}
+Write-Output 'PASS: streaming retries/failures, deployment source paths, heap arguments, warning, timers, and failure propagation.'
