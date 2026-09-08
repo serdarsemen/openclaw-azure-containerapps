@@ -52,7 +52,7 @@
 #   .\deploy-openclaw-wsl.ps1 -Ollama                          # add Ollama sidecar in Docker
 #   .\deploy-openclaw-wsl.ps1 -Ollama -OllamaModel qwen2.5:7b  # sidecar + specific model
 #   .\deploy-openclaw-wsl.ps1 -OllamaWindows                   # auto-start Ollama on Windows host
-#   .\deploy-openclaw-wsl.ps1 -OllamaWindows -UpgradeOllama    # force reinstall/upgrade + auto-start Ollama on Windows host
+#   .\deploy-openclaw-wsl.ps1 -OllamaWindows -UpgradeOllama    # request winget upgrade + auto-start Ollama on Windows host
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl                       # auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaWsl -UpgradeOllama        # force reinstall/upgrade + auto-start Ollama in WSL
 #   .\deploy-openclaw-wsl.ps1 -OllamaHost http://host.docker.internal:11434  # external Ollama

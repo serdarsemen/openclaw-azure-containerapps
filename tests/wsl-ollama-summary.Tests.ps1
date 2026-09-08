@@ -5,7 +5,7 @@ Describe "Get-OllamaWindowsSetupLines" {
     It "shows the commands required to expose Ollama to WSL" {
         @(Get-OllamaWindowsSetupLines) | Should Be @(
             '  taskkill /IM ollama.exe /F',
-            '  setx OLLAMA_HOST "0.0.0.0:11434"',
+            '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
             '  ollama serve'
         )
     }
@@ -18,7 +18,7 @@ Describe "Get-OllamaWindowsUpgradeLines" {
             '  winget upgrade --id Ollama.Ollama -e',
             '  ollama --version',
             '  taskkill /IM ollama.exe /F',
-            '  setx OLLAMA_HOST "0.0.0.0:11434"',
+            '  $env:OLLAMA_HOST = "0.0.0.0:11434"',
             '  ollama serve'
         )
     }

@@ -19,7 +19,7 @@ foreach ($case in @(
         if ($Command -match 'container ls') {
             if ($case.Exists) { 'abcdef123456' }
         } elseif ($Command -match 'config --format json') {
-            if ($case.MissingProject) { '{}' } else { '{"name":"test-project"}' }
+            if ($case.MissingProject) { '{}' } else { '{"name":"test-project","services":{"openclaw":{"environment":{"NPM_CONFIG_RESOLUTION_MODE":"highest","npm_config_resolution_mode":"highest"}}}}' }
         } elseif ($Command -match 'inspect') {
             if ($case.FailInspect) { throw 'Simulated inspection failure' }
             $case.Labels | ConvertTo-Json -Compress
