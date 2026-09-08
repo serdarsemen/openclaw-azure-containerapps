@@ -64,33 +64,27 @@ function Invoke-WslRetry {
   param(
     [string] $Command,
     [int] $MaxAttempts = 3,
-    [int] $InitialDelaySeconds = 5,
-    [switch] $Stream
+    [int] $InitialDelaySeconds = 5
   )
 
   $attempt = 1
   $delaySeconds = $InitialDelaySeconds
   $lastResult = ""
-  $commandExitCode = 0
+  $lastExitCode = 0
 
   while ($attempt -le $MaxAttempts) {
-    if ($Stream) {
-      wsl bash -c $Command 2>&1 | Tee-Object -Variable result | ForEach-Object { Write-Host "$_" }
-    } else {
-      $result = wsl bash -c $Command 2>&1
-    }
-    $commandExitCode = $LASTEXITCODE
+    $result = wsl bash -c $Command 2>&1
+    $lastExitCode = $LASTEXITCODE
 
-    if ($commandExitCode -eq 0) {
-      if (-not $Stream) { return $result }
-      return
+    if ($lastExitCode -eq 0) {
+      return $result
     }
 
     $lastResult = ($result -join [Environment]::NewLine)
     $isTransient = Test-WslTransientNetworkError -Output $lastResult
 
     if (-not $isTransient -or $attempt -eq $MaxAttempts) {
-      throw "WSL command failed (exit $commandExitCode): $Command`n$lastResult"
+      throw "WSL command failed (exit $lastExitCode): $Command`n$lastResult"
     }
 
     Write-Host "  Transient network failure detected (attempt $attempt/$MaxAttempts). Retrying in ${delaySeconds}s..." -ForegroundColor Yellow
@@ -99,7 +93,7 @@ function Invoke-WslRetry {
     $attempt++
   }
 
-  throw "WSL command failed (exit $commandExitCode): $Command`n$lastResult"
+  throw "WSL command failed (exit $lastExitCode): $Command`n$lastResult"
 }
 
 # Run a WSL command, discard stderr (use for value capture), throw on non-zero exit.
