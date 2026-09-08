@@ -32,8 +32,8 @@ foreach ($required in @('prepare-wsl-build.sh', 'BuildNodeHeapMB', 'BuildTsdownH
 if ($text.Contains("rm -rf '`$(`$SourceArchive.WslArchivePath)'")) { throw 'Deployment still deletes reusable source context' }
 $sourceBranch = $ast.Find({ param($node)
     $node -is [System.Management.Automation.Language.IfStatementAst] -and
-    $node.Else -and $node.Else.Extent.Text.Contains('prepare-wsl-build.sh')
-}, $true).Else.Extent.Text
+    $node.ElseClause -and $node.ElseClause.Extent.Text.Contains('prepare-wsl-build.sh')
+}, $true).ElseClause.Extent.Text
 $sourceBuild = [scriptblock]::Create($sourceBranch.Substring(1, $sourceBranch.Length - 2))
 function wsl {
     $script:nativeCalls += ,@($args)
