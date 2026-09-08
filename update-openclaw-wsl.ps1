@@ -496,14 +496,10 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 2/3: Restarting containers ===" -ForegroundColor Cyan
 
+Assert-OpenClawSearxngOwnership -WslComposePath $WslComposePath -WslDataDir $WslDataDir
+
 Write-Host "  Stopping existing containers..." -ForegroundColor Gray
 Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans"
-
-# Force-remove fixed-name auxiliary containers that may have been created outside
-# this compose project (e.g. a prior manual run). Compose only manages containers
-# carrying its own project label, so a stray 'searxng' would otherwise
-# cause a 'container name is already in use' conflict on 'up'.
-try { Invoke-Wsl "docker rm -f searxng 2>/dev/null || true" } catch {}
 
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {

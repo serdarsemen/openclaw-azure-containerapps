@@ -975,6 +975,32 @@ function Test-WslCrwHealth {
 
 # Generate the docker-compose-wsl.yaml content from a single template.
 # This is the SOURCE OF TRUTH for compose layout — both deploy and update use it.
+function Assert-OpenClawSearxngOwnership {
+  param(
+    [Parameter(Mandatory)] [string] $WslComposePath,
+    [Parameter(Mandatory)] [string] $WslDataDir
+  )
+
+  $containerId = ((Invoke-WslData "docker container ls --all --filter 'name=^/searxng$' --format '{{.ID}}'") -join "`n").Trim()
+  if (-not $containerId) { return }
+  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+    throw 'Could not identify the existing searxng container safely; no containers have been stopped.'
+  }
+
+  $composeJson = (Invoke-WslData "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' config --format json") -join "`n"
+  $projectName = ($composeJson | ConvertFrom-Json).name
+  if (-not $projectName) {
+    throw 'Could not determine the Compose project name; no containers have been stopped.'
+  }
+
+  $labelsJson = (Invoke-WslData "docker inspect --format '{{json .Config.Labels}}' $containerId") -join "`n"
+  $labels = $labelsJson | ConvertFrom-Json
+  if ($labels.'com.docker.compose.project' -cne $projectName -or $labels.'com.docker.compose.service' -cne 'searxng') {
+    $owner = if ($labels.'com.docker.compose.project') { $labels.'com.docker.compose.project' } else { 'unlabeled/manual' }
+    throw "Container 'searxng' belongs to '$owner', not service 'searxng' in project '$projectName'. No containers have been stopped. Resolve this name conflict manually before retrying."
+  }
+}
+
 function New-OpenClawComposeYaml {
     param(
         [Parameter(Mandatory)] [string] $ContainerName,

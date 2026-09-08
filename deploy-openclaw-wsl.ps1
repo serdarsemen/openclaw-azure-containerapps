@@ -390,15 +390,11 @@ Write-Host "  docker-compose file written to: $composePath" -ForegroundColor Gra
 
 $WslComposePath = "$WslScriptRoot/docker-compose-wsl.yaml"
 
+Assert-OpenClawSearxngOwnership -WslComposePath $WslComposePath -WslDataDir $WslDataDir
+
 # Stop any existing containers with the same name
 Write-Host "  Stopping any existing containers..." -ForegroundColor Gray
-try { Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans 2>/dev/null" } catch {}
-
-# Force-remove fixed-name auxiliary containers that may have been created outside
-# this compose project (e.g. a prior manual run). Compose only manages containers
-# carrying its own project label, so a stray 'searxng' would otherwise
-# cause a 'container name is already in use' conflict on 'up'.
-try { Invoke-Wsl "docker rm -f searxng 2>/dev/null || true" } catch {}
+Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans"
 
 # Clean up stale plugin-runtime-deps locks from previous failed deployments
 Write-Host "  Cleaning up stale plugin-runtime-deps locks..." -ForegroundColor Gray
