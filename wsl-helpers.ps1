@@ -14,16 +14,33 @@ function Invoke-Wsl {
     while ($true) {
         $attempt++
         $result = wsl bash -c $Command 2>&1
-        if ($LASTEXITCODE -eq 0) { return $result }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) { return $result }
         $output = ($result -join [Environment]::NewLine)
         if ($attempt -lt $ServiceRetries -and (Test-WslTransientNetworkError -Output $output)) {
             $delay = $attempt * 3
-            Write-Host "  WSL service error on attempt $attempt — retrying in ${delay}s..." -ForegroundColor Yellow
+      if (Test-WslServiceError -Output $output) {
+        Write-Host "  WSL service error on attempt $attempt — restarting WSL before retry..." -ForegroundColor Yellow
+        $null = wsl --shutdown 2>&1
+      } else {
+        Write-Host "  Transient network error on attempt $attempt — retrying in ${delay}s..." -ForegroundColor Yellow
+      }
             Start-Sleep -Seconds $delay
             continue
         }
-        throw "WSL command failed (exit $LASTEXITCODE): $Command`n$output"
+    throw "WSL command failed (exit $exitCode): $Command`n$output"
     }
+}
+
+function Test-WslServiceError {
+  param([string] $Output)
+  if (-not $Output) { return $false }
+
+  return $Output -match 'Wsl/Service/' -or
+  $Output -match 'connected party did not properly respond' -or
+  $Output -match 'connected host has failed to respond' -or
+  $Output -match '0x8007274c' -or
+  $Output -match '0x80072746'
 }
 
 # Heuristic for transient network failures seen during Docker/BuildKit dependency
