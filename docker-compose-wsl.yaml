@@ -50,7 +50,7 @@ services:
       start_period: 5s
 
   openclaw:
-    image: openclaw-source:candidate
+    image: openclaw-source:latest
     container_name: openclaw
     network_mode: "service:redis"
     depends_on:
