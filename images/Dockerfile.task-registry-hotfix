@@ -1,0 +1,7 @@
+# Apply the task-deletion fix without reinstalling the existing tools layer.
+ARG BASE_IMAGE=openclaw-source:latest
+FROM ${BASE_IMAGE}
+USER root
+COPY patch-task-registry-delete.mjs /opt/openclaw-patches/patch-task-registry-delete.mjs
+RUN node /opt/openclaw-patches/patch-task-registry-delete.mjs /app/dist
+USER node

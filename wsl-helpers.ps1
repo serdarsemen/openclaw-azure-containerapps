@@ -1269,7 +1269,16 @@ $envBlock
           cpus: '0.25'
           memory: 512M
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/3000;
+          printf 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          IFS= read -r -t 3 response <&3;
+          printf '%s\n' "`$`$response";
+          [[ "`$`$response" == HTTP/1.[01]" 200 "* ]]
       interval: 30s
       timeout: 5s
       retries: 3

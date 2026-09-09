@@ -334,6 +334,20 @@ wsl docker compose -f docker-compose-wsl.yaml down    # stop
 wsl docker compose -f docker-compose-wsl.yaml restart  # restart
 ```
 
+CRW's health probe uses Bash's built-in TCP support to require HTTP 200 from
+`/health`; the image does not include `wget` or `curl`, and `/` returns 404.
+The probe is defined in both the generated Compose file and `wsl-helpers.ps1`.
+
+The tools images also apply `images/patch-task-registry-delete.mjs` to the bundled
+task registry. The affected OpenClaw build rebuilt the entire run-ID index for
+every expired task deletion, starving the gateway event loop with large task
+histories. The patch removes only the deleted task's index entry; persistence,
+retention, shared run IDs, and observer notifications are unchanged. It fails
+the build explicitly if the upstream bundle shape changes, so review or remove
+it when upgrading to an upstream fix. `images/Dockerfile.task-registry-hotfix`
+can layer the same fix onto an already-built source/tools image without
+reinstalling dependencies.
+
 ### Configure the local data mount path (WSL)
 
 `docker-compose-wsl.yaml` supports a per-machine data path via `OPENCLAW_DATA_DIR`:

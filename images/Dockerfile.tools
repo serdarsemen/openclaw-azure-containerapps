@@ -150,6 +150,9 @@ RUN set -eux \
      && find /usr/local/lib/node_modules -name "*.d.ts" -o -name "*.map" | xargs rm -f 2>/dev/null || true \
      && npm cache clean --force
 
+COPY patch-task-registry-delete.mjs /opt/openclaw-patches/patch-task-registry-delete.mjs
+RUN node /opt/openclaw-patches/patch-task-registry-delete.mjs /app/dist
+
 ENV GOPATH=/home/node/.openclaw/gopath
 ENV PATH="/home/node/.openclaw/gopath/bin:${PATH}"
 
