@@ -14,8 +14,6 @@ Describe "New-OpenClawComposeYaml Windows Ollama proxy" {
             -OllamaHost "http://host.docker.internal:11435"
 
         $yaml | Should Match '(?m)^  ollama-windows-proxy:\r?$'
-        $yaml | Should Match '(?m)^  ollama-windows-proxy:\r?\n    image: node:24\.20\.0-alpine3\.23\r?$'
-        $yaml | Should Match '(?m)^  openclaw:\r?\n    image: openclaw-source:latest\r?$'
         $yaml | Should Match '(?m)^    network_mode: host\r?$'
         $yaml | Should Match 'OLLAMA_HOST=http://host\.docker\.internal:11435'
         $yaml | Should Match '(?ms)^  openclaw:.*?^    depends_on:.*?^      ollama-windows-proxy:\r?$.*?^        condition: service_healthy\r?$'

@@ -1280,7 +1280,7 @@ $envBlock
         $composeYaml += @"
 
   ollama-windows-proxy:
-    image: node:24.20.0-alpine3.23
+    image: ${ImageName}:latest
     container_name: ${ContainerName}-ollama-windows-proxy
     network_mode: host
     command:
