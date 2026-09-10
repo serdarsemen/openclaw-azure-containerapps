@@ -229,7 +229,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2a: Building base image..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
+        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host -t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'" -StreamOutput
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         # Copy tools Dockerfile to WSL-accessible path
@@ -237,7 +237,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2b: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'" -StreamOutput
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
 
         # Remove intermediate base image — only the final :latest image should remain
@@ -309,14 +309,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
     try {
         Write-Host "  Step 2d: Building base OpenClaw image from source..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
+        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host -t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'" -StreamOutput
         Write-Host "  Base image built: ${ImageName}:base" -ForegroundColor Green
 
         $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
         $WslToolsContext    = "$WslScriptRoot/images"
 
         Write-Host "  Step 2e: Building tools layer (Go, gh, gemini, gog, bun, qmd)..." -ForegroundColor Gray
-        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
+        Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host -t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'" -StreamOutput
         Write-Host "  Tools image built: ${ImageName}:latest" -ForegroundColor Green
 
         # Remove intermediate base image — only the final :latest image should remain
