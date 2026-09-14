@@ -56,4 +56,15 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
 
         $failure | Should Match 'schema 19'
     }
+
+    It "runs the migration before startup in deploy and update scripts" {
+        foreach ($scriptName in @('deploy-openclaw-wsl.ps1', 'update-openclaw-wsl.ps1')) {
+            $content = Get-Content (Join-Path $repoRoot $scriptName) -Raw
+            $migrationPosition = $content.IndexOf('Invoke-OpenClawAgentSchemaMigration')
+            $startupPosition = $content.IndexOf('Invoke-WslWithNetworkPoolRecovery -Context "docker compose up"')
+
+            $migrationPosition | Should BeGreaterThan -1
+            $startupPosition | Should BeGreaterThan $migrationPosition
+        }
+    }
 }

@@ -501,6 +501,11 @@ Assert-OpenClawSearxngOwnership -WslComposePath $WslComposePath -WslDataDir $Wsl
 Write-Host "  Stopping existing containers..." -ForegroundColor Gray
 Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' down --remove-orphans"
 
+Invoke-OpenClawAgentSchemaMigration `
+    -WslDataDir $WslDataDir `
+    -ImageName $ImageName `
+    -HomeDir $HomeDir
+
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {
     Write-Host "  Pulling latest Ollama image..." -ForegroundColor Gray
