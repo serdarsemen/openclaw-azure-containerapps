@@ -138,6 +138,35 @@ function Invoke-WslStream {
     }
 }
 
+function Get-OpenClawAgentDatabaseSchemaVersions {
+  param([string] $WslDataDir)
+
+  $python = 'import sqlite3,sys; connection=sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True); print(connection.execute("PRAGMA user_version").fetchone()[0]); connection.close()'
+  $command = "if [ -d '$WslDataDir/agents' ]; then find '$WslDataDir/agents' -path '*/agent/openclaw-agent.sqlite' -type f -exec python3 -c '$python' {} \\;; fi"
+  return @(Invoke-WslData $command | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+}
+
+function Invoke-OpenClawAgentSchemaMigration {
+  param(
+    [string] $WslDataDir,
+    [string] $ImageName,
+    [string] $HomeDir
+  )
+
+  $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
+  if ($schemaVersions -notcontains '19') { return }
+
+  Write-Host "  Legacy agent database schema 19 detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
+  $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc 'node openclaw.mjs doctor --fix --non-interactive'"
+  Invoke-WslStream $doctorCommand
+
+  $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
+  if ($remainingVersions -contains '19') {
+    throw "OpenClaw doctor did not migrate all agent databases from schema 19"
+  }
+  Write-Host "  Agent database migration: complete" -ForegroundColor Green
+}
+
 # Run a WSL command and recover once from Docker bridge subnet exhaustion by
 # pruning unused networks and retrying. This targets the common compose error:
 # "all predefined address pools have been fully subnetted".

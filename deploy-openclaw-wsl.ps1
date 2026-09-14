@@ -403,6 +403,11 @@ try {
     Invoke-Wsl "find '$WslDataDir/plugin-runtime-deps' -maxdepth 2 -name '.openclaw-runtime-deps.lock' -type d -exec rm -rf {} + 2>/dev/null || true"
 } catch {}
 
+Invoke-OpenClawAgentSchemaMigration `
+    -WslDataDir $WslDataDir `
+    -ImageName $ImageName `
+    -HomeDir $HomeDir
+
 # Write config directly to openclaw.json BEFORE starting containers.
 # This ensures the gateway reads correct auth/model settings on boot.
 # Writing via docker exec is impossible because the running gateway holds the
