@@ -404,9 +404,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
-            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
-            Write-Host "  Intermediate image removed" -ForegroundColor Green
+            Remove-WslIntermediateImage -ImageName $ImageName
         } finally {
             Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -478,9 +476,7 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
-            Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
-            Invoke-Wsl "docker rmi ${ImageName}:base 2>/dev/null || true"
-            Write-Host "  Intermediate image removed" -ForegroundColor Green
+            Remove-WslIntermediateImage -ImageName $ImageName
         } finally {
             try { Invoke-Wsl "rm -rf '$($SourceArchive.WslArchivePath)' '$($WslBuildContext.WslContextPath)'" } catch {}
         }

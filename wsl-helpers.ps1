@@ -6,8 +6,7 @@
 # ---------------------------------------------------------------------------
 
 # Run a WSL command, merge stderr into the return value, throw on non-zero exit.
-# Retries once automatically when a WSL service-level socket timeout is detected
-# (Wsl/Service/0x8007274c) — these are always transient and never indicate a real failure.
+# Retry transient failures without shutting down running WSL workloads.
 function Invoke-Wsl {
     param([string] $Command, [int] $ServiceRetries = 2)
     $attempt = 0
@@ -19,16 +18,23 @@ function Invoke-Wsl {
         $output = ($result -join [Environment]::NewLine)
         if ($attempt -lt $ServiceRetries -and (Test-WslTransientNetworkError -Output $output)) {
             $delay = $attempt * 3
-      if (Test-WslServiceError -Output $output) {
-        Write-Host "  WSL service error on attempt $attempt — restarting WSL before retry..." -ForegroundColor Yellow
-        $null = wsl --shutdown 2>&1
-      } else {
-        Write-Host "  Transient network error on attempt $attempt — retrying in ${delay}s..." -ForegroundColor Yellow
-      }
+      Write-Host "  Transient WSL/network error on attempt $attempt - retrying in ${delay}s..." -ForegroundColor Yellow
             Start-Sleep -Seconds $delay
             continue
         }
     throw "WSL command failed (exit $exitCode): $Command`n$output"
+  }
+}
+
+function Remove-WslIntermediateImage {
+  param([string] $ImageName)
+
+  Write-Host "  Removing intermediate base image..." -ForegroundColor Gray
+  try {
+    $null = Invoke-Wsl "docker rmi ${ImageName}:base"
+    Write-Host "  Intermediate image removed" -ForegroundColor Green
+  } catch {
+    Write-Warning "Optional cleanup of ${ImageName}:base failed; continuing with the built image. The intermediate image may remain on disk. $($_.Exception.Message)"
     }
 }
 
@@ -1246,7 +1252,7 @@ $envBlock
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '8'
           memory: 12G
         reservations:
           cpus: '2'

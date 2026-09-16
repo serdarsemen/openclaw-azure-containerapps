@@ -29,11 +29,61 @@ Describe "Invoke-Wsl service recovery" {
         Mock Write-Host {}
     }
 
-    It "restarts WSL before retrying a service-level socket failure" {
+    It "retries a service-level socket failure without shutting down running workloads" {
         Invoke-Wsl "docker rmi openclaw-source:base 2>/dev/null || true" | Should Be 'removed'
 
-        Assert-MockCalled wsl 1 -ParameterFilter { $args[0] -eq '--shutdown' }
+        Assert-MockCalled wsl 0 -Exactly -Scope It -ParameterFilter { $args[0] -eq '--shutdown' }
         $script:bashAttempts | Should Be 2
+    }
+}
+
+Describe "Intermediate image cleanup" {
+    BeforeEach {
+        $script:wslExitCode = -1
+        $script:wslOutput = 'Wsl/Service/0x8007274c'
+        Mock wsl {
+            $global:LASTEXITCODE = $script:wslExitCode
+            return $script:wslOutput
+        }
+        Mock Write-Host {}
+        Mock Write-Warning {}
+        Mock Start-Sleep {}
+    }
+
+    It "warns without aborting when WSL remains unavailable" {
+        { Remove-WslIntermediateImage -ImageName 'openclaw-source' } | Should Not Throw
+
+        Assert-MockCalled Write-Warning 1 -Exactly -Scope It -ParameterFilter {
+            $Message -match 'openclaw-source:base' -and $Message -match '0x8007274c'
+        }
+        Assert-MockCalled Write-Host 0 -Exactly -Scope It -ParameterFilter { $Object -match 'Intermediate image removed' }
+        Assert-MockCalled wsl 0 -Exactly -Scope It -ParameterFilter { $args[0] -eq '--shutdown' }
+    }
+
+    It "removes the base image and reports success" {
+        $script:wslExitCode = 0
+        $script:wslOutput = 'Untagged: openclaw-source:base'
+
+        Remove-WslIntermediateImage -ImageName 'openclaw-source'
+
+        Assert-MockCalled wsl 1 -Exactly -Scope It -ParameterFilter { $args[2] -eq 'docker rmi openclaw-source:base' }
+        Assert-MockCalled Write-Warning 0 -Exactly -Scope It
+        Assert-MockCalled Write-Host 1 -Exactly -Scope It -ParameterFilter { $Object -match 'Intermediate image removed' }
+    }
+
+    It "still fails required commands when WSL remains unavailable" {
+        $failure = $null
+        try { Invoke-Wsl 'required command' } catch { $failure = $_.Exception.Message }
+        $failure | Should Match 'exit -1'
+        $failure | Should Match 'Wsl/Service/0x8007274c'
+    }
+
+    It "uses best-effort cleanup for source and npm builds in both scripts" {
+        foreach ($scriptName in @('deploy-openclaw-wsl.ps1', 'update-openclaw-wsl.ps1')) {
+            $content = Get-Content (Join-Path $repoRoot $scriptName) -Raw
+            ([regex]::Matches($content, 'Remove-WslIntermediateImage -ImageName \$ImageName')).Count | Should Be 2
+            $content | Should Not Match 'Invoke-Wsl "docker rmi \$\{ImageName\}:base'
+        }
     }
 }
 

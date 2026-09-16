@@ -348,6 +348,12 @@ it when upgrading to an upstream fix. `images/Dockerfile.task-registry-hotfix`
 can layer the same fix onto an already-built source/tools image without
 reinstalling dependencies.
 
+The WSL OpenClaw container has an 8-CPU limit and a 12GB memory limit,
+independent of WSL's own resource limits. Allocate enough CPUs to WSL to leave
+headroom for other containers. The limits are defined in `wsl-helpers.ps1` and
+the generated `docker-compose-wsl.yaml`; keep both in sync when changing them,
+because deploy/update regenerates the Compose file.
+
 ### Configure the local data mount path (WSL)
 
 `docker-compose-wsl.yaml` supports a per-machine data path via `OPENCLAW_DATA_DIR`:
