@@ -354,6 +354,11 @@ headroom for other containers. The limits are defined in `wsl-helpers.ps1` and
 the generated `docker-compose-wsl.yaml`; keep both in sync when changing them,
 because deploy/update regenerates the Compose file.
 
+WSL deploy/update runs `openclaw doctor --fix --non-interactive` with the gateway
+stopped when agent databases use schema 19 or 20. The current image requires
+schema 21; startup is blocked if either legacy version remains after migration.
+Back up the persistent configuration and agent databases before upgrading.
+
 ### Configure the local data mount path (WSL)
 
 `docker-compose-wsl.yaml` supports a per-machine data path via `OPENCLAW_DATA_DIR`:

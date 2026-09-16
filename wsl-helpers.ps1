@@ -160,15 +160,18 @@ function Invoke-OpenClawAgentSchemaMigration {
   )
 
   $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
-  if ($schemaVersions -notcontains '19') { return }
+  $legacyVersions = @('19', '20')
+  $pendingVersions = @($schemaVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
+  if ($pendingVersions.Count -eq 0) { return }
 
-  Write-Host "  Legacy agent database schema 19 detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
+  Write-Host "  Legacy agent database schema $($pendingVersions -join ', ') detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
   $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc 'node openclaw.mjs doctor --fix --non-interactive'"
   Invoke-WslStream $doctorCommand
 
   $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
-  if ($remainingVersions -contains '19') {
-    throw "OpenClaw doctor did not migrate all agent databases from schema 19"
+  $unmigratedVersions = @($remainingVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
+  if ($unmigratedVersions.Count -gt 0) {
+    throw "OpenClaw doctor did not migrate all agent databases from schema $($unmigratedVersions -join ', ')"
   }
   Write-Host "  Agent database migration: complete" -ForegroundColor Green
 }
