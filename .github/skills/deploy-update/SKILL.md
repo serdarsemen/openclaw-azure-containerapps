@@ -1,3 +1,8 @@
+---
+name: deploy-update
+description: Use when deploying, updating, upgrading, or rebuilding OpenClaw on Azure Container Apps.
+---
+
 # Deploy & Update OpenClaw on Azure Container Apps
 
 Guide deployment and update workflows for OpenClaw on Azure Container Apps.

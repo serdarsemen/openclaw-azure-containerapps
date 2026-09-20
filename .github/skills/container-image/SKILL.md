@@ -1,3 +1,8 @@
+---
+name: container-image
+description: Use when building, modifying, troubleshooting, or managing this repository's OpenClaw container images and ACR builds.
+---
+
 # Container Image Build & Management
 
 Guide building, layering, and managing OpenClaw container images via Azure Container Registry.

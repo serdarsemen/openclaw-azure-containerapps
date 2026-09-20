@@ -1,3 +1,8 @@
+---
+name: bicep-infra
+description: Use when authoring, modifying, reviewing, or explaining this repository's Azure Container Apps Bicep infrastructure.
+---
+
 # Bicep Infrastructure for OpenClaw
 
 Guide authoring and modifying Bicep templates for the OpenClaw Azure Container Apps deployment.

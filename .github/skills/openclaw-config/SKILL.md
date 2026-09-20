@@ -1,3 +1,8 @@
+---
+name: openclaw-config
+description: Use when configuring or securing the OpenClaw gateway, providers, models, channels, environment variables, or startup behavior.
+---
+
 # OpenClaw Gateway Configuration
 
 Guide configuring, securing, and managing the OpenClaw gateway running on Azure Container Apps.

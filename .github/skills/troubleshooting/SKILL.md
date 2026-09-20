@@ -1,3 +1,8 @@
+---
+name: troubleshooting
+description: Use when diagnosing OpenClaw Azure Container Apps startup, storage, image, networking, ingress, or update failures.
+---
+
 # Troubleshooting OpenClaw on Azure Container Apps
 
 Guide diagnosing and fixing issues with the OpenClaw Azure Container Apps deployment.

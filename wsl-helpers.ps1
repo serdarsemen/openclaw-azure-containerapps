@@ -803,13 +803,6 @@ function Resolve-OllamaHost {
           if ($activeWindowsIps) { $candidateIps += $activeWindowsIps }
         } catch {}
 
-        # In mirrored networking, default route gateway can be the LAN router.
-        # Keep it as a candidate but don't trust it until connectivity is verified.
-        try {
-          $routeGateway = (Invoke-WslData "ip route show default 2>/dev/null | sed -n 's/.*via \([^ ]*\).*/\1/p' | head -n1").Trim()
-          if ($routeGateway) { $candidateIps += $routeGateway }
-        } catch {}
-
         # In NAT mode this often points to the Windows host side of the WSL vSwitch.
         try {
           $nsLine = (Invoke-WslData "grep -m1 nameserver /etc/resolv.conf").Trim()

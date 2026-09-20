@@ -1,14 +1,15 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path $PSScriptRoot -Parent) 'wsl-helpers.ps1')
 $script:messages = @()
+$script:wslCommands = @()
 function Write-Host {
     param($Object, $ForegroundColor)
     $script:messages += [string]$Object
 }
 function Invoke-WslData {
     param([string] $Command)
+    $script:wslCommands += $Command
     if ($Command -match 'docker info') { 'Docker Engine' }
-    elseif ($Command -match 'ip route') { '192.168.1.1' }
     elseif ($Command -match 'nameserver') { 'nameserver 192.168.1.1' }
     else { throw "Unexpected command: $Command" }
 }
@@ -31,6 +32,7 @@ if ($transcript -notmatch 'relay.*(pending|after|startup)|(?:pending|after|start
 if ($transcript -match 'Verifying Ollama connectivity at http://host.docker.internal:11435') { $failures += 'Transcript claims to probe the relay instead of the upstream endpoint' }
 if ($transcript -notmatch 'Verifying.*http://localhost:11434.*WSL') { $failures += 'Transcript must identify the actual probe URL and WSL context' }
 if ((Get-OllamaWindowsSetupLines) -notcontains '  $env:OLLAMA_HOST = "0.0.0.0:11434"') { $failures += 'Manual setup must update the current PowerShell environment' }
+if ($script:wslCommands -match '\bip\s+(?:-\S+\s+)*route\b') { $failures += 'Ollama resolution must not call ip route because it can hang under WSL mirrored networking' }
 
 $script:messages = @()
 function Wait-OllamaEndpointFromWsl { param($Url, $MaxAttempts, $DelaySeconds) $false }
