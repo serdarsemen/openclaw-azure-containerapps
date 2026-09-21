@@ -44,6 +44,30 @@ function removeTaskIndexes(task) {
     deleteRunIdIndex(task.taskId, task.runId);
 }`;
 
+const splitNativeDeleteFixture = `import { _ as removeTaskIndexes } from "./task-registry.process-state.mjs";
+function deleteTaskRecordById(taskId) {
+    return withTaskRegistryMutation(() => {
+        ensureTaskRegistryReady();
+        const current = tasks.get(taskId);
+        if (!current) return false;
+        ensureLinkedTaskFlowRegistryReady(current);
+        if (!tryPersistTaskDelete(taskId)) return false;
+        const indexedCurrent = tasks.get(taskId);
+        if (indexedCurrent) removeTaskIndexes(indexedCurrent);
+        clearTaskActivity(taskId);
+        recordTaskRegistryProjectionWrite("task", taskId, true);
+        tasks.delete(taskId);
+        bumpTaskRegistryRevision();
+        taskDeliveryStates.delete(taskId);
+        emitTaskRegistryObserverEvent(() => ({
+            kind: "deleted",
+            taskId: current.taskId,
+            previous: cloneTaskRecordForObserver(current)
+        }));
+        return true;
+    }, () => false);
+}`;
+
 // Optional real-image bundle ensures tests exercise the shipped function, not only the fixture.
 const source = process.env.TASK_REGISTRY_BUNDLE
     ? readFileSync(process.env.TASK_REGISTRY_BUNDLE, "utf8")
@@ -158,6 +182,19 @@ test("prefers native incremental removal when a transitional bundle retains the 
         writeFileSync(file, transitionalSource);
         patchDist(dist);
         assert.equal(readFileSync(file, "utf8"), transitionalSource);
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
+});
+
+test("skips the hotfix when native index removal is imported from a split bundle", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    const file = path.join(dist, "task-registry-query-current.mjs");
+    try {
+        writeFileSync(file, splitNativeDeleteFixture);
+        writeFileSync(path.join(dist, "task-registry.process-state-current.mjs"), nativeIncrementalFixture);
+        assert.doesNotThrow(() => patchDist(dist));
+        assert.equal(readFileSync(file, "utf8"), splitNativeDeleteFixture);
     } finally {
         rmSync(dist, { recursive: true, force: true });
     }

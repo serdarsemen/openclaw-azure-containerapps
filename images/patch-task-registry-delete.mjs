@@ -41,7 +41,7 @@ function hasNativeIncrementalDelete(source) {
 
 export function patchDist(dist) {
     const bundles = readdirSync(dist)
-        .filter(name => /^task-registry-.*\.mjs$/.test(name))
+        .filter(name => /^task-registry[.-].*\.mjs$/.test(name))
         .map(name => ({ file: path.join(dist, name), source: readFileSync(path.join(dist, name), "utf8") }));
     const candidates = bundles.filter(({ source }) => source.includes("function deleteTaskRecordById(taskId) {"));
     if (bundles.some(({ source }) => hasNativeIncrementalDelete(source))) {
