@@ -33,16 +33,25 @@ export function patchTaskRegistryDelete(source) {
     return source.replace(original, original.replace("rebuildRunIdIndex();", incrementalDelete));
 }
 
+function hasNativeIncrementalDelete(source) {
+    return source.includes("function deleteIndexedKey(") &&
+        source.includes("function deleteRunIdIndex(") &&
+        source.includes("function removeTaskIndexes(");
+}
+
 export function patchDist(dist) {
-    const candidates = readdirSync(dist)
+    const bundles = readdirSync(dist)
         .filter(name => /^task-registry-.*\.mjs$/.test(name))
-        .map(name => path.join(dist, name))
-        .filter(file => readFileSync(file, "utf8").includes("function deleteTaskRecordById(taskId) {"));
+        .map(name => ({ file: path.join(dist, name), source: readFileSync(path.join(dist, name), "utf8") }));
+    const candidates = bundles.filter(({ source }) => source.includes("function deleteTaskRecordById(taskId) {"));
+    if (bundles.some(({ source }) => hasNativeIncrementalDelete(source))) {
+        console.log("Skipped task registry deletion hotfix: upstream provides native incremental index removal.");
+        return;
+    }
     if (candidates.length !== 1) {
         throw new Error(`Expected one task registry bundle in ${dist}; found ${candidates.length}.`);
     }
-    const file = candidates[0];
-    const source = readFileSync(file, "utf8");
+    const { file, source } = candidates[0];
     const patched = patchTaskRegistryDelete(source);
     if (patched !== source) writeFileSync(file, patched);
     console.log(`${patched === source ? "Already patched" : "Patched"} task registry deletion: ${file}`);

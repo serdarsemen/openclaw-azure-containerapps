@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import vm from "node:vm";
-import { patchTaskRegistryDelete } from "../images/patch-task-registry-delete.mjs";
+import { patchDist, patchTaskRegistryDelete } from "../images/patch-task-registry-delete.mjs";
 
 const fixture = `import { Y as getTaskRegistryProcessState } from "./state.mjs";
 function deleteTaskRecordById(taskId) {
@@ -25,6 +27,21 @@ function deleteTaskRecordById(taskId) {
 \t\tprevious: cloneTaskRecord(current)
 \t}));
 \treturn true;
+}`;
+
+const nativeIncrementalFixture = `
+const taskIdsByRunId = new Map();
+function deleteIndexedKey(index, key, taskId) {
+    const ids = index.get(key);
+    if (!ids) return;
+    ids.delete(taskId);
+    if (ids.size === 0) index.delete(key);
+}
+function deleteRunIdIndex(taskId, runId) {
+    if (runId?.trim()) deleteIndexedKey(taskIdsByRunId, runId.trim(), taskId);
+}
+function removeTaskIndexes(task) {
+    deleteRunIdIndex(task.taskId, task.runId);
 }`;
 
 // Optional real-image bundle ensures tests exercise the shipped function, not only the fixture.
@@ -78,6 +95,16 @@ test("preserves other records sharing the trimmed run ID and removes empty bucke
     assert.equal(state.index.size, 0);
 });
 
+test("still rejects an unknown task registry bundle shape", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    try {
+        writeFileSync(path.join(dist, "task-registry-unknown.mjs"), "export const unknown = true;");
+        assert.throws(() => patchDist(dist), /found 0/);
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
+});
+
 test("does not mutate memory or notify observers when persistence fails", () => {
     const state = setup([{ taskId: "one", runId: "run" }], false);
     assert.equal(state.remove("one"), false);
@@ -111,4 +138,27 @@ test("patch is idempotent and fails explicitly on incompatible upstream bundles"
     assert.equal(patchTaskRegistryDelete(patched), patched);
     assert.throws(() => patchTaskRegistryDelete(""), /exactly one/);
     assert.throws(() => patchTaskRegistryDelete(fixture.replace("rebuildRunIdIndex();", "changedUpstream();")), /supported hotfix shape/);
+});
+
+test("skips the hotfix when upstream provides native incremental index removal", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    try {
+        writeFileSync(path.join(dist, "task-registry-current.mjs"), nativeIncrementalFixture);
+        assert.doesNotThrow(() => patchDist(dist));
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
+});
+
+test("prefers native incremental removal when a transitional bundle retains the legacy delete function", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    const file = path.join(dist, "task-registry-transitional.mjs");
+    const transitionalSource = `${fixture}\n${nativeIncrementalFixture}`;
+    try {
+        writeFileSync(file, transitionalSource);
+        patchDist(dist);
+        assert.equal(readFileSync(file, "utf8"), transitionalSource);
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
 });
