@@ -393,14 +393,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         try {
             Write-Host "  Step 1a: Rebuilding base image..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'" -StreamOutput
+            $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$WslBuildDir/Dockerfile' '$WslBuildDir'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
             Write-Host "  Step 1b: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'" -StreamOutput
+            $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
@@ -465,14 +465,14 @@ CMD ["openclaw", "gateway", "--allow-unconfigured"]
 
         try {
             Write-Host "  Step 1d: Rebuilding base image from source..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'" -StreamOutput
+            $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:base -f '$($WslBuildContext.WslContextPath)/Dockerfile' '$($WslBuildContext.WslContextPath)'"
             Write-Host "  Base image rebuilt: ${ImageName}:base" -ForegroundColor Green
 
             $WslToolsDockerfile = "$WslScriptRoot/$ToolsDockerfile"
             $WslToolsContext    = "$WslScriptRoot/images"
 
             Write-Host "  Step 1e: Rebuilding tools layer..." -ForegroundColor Gray
-            Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'" -StreamOutput
+            $null = Invoke-WslRetry "DOCKER_BUILDKIT=1 docker build --progress=plain --network=host ${dockerBuildCacheArg}-t ${ImageName}:latest --build-arg BASE_IMAGE=${ImageName}:base -f '$WslToolsDockerfile' '$WslToolsContext'"
             Write-Host "  Tools image rebuilt: ${ImageName}:latest" -ForegroundColor Green
 
             # Remove intermediate base image — only the final :latest image should remain
