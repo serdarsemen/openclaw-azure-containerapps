@@ -23,7 +23,16 @@ This repo provides four ways to run OpenClaw:
 
 The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch). The GitHub Actions runtime uses the npm install and carries Copilot auth over in its seed/cache.
 
-## Recent changes (June 2026)
+## Recent changes (September 2026)
+
+- **Quieter WSL image builds** — `deploy-openclaw-wsl.ps1` and `update-openclaw-wsl.ps1` no longer stream `docker build` output to the console; only step headers and results are printed. If a build fails, the full build log is included in the thrown error.
+- **Quieter pip installs** — `images/Dockerfile.tools` and `images/Dockerfile.npmtools` run `pip install --quiet --progress-bar off`, so build logs are shorter. Package versions and install order are unchanged.
+- **Task registry hotfix skips itself when upstream has the fix** — `images/patch-task-registry-delete.mjs` now matches bundles named `task-registry.*.mjs` or `task-registry-*.mjs`. It skips the patch when the upstream bundle already removes index entries per task (`deleteIndexedKey`, `deleteRunIdIndex`, `removeTaskIndexes`).
+- **WSL Ollama host resolution no longer calls `ip route`** — `Resolve-OllamaHost` in `wsl-helpers.ps1` no longer uses the default-route gateway as a candidate, because `ip route` can hang under WSL mirrored networking. It still checks the `vEthernet (WSL)` adapter, active Windows adapter IPs, and the `/etc/resolv.conf` nameserver.
+- **Agent database schema migration** — WSL deploy/update runs `openclaw doctor --fix` before startup to move agent databases from schema 19/20 to 21 (see [WSL useful commands](#wsl-useful-commands)).
+- **New Copilot agent skills** under `.github/skills/`: `azure-container-registry-cli`, `azure-well-architected-review`, `docs-sync-audit`, `github-actions-hardening`, `mcp-release-qa`, `pester-migration`, `security-review`, `test-gap-audit`, and `typesafe-ai` (tracked in `skills-lock.json`). The existing repo skills now have YAML front matter (`name`, `description`) so agents can discover them.
+
+### Earlier changes (June 2026)
 
 - Added target-specific deploy/update scripts for ACA, AKS, WSL, and GitHub Actions runtimes.
 - WSL and AKS keep Ollama optional by default; enable explicitly with `-Ollama` or use native/external host modes.
@@ -34,12 +43,14 @@ The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device
 
 The custom image build layers in both `images/Dockerfile.tools` and `images/Dockerfile.npmtools` pin key Python dependencies for reproducible behavior across ACA, AKS, and WSL deployments.
 
+- `scipy==1.15.2`
+- `statsmodels==0.14.6`
 - `scikit-learn==1.9.0`
 - `matplotlib==3.11.0`
 - `mplfinance==0.12.10b0`
 - `pytest-timeout==2.4.0`
 
-When updating Python dependencies, keep both Dockerfiles in sync.
+When updating Python dependencies, keep both Dockerfiles in sync. Install scipy/statsmodels before PyTorch. Installing PyTorch last lets it work with the numpy version already installed.
 
 ## Prerequisites
 
@@ -226,6 +237,8 @@ By default, the WSL deploy script does **not** include an Ollama sidecar — it 
 
 For native modes (`-OllamaWindows`, `-OllamaWsl`), the script attempts to auto-start Ollama and validate connectivity. If auto-start fails, run the matching startup helper script and retry.
 
+With Docker Desktop, `-OllamaWindows` uses `host.docker.internal`. With the WSL Docker Engine, it builds a list of private IPs from three sources, in this order: the `vEthernet (WSL)` adapter, active Windows adapters, and the WSL `/etc/resolv.conf` nameserver. It probes each IP from WSL and uses the first one that responds. It does not use the `ip route` default gateway, because that command can hang under WSL mirrored networking.
+
 ```powershell
 # Default: OpenClaw + Redis + SearXNG (no Ollama)
 .\deploy-openclaw-wsl.ps1
@@ -343,8 +356,10 @@ task registry. The affected OpenClaw build rebuilt the entire run-ID index for
 every expired task deletion, starving the gateway event loop with large task
 histories. The patch removes only the deleted task's index entry; persistence,
 retention, shared run IDs, and observer notifications are unchanged. It fails
-the build explicitly if the upstream bundle shape changes, so review or remove
-it when upgrading to an upstream fix. `images/Dockerfile.task-registry-hotfix`
+the build explicitly if the upstream bundle shape changes. When the upstream
+bundle already provides per-task index removal (`deleteIndexedKey`,
+`deleteRunIdIndex`, `removeTaskIndexes`), the patch logs a message and skips
+itself, so newer OpenClaw releases build without changes. `images/Dockerfile.task-registry-hotfix`
 can layer the same fix onto an already-built source/tools image without
 reinstalling dependencies.
 
@@ -850,9 +865,12 @@ az group delete --name rg-openclaw-aks --yes --no-wait
 │   ├── main.bicep / .bicepparam   # Source-build variant
 │   ├── mainnpm.bicep / .bicepparam# NPM variant
 │   └── ollama.bicep / .bicepparam # Standalone Ollama Container App
+├── .github/skills/                # Copilot agent skills (deploy, image, Bicep, audits, reviews)
 ├── images/                        # Extended tool-layer Dockerfiles
 │   ├── Dockerfile.tools           # Go, gh, Gemini CLI, GoG CLI, etc.
-│   └── Dockerfile.npmtools        # Adds Bun, QMD on top of npm base
+│   ├── Dockerfile.npmtools        # Adds Bun, QMD on top of npm base
+│   └── patch-task-registry-delete.mjs # Task registry deletion hotfix (skips when upstream has the fix)
+├── tests/                         # Node and PowerShell regression tests
 ├── searxng/                       # SearXNG settings (mounted into the searxng container)
 ├── deploy-openclaw-ACA.ps1        # Azure Container Apps deploy
 ├── update-openclaw-ACA.ps1        # Azure Container Apps update
