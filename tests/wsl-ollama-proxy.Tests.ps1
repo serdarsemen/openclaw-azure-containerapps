@@ -67,3 +67,31 @@ Describe "New-OpenClawComposeYaml CRW healthcheck" {
         }
     }
 }
+
+Describe "New-OpenClawComposeYaml CPU limits" {
+    $parameters = @{
+        ContainerName = "openclaw-test"
+        ImageName = "openclaw-source"
+        HomeDir = "/home/node"
+        WslDataDir = "/home/test/.openclaw-data"
+        GatewayPort = 18789
+        BridgePort = 18790
+        GatewayToken = "test-token"
+    }
+
+    It "caps the OpenClaw CPU limit at 8 on large hosts" {
+        $yaml = New-OpenClawComposeYaml @parameters -HostCpuCount 16
+        $yaml | Should Match "(?s)limits:\s+cpus: '8'\s+memory: 12G\s+reservations:\s+cpus: '2'"
+    }
+
+    It "does not exceed the CPUs available to Docker in WSL" {
+        $yaml = New-OpenClawComposeYaml @parameters -HostCpuCount 4
+        $yaml | Should Match "(?s)limits:\s+cpus: '4'\s+memory: 12G\s+reservations:\s+cpus: '2'"
+        $yaml | Should Not Match "cpus: '8'"
+    }
+
+    It "keeps the CPU reservation within the limit on single-CPU hosts" {
+        $yaml = New-OpenClawComposeYaml @parameters -HostCpuCount 1
+        $yaml | Should Match "(?s)limits:\s+cpus: '1'\s+memory: 12G\s+reservations:\s+cpus: '1'"
+    }
+}

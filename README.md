@@ -363,15 +363,21 @@ itself, so newer OpenClaw releases build without changes. `images/Dockerfile.tas
 can layer the same fix onto an already-built source/tools image without
 reinstalling dependencies.
 
-The WSL OpenClaw container has an 8-CPU limit and a 12GB memory limit,
-independent of WSL's own resource limits. Allocate enough CPUs to WSL to leave
-headroom for other containers. The limits are defined in `wsl-helpers.ps1` and
-the generated `docker-compose-wsl.yaml`; keep both in sync when changing them,
-because deploy/update regenerates the Compose file.
+The WSL OpenClaw container has a CPU limit of 8 and a 12GB memory limit,
+independent of WSL's own resource limits. If WSL has fewer than 8 CPUs
+(`nproc`), deploy/update lowers the limit to match, because Docker refuses to
+start a container whose CPU limit is higher than the CPU count. Allocate enough
+CPUs to WSL to leave headroom for other containers. The limits are defined in
+`wsl-helpers.ps1` and the generated `docker-compose-wsl.yaml`; keep both in sync
+when changing them, because deploy/update regenerates the Compose file.
 
 WSL deploy/update runs `openclaw doctor --fix --non-interactive` with the gateway
 stopped when agent databases use schema 19 or 20. The current image requires
 schema 21; startup is blocked if either legacy version remains after migration.
+Schema versions are read with `python3` from the OpenClaw image, so the WSL
+distro does not need Python. If any agent database can't be read, deploy/update
+stops instead of skipping the migration. The source variant runs
+`node openclaw.mjs doctor`, and the npm variant runs `openclaw doctor`.
 Back up the persistent configuration and agent databases before upgrading.
 
 ### Configure the local data mount path (WSL)

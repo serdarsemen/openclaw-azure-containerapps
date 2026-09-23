@@ -38,17 +38,6 @@ function Remove-WslIntermediateImage {
     }
 }
 
-function Test-WslServiceError {
-  param([string] $Output)
-  if (-not $Output) { return $false }
-
-  return $Output -match 'Wsl/Service/' -or
-  $Output -match 'connected party did not properly respond' -or
-  $Output -match 'connected host has failed to respond' -or
-  $Output -match '0x8007274c' -or
-  $Output -match '0x80072746'
-}
-
 # Heuristic for transient network failures seen during Docker/BuildKit dependency
 # downloads (npm registry timeouts, DNS hiccups, TLS/connect resets).
 function Test-WslTransientNetworkError {
@@ -134,6 +123,16 @@ function Invoke-WslData {
     return $result
 }
 
+# Returns the CPU count Docker sees inside WSL, or 0 if it cannot be determined.
+function Get-WslCpuCount {
+  try {
+    $value = [string](Invoke-WslData "nproc" | Select-Object -First 1)
+    $count = 0
+    if ([int]::TryParse($value.Trim(), [ref] $count)) { return $count }
+  } catch {}
+  return 0
+}
+
 # Run a WSL command and stream its output live to the terminal (do not capture).
 # Use for long-running commands like 'docker pull' where progress should be shown.
 function Invoke-WslStream {
@@ -144,31 +143,43 @@ function Invoke-WslStream {
     }
 }
 
+# Reads PRAGMA user_version from every agent database using the image's python3,
+# so the WSL distro does not need python3. Any unreadable database fails the call.
 function Get-OpenClawAgentDatabaseSchemaVersions {
-  param([string] $WslDataDir)
+  param(
+    [string] $WslDataDir,
+    [string] $ImageName
+  )
 
-  $python = 'import sqlite3,sys; connection=sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True); print(connection.execute("PRAGMA user_version").fetchone()[0]); connection.close()'
-  $command = "if [ -d '$WslDataDir/agents' ]; then find '$WslDataDir/agents' -path '*/agent/openclaw-agent.sqlite' -type f -exec python3 -c '$python' {} \\;; fi"
-  return @(Invoke-WslData $command | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
+  $python = 'import glob,pathlib,sqlite3; [print(sqlite3.connect(pathlib.Path(p).as_uri() + "?mode=ro", uri=True).execute("PRAGMA user_version").fetchone()[0]) for p in sorted(glob.glob("/agents/**/agent/openclaw-agent.sqlite", recursive=True))]'
+  $command = "if [ -d '$WslDataDir/agents' ]; then docker run --rm -v '$WslDataDir/agents:/agents' --entrypoint python3 '${ImageName}:latest' -c '$python'; fi"
+  try {
+    $output = Invoke-WslData $command
+  } catch {
+    throw "Could not read agent database schema versions under $WslDataDir/agents using ${ImageName}:latest. $($_.Exception.Message)"
+  }
+  return @($output | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
 }
 
 function Invoke-OpenClawAgentSchemaMigration {
   param(
     [string] $WslDataDir,
     [string] $ImageName,
-    [string] $HomeDir
+    [string] $HomeDir,
+    [switch] $Npm
   )
 
-  $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
+  $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
   $legacyVersions = @('19', '20')
   $pendingVersions = @($schemaVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
   if ($pendingVersions.Count -eq 0) { return }
 
   Write-Host "  Legacy agent database schema $($pendingVersions -join ', ') detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
-  $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc 'node openclaw.mjs doctor --fix --non-interactive'"
+  $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
+  $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc '$openclawCli doctor --fix --non-interactive'"
   Invoke-WslStream $doctorCommand
 
-  $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir)
+  $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
   $unmigratedVersions = @($remainingVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
   if ($unmigratedVersions.Count -gt 0) {
     throw "OpenClaw doctor did not migrate all agent databases from schema $($unmigratedVersions -join ', ')"
@@ -1065,9 +1076,14 @@ function New-OpenClawComposeYaml {
         [switch] $OllamaSidecar,
         [string] $GroqApiKey = "",
         [switch] $Npm,
-        [switch] $LanAccess
+        [switch] $LanAccess,
+        # CPUs visible to Docker in WSL; 0 detects via nproc. Docker rejects limits above this.
+        [int] $HostCpuCount = 0
     )
 
+    if ($HostCpuCount -le 0) { $HostCpuCount = Get-WslCpuCount }
+    $openclawCpuLimit = if ($HostCpuCount -gt 0) { [Math]::Min(8, $HostCpuCount) } else { 8 }
+    $openclawCpuReservation = [Math]::Min(2, $openclawCpuLimit)
     # Resolve an Ollama host value that is reachable from containers.
     $effectiveOllamaHost = ""
     $needsWindowsOllamaProxy = $false
@@ -1248,10 +1264,10 @@ $envBlock
     deploy:
       resources:
         limits:
-          cpus: '8'
+          cpus: '$openclawCpuLimit'
           memory: 12G
         reservations:
-          cpus: '2'
+          cpus: '$openclawCpuReservation'
           memory: 4G
     command:
       - bash

@@ -500,7 +500,8 @@ Invoke-Wsl "OPENCLAW_DATA_DIR='$WslDataDir' docker compose -f '$WslComposePath' 
 Invoke-OpenClawAgentSchemaMigration `
     -WslDataDir $WslDataDir `
     -ImageName $ImageName `
-    -HomeDir $HomeDir
+    -HomeDir $HomeDir `
+    -Npm:$Npm
 
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {

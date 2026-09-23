@@ -402,7 +402,8 @@ try {
 Invoke-OpenClawAgentSchemaMigration `
     -WslDataDir $WslDataDir `
     -ImageName $ImageName `
-    -HomeDir $HomeDir
+    -HomeDir $HomeDir `
+    -Npm:$Npm
 
 # Write config directly to openclaw.json BEFORE starting containers.
 # This ensures the gateway reads correct auth/model settings on boot.
