@@ -177,14 +177,15 @@ Describe "Invoke-WslRetry build output" {
         Assert-MockCalled Start-Sleep 1 -Exactly -Scope It -ParameterFilter { $Seconds -eq 10 }
     }
 
-    It "enables streamed plain progress on every deploy and update build" {
+    It "builds with plain progress and suppresses output on every deploy and update build" {
         foreach ($scriptName in @('deploy-openclaw-wsl.ps1', 'update-openclaw-wsl.ps1')) {
             $buildCalls = @(Get-Content (Join-Path $repoRoot $scriptName) |
-                Where-Object { $_ -match '^\s*Invoke-WslRetry .*docker build ' })
+                Where-Object { $_ -match '^\s*(?:\$null\s*=\s*)?Invoke-WslRetry .*docker build ' })
             $buildCalls.Count | Should Be 4
             foreach ($buildCall in $buildCalls) {
                 $buildCall | Should Match '--progress=plain'
-                $buildCall | Should Match '-StreamOutput'
+                $buildCall | Should Match '^\s*\$null\s*=\s*Invoke-WslRetry '
+                $buildCall | Should Not Match '-StreamOutput'
             }
         }
     }

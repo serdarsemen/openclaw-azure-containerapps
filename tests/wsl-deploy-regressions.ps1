@@ -48,7 +48,7 @@ foreach ($primary in @('ollama/custom-model', '', $null)) {
         if ($null -ne $primary) { $model | Add-Member -NotePropertyName primary -NotePropertyValue $primary }
         $config = [pscustomobject]@{ agents = [pscustomobject]@{ defaults = [pscustomobject]@{ model = $model } } }
         . $modelScript
-        $expected = if ($primary) { $primary } else { 'github-copilot/claude-opus-4.6' }
+        $expected = if ($primary) { $primary } else { 'github-copilot/claude-opus-5' }
         if ($config.agents.defaults.model.primary -ne $expected) { throw "Primary model '$primary' was not preserved/defaulted correctly" }
         if ($config.agents.defaults.model.fallbacks[0] -ne 'test/fallback') { throw 'Model fallbacks changed' }
     } catch { $failures += $_.Exception.Message }
