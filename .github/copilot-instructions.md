@@ -41,7 +41,7 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 ## Python ML Stack (Dockerfile.tools and Dockerfile.npmtools)
 
 - **Installation order is critical** to prevent numpy version conflicts:
-  1. scipy/statsmodels install first (they have strict numpy requirements: scipy==1.14.1, statsmodels==0.14.6)
+  1. scipy/statsmodels install first (they have strict numpy requirements: scipy==1.15.2, statsmodels==0.14.6), installed with `uv pip install --system --torch-backend cpu` because pip's resolver hits `resolution-too-deep`
   2. Keep pinned ML/test packages aligned across both Dockerfiles (scikit-learn==1.9.0, matplotlib==3.11.0, mplfinance==0.12.10b0, pytest-timeout==2.4.0)
   3. PyTorch installs last and adapts to the existing numpy environment
   4. This ordering prevents `numpy.testing` broken and torch import failures

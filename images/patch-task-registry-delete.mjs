@@ -39,6 +39,18 @@ function hasNativeIncrementalDelete(source) {
         source.includes("function removeTaskIndexes(");
 }
 
+function distContainsLegacyDelete(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            if (distContainsLegacyDelete(full)) return true;
+        } else if (/\.(m?js|cjs)$/.test(entry.name) && readFileSync(full, "utf8").includes("deleteTaskRecordById")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export function patchDist(dist) {
     const bundles = readdirSync(dist)
         .filter(name => /^task-registry[.-].*\.mjs$/.test(name))
@@ -46,6 +58,10 @@ export function patchDist(dist) {
     const candidates = bundles.filter(({ source }) => source.includes("function deleteTaskRecordById(taskId) {"));
     if (bundles.some(({ source }) => hasNativeIncrementalDelete(source))) {
         console.log("Skipped task registry deletion hotfix: upstream provides native incremental index removal.");
+        return;
+    }
+    if (bundles.length === 0 && !distContainsLegacyDelete(dist)) {
+        console.log("Skipped task registry deletion hotfix: upstream no longer contains deleteTaskRecordById.");
         return;
     }
     if (candidates.length !== 1) {

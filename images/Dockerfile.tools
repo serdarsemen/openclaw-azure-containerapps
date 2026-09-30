@@ -114,17 +114,23 @@ RUN set -eux \
 RUN set -eux \
      # Python validation
      && python3 -V 2>&1 | grep -E "^Python ${PYTHON_VERSION}(\\.|$)" \
+     # uv resolver — pip's backtracking fails on this package set with "resolution-too-deep".
+     # --torch-backend cpu keeps transitive torch (sentence-transformers) on CPU wheels (no ~3 GB nvidia-* libs).
+     && python3 -m pip install --quiet --progress-bar off --no-cache-dir uv==0.12.21 \
      # Core packages (scipy/statsmodels first — they have strict numpy requirements)
-        && python3 -m pip install --quiet --progress-bar off --no-cache-dir redis pyzmq freqtrade pytesseract markitdown pymupdf pytest pytest-timeout==2.4.0 \
-                scipy==1.15.2 statsmodels==0.14.6 scikit-learn==1.9.0 matplotlib==3.11.0 mplfinance==0.12.10b0 lightgbm==4.6.0 joblib hmmlearn arch cma shap pykalman gymnasium skfolio==0.20.1 ruff einops safetensors \
+     && uv pip install --system --no-cache --torch-backend cpu scipy==1.15.2 statsmodels==0.14.6 \
+     && uv pip install --system --no-cache --torch-backend cpu \
+         scipy==1.15.2 statsmodels==0.14.6 \
+         redis pyzmq freqtrade pytesseract markitdown pymupdf pytest pytest-timeout==2.4.0 \
+         scikit-learn==1.9.0 matplotlib==3.11.0 mplfinance==0.12.10b0 lightgbm==4.6.0 joblib hmmlearn arch cma shap pykalman gymnasium skfolio==0.20.1 ruff einops safetensors \
          leann==0.3.7 leann-backend-hnsw==0.3.7 sentence-transformers==5.6.0 \
          huggingface_hub yfinance openbb \
          langgraph langgraph-checkpoint-sqlite langchain-core langchain-groq \
          langchain-openai langchain-anthropic langchain-google-genai \
          langchain-experimental stockstats backtrader parsel \
-     # PyTorch last (installs after scipy/statsmodels so it adapts to the numpy environment)
-         && ( python3 -m pip install --quiet --progress-bar off --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-             || python3 -m pip install --quiet --progress-bar off --no-cache-dir torch ) \
+     # PyTorch last (CPU build; adapts to the numpy environment established above)
+     && uv pip install --system --no-cache --torch-backend cpu torch \
+     && python3 -m pip uninstall --quiet -y uv \
      && python3 -c "import torch; print(f'torch {torch.__version__} on Python ${PYTHON_VERSION} OK'); import torch.utils.data" \
      # Verify ML packages are accessible (critical for ML inference)
     && python3 -c "import joblib; import lightgbm; import sklearn; import skfolio; print(f'joblib {joblib.__version__} OK'); print(f'LightGBM {lightgbm.__version__} OK'); print(f'scikit-learn {sklearn.__version__} OK'); print(f'skfolio {skfolio.__version__} OK')" \

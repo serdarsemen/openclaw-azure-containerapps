@@ -129,6 +129,26 @@ test("still rejects an unknown task registry bundle shape", () => {
     }
 });
 
+test("skips the hotfix when upstream removed the task registry delete code", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    try {
+        writeFileSync(path.join(dist, "task-supervisor-abc.mjs"), "export const supervisor = true;");
+        assert.doesNotThrow(() => patchDist(dist));
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
+});
+
+test("rejects the legacy delete function in an unexpected bundle", () => {
+    const dist = mkdtempSync(path.join(tmpdir(), "openclaw-task-registry-"));
+    try {
+        writeFileSync(path.join(dist, "chunk-abc.mjs"), "function deleteTaskRecordById(taskId) {}");
+        assert.throws(() => patchDist(dist), /found 0/);
+    } finally {
+        rmSync(dist, { recursive: true, force: true });
+    }
+});
+
 test("does not mutate memory or notify observers when persistence fails", () => {
     const state = setup([{ taskId: "one", runId: "run" }], false);
     assert.equal(state.remove("one"), false);

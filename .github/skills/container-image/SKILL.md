@@ -59,7 +59,7 @@ ACR Tasks uses the **classic Docker builder**, not BuildKit. The deploy scripts 
 
 The Dockerfiles include PyTorch, scipy, statsmodels, scikit-learn, matplotlib, mplfinance, huggingface_hub, langgraph, pytest-timeout, and 20+ scientific packages. **Installation order must be strictly maintained** to prevent numpy version conflicts:
 
-1. **scipy==1.14.1** and **statsmodels==0.14.6** install FIRST (they have strict numpy version requirements)
+1. **scipy==1.15.2** and **statsmodels==0.14.6** install FIRST (they have strict numpy version requirements). All stages use `uv pip install --system --torch-backend cpu` (pip's resolver fails with `resolution-too-deep`, and the CPU backend avoids ~3 GB of CUDA wheels)
 2. Keep pinned package versions synchronized in both Dockerfiles (for example: **scikit-learn==1.9.0**, **matplotlib==3.11.0**, **mplfinance==0.12.10b0**, **pytest-timeout==2.4.0**)
 3. **PyTorch installs LAST** (it adapts to the existing numpy environment)
 
