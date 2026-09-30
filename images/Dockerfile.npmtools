@@ -78,6 +78,7 @@ RUN set -eux \
        tesseract-ocr-chi-sim \
        tesseract-ocr-jpn \
          libzmq3-dev \
+       libgomp1 \
        libtesseract5 \
        shellcheck \
     && apt-get clean \

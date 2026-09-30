@@ -83,6 +83,7 @@ RUN set -eux \
        tesseract-ocr-chi-sim \
        tesseract-ocr-jpn \
          libzmq3-dev \
+       libgomp1 \
        libtesseract5 \
        shellcheck \
     && apt-get clean \
@@ -129,10 +130,13 @@ RUN set -eux \
     && python3 -c "import joblib; import lightgbm; import sklearn; import skfolio; print(f'joblib {joblib.__version__} OK'); print(f'LightGBM {lightgbm.__version__} OK'); print(f'scikit-learn {sklearn.__version__} OK'); print(f'skfolio {skfolio.__version__} OK')" \
      # OpenBB writes generated extension code into its package dir on first import;
      # make the directory world-writable so non-root container users can do this.
-     && chmod -R a+w /usr/local/lib/python${PYTHON_VERSION}/site-packages/openbb/ \
-     # Verify torch libraries are accessible (critical for ML inference)
-     && python3 -c "import torch; print(f'PyTorch libraries: {torch.__file__}')" \
-     && ldconfig -p | grep -E "(libtorch|libc10)" | head -5
+     # Resolve the real install path (don't assume site-packages layout).
+     && OPENBB_DIR="$(python3 -c 'import importlib.util, os; s = importlib.util.find_spec("openbb"); print(next(iter(s.submodule_search_locations or []), "") if s else "")')" \
+     && if [ -n "$OPENBB_DIR" ] && [ -d "$OPENBB_DIR" ]; then chmod -R a+w "$OPENBB_DIR"; else echo "WARNING: openbb package dir not found; skipping chmod"; fi \
+     # Verify torch shared libraries are present (pip wheels ship them in torch/lib, not the ldconfig cache)
+     && TORCH_LIB="$(python3 -c 'import os, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" \
+     && echo "PyTorch libraries: $TORCH_LIB" \
+     && ls "$TORCH_LIB" | grep -E "^(libtorch|libc10)" | head -5
 
 RUN set -eux \
      # Freqtrade strategies — community strategy repository
