@@ -1,18 +1,26 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-Start Ollama natively on Windows and pull qwen3.5 model
+Start Ollama natively on Windows and pull the qwen3.5 and nimble models
 
 .DESCRIPTION
 Starts the Ollama service natively on Windows (not in WSL), waits for it to be ready,
-then pulls the qwen3.5 model. Useful for Azure Container Apps or GitHub Actions runners
+then pulls the qwen3.5 chat model and the nimble decision model. Nimble serves the
+workspace's typed judgments via Ollama's TypeSafe-compatible /v1/systemone endpoint
+(requires Ollama 0.35+). Useful for Azure Container Apps or GitHub Actions runners
 running on Windows.
+
+.PARAMETER DecisionModel
+Decision model to pull for /v1/systemone (default: nimble). Pass an empty string to skip.
 
 .EXAMPLE
 .\start-ollama-windows.ps1
 
 .EXAMPLE
 .\start-ollama-windows.ps1 -UpgradeOllama
+
+.EXAMPLE
+.\start-ollama-windows.ps1 -DecisionModel ""
 
 .NOTES
 Requires:
@@ -21,7 +29,8 @@ Requires:
 #>
 
 param(
-    [switch] $UpgradeOllama
+    [switch] $UpgradeOllama,
+    [string] $DecisionModel = "nimble"
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,26 +81,27 @@ if (-not $ollamaReady) {
     Write-Host "Attempting model pull anyway..." -ForegroundColor Gray
 }
 
-# Step 3: Pull qwen3.5 model
-Write-Host "`n[3/3] Pulling qwen3.5 model..." -ForegroundColor Cyan
-try {
-    Write-Host "  Sending pull request (this may take 2-10 minutes depending on model size)..." -ForegroundColor Gray
+# Step 3: Pull models
+$modelsToPull = @("qwen3.5")
+if ($DecisionModel) { $modelsToPull += $DecisionModel }
+Write-Host "`n[3/3] Pulling models: $($modelsToPull -join ', ')..." -ForegroundColor Cyan
+foreach ($model in $modelsToPull) {
+    try {
+        Write-Host "  Pulling $model (this may take 2-10 minutes depending on model size)..." -ForegroundColor Gray
 
-    # Use Ollama CLI directly
-    $pullCmd = "ollama pull qwen3.5"
+        & ollama pull $model 2>&1 | ForEach-Object {
+            Write-Host "  $_" -ForegroundColor Gray
+        }
 
-    & cmd /c $pullCmd 2>&1 | ForEach-Object {
-        Write-Host "  $_" -ForegroundColor Gray
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Model $model pulled successfully" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: pull of $model returned non-zero exit code" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  Error pulling model ${model}: $_" -ForegroundColor Yellow
+        exit 1
     }
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Model qwen3.5 pulled successfully" -ForegroundColor Green
-    } else {
-        Write-Host "  Warning: Model pull returned non-zero exit code" -ForegroundColor Yellow
-    }
-} catch {
-    Write-Host "  Error pulling model: $_" -ForegroundColor Yellow
-    exit 1
 }
 
 # Verify model is available
@@ -112,6 +122,9 @@ try {
             Write-Host "   Access Ollama at: http://localhost:11434" -ForegroundColor Green
         } else {
             Write-Host "`n⚠️  Ollama is running but qwen3.5 may not be fully loaded yet." -ForegroundColor Yellow
+        }
+        if ($DecisionModel -and -not ($models.models.name -match "^$([regex]::Escape($DecisionModel))(:|$)")) {
+            Write-Host "⚠️  Decision model '$DecisionModel' not listed — /v1/systemone judgments will abstain until it is pulled." -ForegroundColor Yellow
         }
     } else {
         Write-Host "  No models found - pull may still be in progress" -ForegroundColor Yellow

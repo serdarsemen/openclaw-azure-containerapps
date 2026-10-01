@@ -23,6 +23,12 @@ This repo provides four ways to run OpenClaw:
 
 The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device-flow OAuth, no API keys) and offer source-build and npm-install variants (controlled by the `-Npm` switch). The GitHub Actions runtime uses the npm install and carries Copilot auth over in its seed/cache.
 
+## Recent changes (October 2026)
+
+- **Typed decisions use Nimble on Windows Ollama** — the workspace's typed-judgment scripts (pairs review, relevance shadow, council, post-mortems) now call the open-source `nimble` decision model on Windows Ollama (0.35+) through its TypeSafe-compatible `/v1/systemone` endpoint. They no longer use hosted TypeSafe Jev or the local Kev server. Nimble needs no API key; see [Decision models (Nimble)](#decision-models-nimble).
+- **Jev and Kev removed** — the `TYPESAFE_API_KEY` secret, the `typesafe` secret provider, the `typesafe-ai` skill (in `openclaw.json` and in this repo), the `~/kev` checkout, the `kev-9b` systemd user service, and the cached `jaredpalmer/kev-9b` adapter are gone.
+- **Retired `allowInsecureAuth` key** — current OpenClaw rejects `gateway.controlUi.allowInsecureAuth`. `deploy-openclaw-wsl.ps1` no longer writes it, and WSL deploy/update now runs `openclaw config validate` before startup. If validation fails, it runs `openclaw doctor --fix`, so retired keys can no longer stop the gateway from booting.
+
 ## Recent changes (September 2026)
 
 - **Quieter WSL image builds** — `deploy-openclaw-wsl.ps1` and `update-openclaw-wsl.ps1` no longer stream `docker build` output to the console; only step headers and results are printed. If a build fails, the full build log is included in the thrown error.
@@ -30,7 +36,7 @@ The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device
 - **Task registry hotfix skips itself when upstream has the fix** — `images/patch-task-registry-delete.mjs` now matches bundles named `task-registry.*.mjs` or `task-registry-*.mjs`. It skips the patch when the upstream bundle already removes index entries per task (`deleteIndexedKey`, `deleteRunIdIndex`, `removeTaskIndexes`).
 - **WSL Ollama host resolution no longer calls `ip route`** — `Resolve-OllamaHost` in `wsl-helpers.ps1` no longer uses the default-route gateway as a candidate, because `ip route` can hang under WSL mirrored networking. It still checks the `vEthernet (WSL)` adapter, active Windows adapter IPs, and the `/etc/resolv.conf` nameserver.
 - **Agent database schema migration** — WSL deploy/update runs `openclaw doctor --fix` before startup to move agent databases from schema 19/20 to 21 (see [WSL useful commands](#wsl-useful-commands)).
-- **New Copilot agent skills** under `.github/skills/`: `azure-container-registry-cli`, `azure-well-architected-review`, `docs-sync-audit`, `github-actions-hardening`, `mcp-release-qa`, `pester-migration`, `security-review`, `test-gap-audit`, and `typesafe-ai` (tracked in `skills-lock.json`). The existing repo skills now have YAML front matter (`name`, `description`) so agents can discover them.
+- **New Copilot agent skills** under `.github/skills/`: `azure-container-registry-cli`, `azure-well-architected-review`, `docs-sync-audit`, `github-actions-hardening`, `mcp-release-qa`, `pester-migration`, `security-review`, and `test-gap-audit`. (`typesafe-ai` was also added here and later removed in October 2026.) The existing repo skills now have YAML front matter (`name`, `description`) so agents can discover them.
 
 ### Earlier changes (June 2026)
 
@@ -280,6 +286,20 @@ If Ollama is already running on your Windows PC, use `-OllamaHost` to point Open
 > **Note:** If Ollama is bound only to `127.0.0.1`, Docker containers cannot reach it ("Connection refused" error). The script automatically kills any existing Ollama process and restarts it with `OLLAMA_HOST=0.0.0.0:11434` to accept Docker bridge network connections. If auto-start fails, manually run in WSL: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`
 
 When using `-OllamaHost`, the script skips the Ollama sidecar container and model pulling entirely — you manage models on the external instance yourself. For external Ollama startup automation, use `start-ollama-qwen.ps1` (WSL 2), `start-ollama-windows.ps1` (native Windows), `start-ollama-aca.ps1` (Azure Container Apps), `start-ollama-aks.ps1` (Kubernetes), or `start-ollama-gha.ps1` (GitHub Actions).
+
+#### Decision models (Nimble)
+
+The workspace's typed-judgment scripts call the [`nimble`](https://ollama.com/library/nimble) decision model on Windows Ollama. Nimble is a 9B open-source model from Bespoke Labs. It needs Ollama **0.35 or later**, which serves the TypeSafe-compatible `/v1/systemone` endpoint. These scripts previously used hosted TypeSafe Jev and a local Kev server. Pull the model once on Windows:
+
+```powershell
+ollama pull nimble
+```
+
+Inside the `openclaw` container, the scripts send requests to `$OLLAMA_HOST/v1/systemone` (for example `http://host.docker.internal:11435` through the Windows Ollama proxy). Override this with `NIMBLE_API_URL`. Only loopback/private IPs, `localhost` or `host.docker.internal` are accepted. Override the model with `NIMBLE_MODEL`. No API key is needed. Results stay advisory. If Nimble is unreachable, the scripts abstain and never fall back to a cloud service. Quick check from inside the container:
+
+```bash
+curl -s "$OLLAMA_HOST/v1/systemone" -H 'Content-Type: application/json' -d '{"model":"nimble","state":{"text":"I was charged twice"},"questions":{"refund":{"type":"noul","instructions":"Does the user ask for a refund?"}}}'
+```
 
 **Ollama management commands** (when sidecar is running):
 
