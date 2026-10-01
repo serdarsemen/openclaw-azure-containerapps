@@ -436,7 +436,8 @@ $config.gateway.auth.rateLimit | Add-Member -NotePropertyName lockoutMs   -NoteP
 $config.gateway | Add-Member -NotePropertyName port -NotePropertyValue 18789  -Force
 $config.gateway | Add-Member -NotePropertyName bind -NotePropertyValue "lan"  -Force
 $config.gateway | Add-Member -NotePropertyName mode -NotePropertyValue "local" -Force
-$config.gateway.controlUi | Add-Member -NotePropertyName allowInsecureAuth                           -NotePropertyValue $true -Force
+# allowInsecureAuth is retired upstream; leaving it in place makes the config invalid.
+$config.gateway.controlUi.PSObject.Properties.Remove('allowInsecureAuth')
 $config.gateway.controlUi | Add-Member -NotePropertyName dangerouslyAllowHostHeaderOriginFallback    -NotePropertyValue $true -Force
 
 # Model
@@ -447,6 +448,12 @@ if (-not $config.agents.defaults.model.primary) {
 # Write back
 $config | ConvertTo-Json -Depth 20 | Set-Content $configPath -Encoding utf8
 Write-Host "  Config written to openclaw.json (token + model + gateway settings)" -ForegroundColor Green
+
+Invoke-OpenClawConfigRepair `
+    -WslDataDir $WslDataDir `
+    -ImageName $ImageName `
+    -HomeDir $HomeDir `
+    -Npm:$Npm
 
 # Always refresh auxiliary service images to their latest tags before startup.
 Write-Host "  Pulling latest redis, searxng, and crw images..." -ForegroundColor Gray

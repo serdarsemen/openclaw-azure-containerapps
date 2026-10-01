@@ -503,6 +503,12 @@ Invoke-OpenClawAgentSchemaMigration `
     -HomeDir $HomeDir `
     -Npm:$Npm
 
+Invoke-OpenClawConfigRepair `
+    -WslDataDir $WslDataDir `
+    -ImageName $ImageName `
+    -HomeDir $HomeDir `
+    -Npm:$Npm
+
 # Pull latest Ollama image if sidecar is in use
 if ($ollamaContainerExists) {
     Write-Host "  Pulling latest Ollama image..." -ForegroundColor Gray

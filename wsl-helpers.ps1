@@ -187,6 +187,33 @@ function Invoke-OpenClawAgentSchemaMigration {
   Write-Host "  Agent database migration: complete" -ForegroundColor Green
 }
 
+# Validates openclaw.json with the target image and, if it is invalid (e.g. retired
+# keys such as gateway.controlUi.allowInsecureAuth), runs doctor --fix before the
+# gateway starts. Otherwise the gateway refuses to boot and restarts forever.
+function Invoke-OpenClawConfigRepair {
+  param(
+    [string] $WslDataDir,
+    [string] $ImageName,
+    [string] $HomeDir,
+    [switch] $Npm
+  )
+
+  $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
+  $runPrefix = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc"
+
+  wsl bash -c "$runPrefix '$openclawCli config validate' >/dev/null 2>&1"
+  if ($LASTEXITCODE -eq 0) { return }
+
+  Write-Host "  openclaw.json failed validation; running OpenClaw doctor --fix..." -ForegroundColor Yellow
+  Invoke-WslStream "$runPrefix '$openclawCli doctor --fix --non-interactive'"
+
+  wsl bash -c "$runPrefix '$openclawCli config validate'"
+  if ($LASTEXITCODE -ne 0) {
+    throw "openclaw.json is still invalid after doctor --fix — inspect $WslDataDir/openclaw.json"
+  }
+  Write-Host "  Config repair: complete" -ForegroundColor Green
+}
+
 # Run a WSL command and recover once from Docker bridge subnet exhaustion by
 # pruning unused networks and retrying. This targets the common compose error:
 # "all predefined address pools have been fully subnetted".
