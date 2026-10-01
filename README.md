@@ -25,8 +25,8 @@ The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device
 
 ## Recent changes (October 2026)
 
-- **Typed decisions use Nimble on Windows Ollama** — the workspace's typed-judgment scripts (pairs review, relevance shadow, council, post-mortems) now call the open-source `nimble` decision model on Windows Ollama (0.35+) through its TypeSafe-compatible `/v1/systemone` endpoint. They no longer use hosted TypeSafe Jev or the local Kev server. Nimble needs no API key; see [Decision models (Nimble)](#decision-models-nimble).
-- **Jev and Kev removed** — the `TYPESAFE_API_KEY` secret, the `typesafe` secret provider, the `typesafe-ai` skill (in `openclaw.json` and in this repo), the `~/kev` checkout, the `kev-9b` systemd user service, and the cached `jaredpalmer/kev-9b` adapter are gone.
+- **Typed decisions use Nimble on Windows Ollama** — the workspace's typed-judgment scripts (pairs review, relevance shadow, post-mortems) now call the open-source `nimble` decision model on Windows Ollama (0.35+) through its TypeSafe-compatible `/v1/systemone` endpoint, replacing the local Kev server and hosted TypeSafe Jev. The cross-model council's typed fallback is the one exception: it keeps hosted Jev, still off by default, because Nimble is too slow for its 8-question / 45s budget. Pairs-review Nimble findings are marked actionable when they pass the same thresholds Jev used. See [Decision models (Nimble)](#decision-models-nimble).
+- **Kev removed, Jev limited to the council** — the `~/kev` checkout, the `kev-9b` systemd user service, the cached `jaredpalmer/kev-9b` adapter, the `typesafe` secret provider and the `typesafe-ai` skill (in `openclaw.json` and in this repo) are gone. The `TYPESAFE_API_KEY` secret file is kept for the council only.
 - **Retired `allowInsecureAuth` key** — current OpenClaw rejects `gateway.controlUi.allowInsecureAuth`. `deploy-openclaw-wsl.ps1` no longer writes it, and WSL deploy/update now runs `openclaw config validate` before startup. If validation fails, it runs `openclaw doctor --fix`, so retired keys can no longer stop the gateway from booting.
 
 ## Recent changes (September 2026)
@@ -295,7 +295,7 @@ The workspace's typed-judgment scripts call the [`nimble`](https://ollama.com/li
 ollama pull nimble
 ```
 
-Inside the `openclaw` container, the scripts send requests to `$OLLAMA_HOST/v1/systemone` (for example `http://host.docker.internal:11435` through the Windows Ollama proxy). Override this with `NIMBLE_API_URL`. Only loopback/private IPs, `localhost` or `host.docker.internal` are accepted. Override the model with `NIMBLE_MODEL`. No API key is needed. Results stay advisory. If Nimble is unreachable, the scripts abstain and never fall back to a cloud service. Quick check from inside the container:
+Inside the `openclaw` container, the scripts send requests to `$OLLAMA_HOST/v1/systemone` (for example `http://host.docker.internal:11435` through the Windows Ollama proxy). Override this with `NIMBLE_API_URL`. Only loopback/private IPs, `localhost` or `host.docker.internal` are accepted. Override the model with `NIMBLE_MODEL`. No API key is needed. Results stay advisory. If Nimble is unreachable, the scripts abstain and never fall back to a cloud service. The one exception is the cross-model council, which keeps hosted TypeSafe Jev (`COUNCIL_TYPESAFE_ENABLED`, off by default, key in `~/.openclaw/.secrets/TYPESAFE_API_KEY`) because 8 Nimble questions don't fit its 45s budget. Quick check from inside the container:
 
 ```bash
 curl -s "$OLLAMA_HOST/v1/systemone" -H 'Content-Type: application/json' -d '{"model":"nimble","state":{"text":"I was charged twice"},"questions":{"refund":{"type":"noul","instructions":"Does the user ask for a refund?"}}}'

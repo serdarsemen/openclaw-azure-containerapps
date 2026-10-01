@@ -61,7 +61,7 @@ This repo deploys [OpenClaw](https://github.com/openclaw/openclaw) to Azure Cont
 Five portable startup scripts automate Ollama setup + qwen3.5 model pull across all 5 deployment environments:
 
 - **`start-ollama-qwen.ps1`** (WSL 2) — Kills any existing Ollama bound to loopback, restarts with `OLLAMA_HOST=0.0.0.0:11434`, verifies Docker connectivity, pulls qwen3.5
-- **`start-ollama-windows.ps1`** (Windows native) — Starts Ollama on the Windows host (GitHub Actions, native dev machines) and pulls qwen3.5 plus the `nimble` decision model (`-DecisionModel` to change/skip). Nimble on Windows Ollama (`/v1/systemone`) replaces the retired TypeSafe Jev / local Kev backends for workspace typed judgments.
+- **`start-ollama-windows.ps1`** (Windows native) — Starts Ollama on the Windows host (GitHub Actions, native dev machines) and pulls qwen3.5 plus the `nimble` decision model (`-DecisionModel` to change/skip). Nimble on Windows Ollama (`/v1/systemone`) replaces the retired local Kev backend and, except for the cross-model council's default-off hosted-Jev fallback, TypeSafe Jev for workspace typed judgments.
 - **`start-ollama-aca.ps1`** (Azure Container Apps) — Deploys Ollama as a standalone Container App with external ingress
 - **`start-ollama-aks.ps1`** (Azure Kubernetes) — Deploys Ollama as a Kubernetes pod + service with liveness probes
 - **`start-ollama-gha.ps1`** (GitHub Actions/Codespaces) — Cross-platform startup (auto-detects Linux/Windows/macOS, platform-specific installation)

@@ -64,7 +64,7 @@ deployment environments. Each script follows the same 3-step pattern:
 
 ### 2. Windows Native Deployment (start-ollama-windows.ps1)
 
-**Purpose**: Start Ollama natively on Windows and prepare the qwen3.5 chat model plus the `nimble` decision model (TypeSafe-compatible `/v1/systemone`, Ollama 0.35+; replaces Jev/Kev). Use `-DecisionModel ""` to skip nimble.
+**Purpose**: Start Ollama natively on Windows and prepare the qwen3.5 chat model plus the `nimble` decision model (TypeSafe-compatible `/v1/systemone`, Ollama 0.35+; replaces Kev, and Jev everywhere except the council). Use `-DecisionModel ""` to skip nimble.
 
 **Use Cases**:
 - GitHub Actions runners on Windows (windows-latest)
