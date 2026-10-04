@@ -91,6 +91,34 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
         $failure | Should Match 'schema 20'
     }
 
+    It "continues when doctor exits non-zero but all databases were migrated" {
+        Mock Invoke-WslStream { throw "WSL command failed (exit 1): doctor" }
+
+        Invoke-OpenClawAgentSchemaMigration `
+            -WslDataDir '/home/test/.openclaw-data' `
+            -ImageName 'openclaw-source' `
+            -HomeDir '/home/node'
+
+        $script:schemaChecks | Should Be 2
+    }
+
+    It "fails with the doctor error when doctor exits non-zero and schema remains legacy" {
+        Mock Invoke-WslData { return @('20') }
+        Mock Invoke-WslStream { throw "WSL command failed (exit 1): doctor" }
+
+        $failure = $null
+        try {
+            Invoke-OpenClawAgentSchemaMigration `
+                -WslDataDir '/home/test/.openclaw-data' `
+                -ImageName 'openclaw-source' `
+                -HomeDir '/home/node'
+        } catch {
+            $failure = $_.Exception.Message
+        }
+
+        $failure | Should Match 'schema 20.*exit 1'
+    }
+
     It "runs the migration before startup in deploy and update scripts" {
         foreach ($scriptName in @('deploy-openclaw-wsl.ps1', 'update-openclaw-wsl.ps1')) {
             $content = Get-Content (Join-Path $repoRoot $scriptName) -Raw

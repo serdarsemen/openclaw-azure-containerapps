@@ -177,12 +177,24 @@ function Invoke-OpenClawAgentSchemaMigration {
   Write-Host "  Legacy agent database schema $($pendingVersions -join ', ') detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
   $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
   $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc '$openclawCli doctor --fix --non-interactive'"
-  Invoke-WslStream $doctorCommand
+  # Doctor can exit non-zero after a successful repair (e.g. its post-repair gateway
+  # health check fails because no gateway runs in this one-off container), so the
+  # schema re-check below is the authoritative success signal.
+  $doctorError = $null
+  try {
+    Invoke-WslStream $doctorCommand
+  } catch {
+    $doctorError = $_.Exception.Message
+  }
 
   $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
   $unmigratedVersions = @($remainingVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
   if ($unmigratedVersions.Count -gt 0) {
-    throw "OpenClaw doctor did not migrate all agent databases from schema $($unmigratedVersions -join ', ')"
+    $detail = if ($doctorError) { " ($doctorError)" } else { "" }
+    throw "OpenClaw doctor did not migrate all agent databases from schema $($unmigratedVersions -join ', ')$detail"
+  }
+  if ($doctorError) {
+    Write-Host "  OpenClaw doctor exited non-zero, but all agent databases were migrated; continuing." -ForegroundColor Yellow
   }
   Write-Host "  Agent database migration: complete" -ForegroundColor Green
 }
@@ -205,11 +217,17 @@ function Invoke-OpenClawConfigRepair {
   if ($LASTEXITCODE -eq 0) { return }
 
   Write-Host "  openclaw.json failed validation; running OpenClaw doctor --fix..." -ForegroundColor Yellow
-  Invoke-WslStream "$runPrefix '$openclawCli doctor --fix --non-interactive'"
+  $doctorError = $null
+  try {
+    Invoke-WslStream "$runPrefix '$openclawCli doctor --fix --non-interactive'"
+  } catch {
+    $doctorError = $_.Exception.Message
+  }
 
   wsl bash -c "$runPrefix '$openclawCli config validate'"
   if ($LASTEXITCODE -ne 0) {
-    throw "openclaw.json is still invalid after doctor --fix — inspect $WslDataDir/openclaw.json"
+    $detail = if ($doctorError) { " ($doctorError)" } else { "" }
+    throw "openclaw.json is still invalid after doctor --fix — inspect $WslDataDir/openclaw.json$detail"
   }
   Write-Host "  Config repair: complete" -ForegroundColor Green
 }
