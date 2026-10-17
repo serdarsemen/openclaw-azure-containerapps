@@ -170,7 +170,7 @@ function Invoke-OpenClawAgentSchemaMigration {
   )
 
   $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
-  $legacyVersions = @('19', '20')
+  $legacyVersions = @(19..27 | ForEach-Object { "$_" })
   $pendingVersions = @($schemaVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
   if ($pendingVersions.Count -eq 0) { return }
 

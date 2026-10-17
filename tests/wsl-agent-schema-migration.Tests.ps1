@@ -13,7 +13,7 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
         Mock Invoke-WslData {
             $script:schemaChecks++
             if ($script:schemaChecks -eq 1) { return @('19', '20') }
-            return @('21', '21')
+            return @('28', '28')
         }
         Mock Invoke-WslStream {}
     }
@@ -34,7 +34,7 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
         Mock Invoke-WslData {
             $script:schemaChecks++
             if ($script:schemaChecks -eq 1) { return @('20', '20') }
-            return @('21', '21')
+            return @('28', '28')
         }
 
         Invoke-OpenClawAgentSchemaMigration `
@@ -48,8 +48,39 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
         $script:schemaChecks | Should Be 2
     }
 
-    It "skips doctor when all agent databases already use schema 21" {
-        Mock Invoke-WslData { return @('21', '21') }
+    It "migrates every supported legacy schema through 27" {
+        foreach ($version in 21..27) {
+            $script:legacyVersion = "$version"
+            $script:schemaChecks = 0
+            Mock Invoke-WslData {
+                $script:schemaChecks++
+                if ($script:schemaChecks -eq 1) { return @($script:legacyVersion) }
+                return @('28')
+            }
+
+            Invoke-OpenClawAgentSchemaMigration `
+                -WslDataDir '/home/test/.openclaw-data' `
+                -ImageName 'openclaw-source' `
+                -HomeDir '/home/node'
+
+            $script:schemaChecks | Should Be 2
+        }
+        Assert-MockCalled Invoke-WslStream 7 -Exactly -Scope It
+    }
+
+    It "fails if schema 27 remains after doctor repair" {
+        Mock Invoke-WslData { return @('27') }
+
+        {
+            Invoke-OpenClawAgentSchemaMigration `
+                -WslDataDir '/home/test/.openclaw-data' `
+                -ImageName 'openclaw-source' `
+                -HomeDir '/home/node'
+        } | Should Throw 'schema 27'
+    }
+
+    It "skips doctor when all agent databases already use schema 28" {
+        Mock Invoke-WslData { return @('28', '28') }
 
         Invoke-OpenClawAgentSchemaMigration `
             -WslDataDir '/home/test/.openclaw-data' `
