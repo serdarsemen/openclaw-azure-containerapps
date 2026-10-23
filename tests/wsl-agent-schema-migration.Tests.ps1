@@ -234,6 +234,9 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
         Assert-MockCalled Invoke-WslStream 1 -Exactly -Scope It -ParameterFilter {
             $Command -match "-lc 'node openclaw\.mjs doctor --fix --non-interactive'"
         }
+        Assert-MockCalled Invoke-WslData 1 -Exactly -Scope It -ParameterFilter {
+            $Command -match '--entrypoint node' -and $Command -match 'require\("\." \+ "/package.json"\)'
+        }
     }
 
     It "uses the global openclaw CLI for the npm variant doctor command" {
@@ -245,6 +248,11 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
 
         Assert-MockCalled Invoke-WslStream 1 -Exactly -Scope It -ParameterFilter {
             $Command -match "-lc 'openclaw doctor --fix --non-interactive'" -and $Command -notmatch 'openclaw\.mjs'
+        }
+        Assert-MockCalled Invoke-WslData 1 -Exactly -Scope It -ParameterFilter {
+            $Command -match '--entrypoint node' -and
+            $Command -match 'execFileSync\("npm", \["root", "-g"\]' -and
+            $Command -match '/openclaw'
         }
     }
 
