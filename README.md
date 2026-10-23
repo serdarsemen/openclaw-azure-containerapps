@@ -35,7 +35,7 @@ The ACA, AKS, and WSL options support GitHub Copilot as the LLM provider (device
 - **Quieter pip installs** — `images/Dockerfile.tools` and `images/Dockerfile.npmtools` run `pip install --quiet --progress-bar off`, so build logs are shorter. Package versions and install order are unchanged.
 - **Task registry hotfix skips itself when upstream has the fix** — `images/patch-task-registry-delete.mjs` now matches bundles named `task-registry.*.mjs` or `task-registry-*.mjs`. It skips the patch when the upstream bundle already removes index entries per task (`deleteIndexedKey`, `deleteRunIdIndex`, `removeTaskIndexes`).
 - **WSL Ollama host resolution no longer calls `ip route`** — `Resolve-OllamaHost` in `wsl-helpers.ps1` no longer uses the default-route gateway as a candidate, because `ip route` can hang under WSL mirrored networking. It still checks the `vEthernet (WSL)` adapter, active Windows adapter IPs, and the `/etc/resolv.conf` nameserver.
-- **Agent database schema migration** — WSL deploy/update runs `openclaw doctor --fix` before startup to move agent databases from schemas 19–27 to 28 (see [WSL useful commands](#wsl-useful-commands)).
+- **Agent database schema migration** — WSL deploy/update runs `openclaw doctor --fix` before startup to migrate older agent databases to the schema declared by the target image (see [WSL useful commands](#wsl-useful-commands)).
 - **New Copilot agent skills** under `.github/skills/`: `azure-container-registry-cli`, `azure-well-architected-review`, `docs-sync-audit`, `github-actions-hardening`, `mcp-release-qa`, `pester-migration`, `security-review`, and `test-gap-audit`. (`typesafe-ai` was also added here and later removed in October 2026.) The existing repo skills now have YAML front matter (`name`, `description`) so agents can discover them.
 
 ### Earlier changes (June 2026)
@@ -392,8 +392,11 @@ CPUs to WSL to leave headroom for other containers. The limits are defined in
 when changing them, because deploy/update regenerates the Compose file.
 
 WSL deploy/update runs `openclaw doctor --fix --non-interactive` with the gateway
-stopped when agent databases use schemas 19–27. The current image requires
-schema 28; startup is blocked if any of those legacy versions remains after migration.
+stopped when agent databases are older than the target image's
+`package.json` metadata (`openclaw.schemaVersions.agent`). This includes schemas
+28–30 when the image requires schema 31. Startup is blocked if any database
+does not match the target after migration. Databases newer than the image are
+rejected rather than downgraded; missing or invalid target metadata also stops deployment.
 Schema versions are read with `python3` from the OpenClaw image, so the WSL
 distro does not need Python. If any agent database can't be read, deploy/update
 stops instead of skipping the migration. The source variant runs

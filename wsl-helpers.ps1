@@ -170,8 +170,22 @@ function Invoke-OpenClawAgentSchemaMigration {
   )
 
   $schemaVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
-  $legacyVersions = @(19..27 | ForEach-Object { "$_" })
-  $pendingVersions = @($schemaVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
+  if ($schemaVersions.Count -eq 0) { return }
+
+  $packageRoot = if ($Npm) {
+    'require("node:child_process").execFileSync("npm", ["root", "-g"], {encoding:"utf8"}).trim() + "/openclaw"'
+  } else { '"."' }
+  $schemaScript = "console.log(require($packageRoot + `"/package.json`").openclaw.schemaVersions.agent)"
+  $targetOutput = [string](Invoke-WslData "docker run --rm --entrypoint node '${ImageName}:latest' -e '$schemaScript'")
+  $targetVersion = 0
+  if (-not [int]::TryParse($targetOutput.Trim(), [ref]$targetVersion) -or $targetVersion -lt 1) {
+    throw "Could not read a valid agent database schema target from ${ImageName}:latest"
+  }
+  $newerVersions = @($schemaVersions | Where-Object { [int]$_ -gt $targetVersion } | Select-Object -Unique)
+  if ($newerVersions.Count -gt 0) {
+    throw "Agent database schema $($newerVersions -join ', ') is newer than image schema $targetVersion; refusing to downgrade"
+  }
+  $pendingVersions = @($schemaVersions | Where-Object { [int]$_ -lt $targetVersion } | Select-Object -Unique)
   if ($pendingVersions.Count -eq 0) { return }
 
   Write-Host "  Legacy agent database schema $($pendingVersions -join ', ') detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
@@ -188,7 +202,7 @@ function Invoke-OpenClawAgentSchemaMigration {
   }
 
   $remainingVersions = @(Get-OpenClawAgentDatabaseSchemaVersions -WslDataDir $WslDataDir -ImageName $ImageName)
-  $unmigratedVersions = @($remainingVersions | Where-Object { $_ -in $legacyVersions } | Select-Object -Unique)
+  $unmigratedVersions = @($remainingVersions | Where-Object { [int]$_ -ne $targetVersion } | Select-Object -Unique)
   if ($unmigratedVersions.Count -gt 0) {
     $detail = if ($doctorError) { " ($doctorError)" } else { "" }
     throw "OpenClaw doctor did not migrate all agent databases from schema $($unmigratedVersions -join ', ')$detail"

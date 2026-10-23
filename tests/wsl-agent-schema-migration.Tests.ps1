@@ -16,6 +16,7 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
             return @('28', '28')
         }
         Mock Invoke-WslStream {}
+        Mock Invoke-WslData { return '28' } -ParameterFilter { $Command -match '--entrypoint node' }
     }
 
     It "runs doctor once when a schema 19 agent database exists" {
@@ -86,6 +87,69 @@ Describe "Invoke-OpenClawAgentSchemaMigration" {
             -WslDataDir '/home/test/.openclaw-data' `
             -ImageName 'openclaw-source' `
             -HomeDir '/home/node'
+
+        Assert-MockCalled Invoke-WslStream 0 -Exactly -Scope It
+    }
+
+    It "migrates schemas 28 through 30 to the schema declared by the image" {
+        Mock Invoke-WslData { return '31' } -ParameterFilter { $Command -match '--entrypoint node' }
+        Mock Invoke-WslData {
+            if ($Command -match '--entrypoint node') { return '31' }
+            $script:schemaChecks++
+            if ($script:schemaChecks -eq 1) { return @('28', '29', '30') }
+            return @('31', '31', '31')
+        }
+
+        Invoke-OpenClawAgentSchemaMigration `
+            -WslDataDir '/home/test/.openclaw-data' `
+            -ImageName 'openclaw-source' `
+            -HomeDir '/home/node'
+
+        Assert-MockCalled Invoke-WslStream 1 -Exactly -Scope It
+        $script:schemaChecks | Should Be 2
+    }
+
+    It "fails when schema 29 remains after migration to schema 31" {
+        Mock Invoke-WslData { return '31' } -ParameterFilter { $Command -match '--entrypoint node' }
+        Mock Invoke-WslData {
+            if ($Command -match '--entrypoint node') { return '31' }
+            return '29'
+        }
+
+        {
+            Invoke-OpenClawAgentSchemaMigration `
+                -WslDataDir '/home/test/.openclaw-data' `
+                -ImageName 'openclaw-source' `
+                -HomeDir '/home/node'
+        } | Should Throw 'schema 29'
+    }
+
+    It "skips doctor when databases match the image schema 31" {
+        Mock Invoke-WslData { return '31' }
+        Mock Invoke-WslData { return '31' } -ParameterFilter { $Command -match '--entrypoint node' }
+
+        Invoke-OpenClawAgentSchemaMigration -WslDataDir '/home/test/.openclaw-data' -ImageName 'openclaw-source' -HomeDir '/home/node'
+
+        Assert-MockCalled Invoke-WslStream 0 -Exactly -Scope It
+    }
+
+    It "refuses databases newer than the image instead of attempting a downgrade" {
+        Mock Invoke-WslData { return '32' }
+        Mock Invoke-WslData { return '31' } -ParameterFilter { $Command -match '--entrypoint node' }
+
+        {
+            Invoke-OpenClawAgentSchemaMigration -WslDataDir '/home/test/.openclaw-data' -ImageName 'openclaw-source' -HomeDir '/home/node'
+        } | Should Throw 'refusing to downgrade'
+
+        Assert-MockCalled Invoke-WslStream 0 -Exactly -Scope It
+    }
+
+    It "fails explicitly when the image has no valid schema target" {
+        Mock Invoke-WslData { return 'undefined' } -ParameterFilter { $Command -match '--entrypoint node' }
+
+        {
+            Invoke-OpenClawAgentSchemaMigration -WslDataDir '/home/test/.openclaw-data' -ImageName 'openclaw-source' -HomeDir '/home/node'
+        } | Should Throw 'valid agent database schema target'
 
         Assert-MockCalled Invoke-WslStream 0 -Exactly -Scope It
     }
