@@ -227,8 +227,13 @@ function Invoke-OpenClawConfigRepair {
   $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
   $runPrefix = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc"
 
-  wsl bash -c "$runPrefix '$openclawCli config validate' >/dev/null 2>&1"
+  $readFailurePattern = 'read failed|cannot verify Gateway ownership'
+  $validationOutput = wsl bash -c "$runPrefix '$openclawCli config validate'" 2>&1
   if ($LASTEXITCODE -eq 0) { return }
+  $validationText = $validationOutput -join [Environment]::NewLine
+  if ($validationText -match $readFailurePattern) {
+    throw "Could not read $WslDataDir/openclaw.json; config repair was not attempted.`n$validationText`nFor ownership errors, stop the recorded Gateway owner, then inspect with $runPrefix '$openclawCli gateway recover-lock --json'. Recover only the unchanged records after confirming the owner stopped; never delete locks based on heartbeat age."
+  }
 
   Write-Host "  openclaw.json failed validation; running OpenClaw doctor --fix..." -ForegroundColor Yellow
   $doctorError = $null
@@ -238,10 +243,14 @@ function Invoke-OpenClawConfigRepair {
     $doctorError = $_.Exception.Message
   }
 
-  wsl bash -c "$runPrefix '$openclawCli config validate'"
+  $validationOutput = wsl bash -c "$runPrefix '$openclawCli config validate'" 2>&1
   if ($LASTEXITCODE -ne 0) {
     $detail = if ($doctorError) { " ($doctorError)" } else { "" }
-    throw "openclaw.json is still invalid after doctor --fix — inspect $WslDataDir/openclaw.json$detail"
+    $validationText = $validationOutput -join [Environment]::NewLine
+    if ($validationText -match $readFailurePattern) {
+      throw "Could not read $WslDataDir/openclaw.json after doctor --fix${detail}`n$validationText"
+    }
+    throw "openclaw.json is still invalid after doctor --fix — inspect $WslDataDir/openclaw.json${detail}`n$validationText"
   }
   Write-Host "  Config repair: complete" -ForegroundColor Green
 }

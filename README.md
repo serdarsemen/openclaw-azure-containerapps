@@ -403,6 +403,15 @@ stops instead of skipping the migration. The source variant runs
 `node openclaw.mjs doctor`, and the npm variant runs `openclaw doctor`.
 Back up the persistent configuration and agent databases before upgrading.
 
+If config validation reports `read failed` or cannot verify Gateway ownership,
+this is a read/ownership failure, not proof of invalid settings. Deploy/update
+stops without running config repair and preserves the original diagnostic.
+Run validation inside a live Gateway container. If the recorded owner has
+stopped, use `openclaw gateway recover-lock --json` in a container with the same
+image, `HOME`, and persistent data mount, then explicitly confirm the returned
+fingerprint with `gateway recover-lock --confirm <fingerprint>` before retrying.
+Never recover a live owner's locks or delete locks based only on heartbeat age.
+
 ### Configure the local data mount path (WSL)
 
 `docker-compose-wsl.yaml` supports a per-machine data path via `OPENCLAW_DATA_DIR`:
