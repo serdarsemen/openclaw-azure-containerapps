@@ -161,6 +161,39 @@ function Get-OpenClawAgentDatabaseSchemaVersions {
   return @($output | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
 }
 
+# Clears a stale Gateway state lock left by a container that was killed or removed
+# (e.g. by `docker compose down`) so doctor can enter maintenance. Recovery only
+# runs when no running container mounts the data dir, and only for the exact
+# unchanged records reported by `gateway recover-lock` (via its --confirm fingerprint).
+function Invoke-OpenClawGatewayLockRecovery {
+  param(
+    [string] $WslDataDir,
+    [string] $ImageName,
+    [string] $HomeDir,
+    [switch] $Npm
+  )
+
+  $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
+  $runPrefix = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc"
+
+  $inspectOutput = wsl bash -c "$runPrefix '$openclawCli gateway recover-lock 2>&1'" 2>&1
+  $inspectText = $inspectOutput -join [Environment]::NewLine
+  if ($inspectText -notmatch '--confirm\s+([0-9a-f]{64})') { return }
+  $fingerprint = $Matches[1]
+
+  $mounts = wsl bash -c "for c in `$(docker ps -q); do docker inspect --format '{{range .Mounts}}{{.Source}}{{println}}{{end}}' `$c; done" 2>&1
+  if (@($mounts | Where-Object { $_ -and $_.ToString().Trim().TrimEnd('/') -eq $WslDataDir.TrimEnd('/') }).Count -gt 0) {
+    throw "A running container still uses $WslDataDir; stop it before recovering the Gateway lock.`n$inspectText"
+  }
+
+  Write-Host "  Stale OpenClaw Gateway lock detected (no running holder); recovering..." -ForegroundColor Yellow
+  $recoverOutput = wsl bash -c "$runPrefix '$openclawCli gateway recover-lock --confirm $fingerprint 2>&1'" 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "Gateway lock recovery failed:`n$($recoverOutput -join [Environment]::NewLine)"
+  }
+  Write-Host "  Gateway lock recovery: complete" -ForegroundColor Green
+}
+
 function Invoke-OpenClawAgentSchemaMigration {
   param(
     [string] $WslDataDir,
@@ -189,8 +222,9 @@ function Invoke-OpenClawAgentSchemaMigration {
   if ($pendingVersions.Count -eq 0) { return }
 
   Write-Host "  Legacy agent database schema $($pendingVersions -join ', ') detected; running OpenClaw doctor migration..." -ForegroundColor Yellow
+  Invoke-OpenClawGatewayLockRecovery -WslDataDir $WslDataDir -ImageName $ImageName -HomeDir $HomeDir -Npm:$Npm
   $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
-  $doctorCommand = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc '$openclawCli doctor --fix --non-interactive'"
+  $doctorCommand =  "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc '$openclawCli doctor --fix --non-interactive'"
   # Doctor can exit non-zero after a successful repair (e.g. its post-repair gateway
   # health check fails because no gateway runs in this one-off container), so the
   # schema re-check below is the authoritative success signal.
@@ -226,6 +260,8 @@ function Invoke-OpenClawConfigRepair {
 
   $openclawCli = if ($Npm) { "openclaw" } else { "node openclaw.mjs" }
   $runPrefix = "docker run --rm -e HOME='$HomeDir' -v '${WslDataDir}:${HomeDir}/.openclaw' --entrypoint bash '${ImageName}:latest' -lc"
+
+  Invoke-OpenClawGatewayLockRecovery -WslDataDir $WslDataDir -ImageName $ImageName -HomeDir $HomeDir -Npm:$Npm
 
   $readFailurePattern = 'read failed|cannot verify Gateway ownership'
   $validationOutput = wsl bash -c "$runPrefix '$openclawCli config validate'" 2>&1
